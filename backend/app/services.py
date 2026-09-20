@@ -10,13 +10,17 @@ from .finance import calculate_financial
 def serialize(value):
     if isinstance(value, dict): return {k: serialize(v) for k, v in value.items()}
     if isinstance(value, list): return [serialize(v) for v in value]
-    return float(value) if isinstance(value, Decimal) else value
+    if isinstance(value, Decimal): return float(value)
+    if isinstance(value, datetime): return value.isoformat()
+    return value
 
 
 def ensure_checklist_master(db: Session) -> None:
+    """Seed controlado: só cria chaves ausentes e nunca reativa/sobrescreve existentes."""
     existing = {item.canonical_key for item in db.scalars(select(models.ChecklistItem)).all()}
     for definition in master_items():
-        if definition["canonical_key"] not in existing: db.add(models.ChecklistItem(**definition))
+        if definition["canonical_key"] not in existing:
+            db.add(models.ChecklistItem(**definition))
     db.flush()
 
 
@@ -24,11 +28,12 @@ def create_execution(db: Session, prop: models.Property, triggered_by: str = "MA
     ensure_checklist_master(db)
     execution = models.ChecklistExecution(property_id=prop.id, triggered_by=triggered_by, analysis_version=analysis_version)
     db.add(execution); db.flush()
-    previous = next(iter(reversed(prop.checklist_executions)), None)
+    previous = latest_execution(prop)
     previous_by_item = {r.checklist_item_id: r for r in previous.results} if previous else {}
-    for item in db.scalars(select(models.ChecklistItem).where(models.ChecklistItem.active.is_(True)).order_by(models.ChecklistItem.priority)).all():
+    items = db.scalars(select(models.ChecklistItem).where(models.ChecklistItem.active.is_(True)).order_by(models.ChecklistItem.priority, models.ChecklistItem.canonical_key)).all()
+    for item in items:
         old = previous_by_item.get(item.id)
-        db.add(models.ChecklistResult(execution_id=execution.id, checklist_item_id=item.id, state=old.state if old else "PENDENTE", answer=old.answer if old else "", confidence=old.confidence if old else "MEDIA", interpretation=old.interpretation if old else None, risk=old.risk if old else None))
+        db.add(models.ChecklistResult(execution_id=execution.id, checklist_item_id=item.id, item_version=item.version, applicable=item.applicable, previous_result_id=old.id if old else None, state="PENDENTE", answer="", confidence="MEDIA"))
     db.flush()
     return execution
 
@@ -143,3 +148,40 @@ def aggregate_llm_usage(runs: list[models.LLMRun]) -> dict:
     known_input = any(run.input_tokens is not None for run in runs)
     known_output = any(run.output_tokens is not None for run in runs)
     return {"input_tokens": input_tokens if known_input else None, "output_tokens": output_tokens if known_output else None, "total_tokens": (input_tokens + output_tokens) if known_input and known_output else None, "total_cost": total_cost if any(run.total_cost is not None for run in runs) else None, "runs": len(runs), "successful_runs": len([run for run in runs if run.status == "CONCLUIDO"]), "error_runs": len([run for run in runs if run.status not in {"CONCLUIDO", "IGNORADO"}])}
+
+
+def checklist_item_snapshot(item: models.ChecklistItem) -> dict:
+    return serialize({"id": item.id, "canonical_key": item.canonical_key, "question": item.question, "description": item.description, "category": item.category, "domain": item.domain or [], "origin": item.origin, "priority": item.priority, "required": item.required, "applicable": item.applicable, "active": item.active, "version": item.version, "expected_evidence": item.expected_evidence or [], "potential_impact": item.potential_impact, "related_rules": item.related_rules or [], "agents": item.agents or [], "risk_categories": item.risk_categories or [], "created_at": item.created_at, "updated_at": item.updated_at})
+
+
+def record_checklist_event(db: Session, item: models.ChecklistItem, event_type: str, payload: dict):
+    event = models.DomainEvent(property_id=None, event_type=event_type, aggregate_type="ChecklistItem", aggregate_id=item.id, payload=payload, affected_domains=item.domain or ["CHECKLIST"])
+    db.add(event); db.flush(); return event
+
+
+def record_checklist_history(db: Session, item: models.ChecklistItem, action: str, before: dict | None, after: dict | None, event_id: int | None = None):
+    db.add(models.EntityHistory(property_id=None, entity_type="ChecklistItem", entity_id=item.id, action=action, before_data=before, after_data=after, cause_event_id=event_id))
+
+
+def create_checklist_item(db: Session, data: dict) -> models.ChecklistItem:
+    item = models.ChecklistItem(**data, version=1)
+    db.add(item); db.flush()
+    event = record_checklist_event(db, item, "CHECKLIST_REGRA_CRIADA", checklist_item_snapshot(item))
+    record_checklist_history(db, item, "CREATE", None, checklist_item_snapshot(item), event.id)
+    return item
+
+
+def update_checklist_item(db: Session, item: models.ChecklistItem, changes: dict) -> models.ChecklistItem:
+    before = checklist_item_snapshot(item)
+    relevant = {key: value for key, value in changes.items() if value is not None}
+    changed = any(getattr(item, key) != value for key, value in relevant.items())
+    if not changed:
+        return item
+    for key, value in relevant.items():
+        setattr(item, key, value)
+    item.version += 1
+    db.flush()
+    event_type = "CHECKLIST_REGRA_ATIVADA" if changes.get("active") is True else ("CHECKLIST_REGRA_DESATIVADA" if changes.get("active") is False else "CHECKLIST_REGRA_ATUALIZADA")
+    event = record_checklist_event(db, item, event_type, {"before": before, "after": checklist_item_snapshot(item)})
+    record_checklist_history(db, item, "ACTIVATE" if event_type.endswith("ATIVADA") else ("DEACTIVATE" if event_type.endswith("DESATIVADA") else "UPDATE"), before, checklist_item_snapshot(item), event.id)
+    return item

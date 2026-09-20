@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
@@ -9,7 +10,7 @@ from . import models, schemas
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .documents.embedding import embed_pending_chunks
-from .services import (aggregate_llm_usage, build_finance, create_analysis, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, serialize)
+from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -35,10 +36,65 @@ def list_properties(db: Session = Depends(get_db)):
 def create_property(data: schemas.PropertyCreate, db: Session = Depends(get_db)):
     prop = models.Property(**data.model_dump()); db.add(prop); db.flush(); ensure_checklist_master(db); create_execution(db, prop, "CADASTRO"); record_event(db, prop, "IMOVEL_CADASTRADO", "Property", prop.id, data.model_dump(mode="json"), ["documental", "financeiro", "juridico", "mercado", "checklist"]); db.commit(); db.refresh(prop); return prop
 
+@app.get("/api/checklist")
+def list_checklist(active: bool | None = None, origin: str | None = None, domain: str | None = None, category: str | None = None, priority: int | None = None, required: bool | None = None, db: Session = Depends(get_db)):
+    ensure_checklist_master(db)
+    db.commit()
+    items = db.scalars(select(models.ChecklistItem).order_by(models.ChecklistItem.priority, models.ChecklistItem.canonical_key)).all()
+    filtered = [item for item in items if (active is None or item.active == active) and (origin is None or item.origin == origin) and (domain is None or domain in (item.domain or [])) and (category is None or item.category == category) and (priority is None or item.priority == priority) and (required is None or item.required == required)]
+    return [checklist_item_snapshot(item) for item in filtered]
+
+@app.get("/api/checklist/{item_id}")
+def get_checklist_item(item_id: int, db: Session = Depends(get_db)):
+    item = db.get(models.ChecklistItem, item_id)
+    if not item: raise HTTPException(404, "Regra do Checklist Mestre não encontrada")
+    return checklist_item_snapshot(item)
+
+@app.post("/api/checklist", status_code=201)
+def create_checklist_rule(data: schemas.ChecklistItemCreate, db: Session = Depends(get_db)):
+    try:
+        item = create_checklist_item(db, data.model_dump()); db.commit(); db.refresh(item); return checklist_item_snapshot(item)
+    except IntegrityError:
+        db.rollback(); raise HTTPException(409, "canonical_key já existe no Checklist Mestre")
+
+@app.patch("/api/checklist/{item_id}")
+def patch_checklist_rule(item_id: int, data: schemas.ChecklistItemPatch, db: Session = Depends(get_db)):
+    item = db.get(models.ChecklistItem, item_id)
+    if not item: raise HTTPException(404, "Regra do Checklist Mestre não encontrada")
+    item = update_checklist_item(db, item, data.model_dump(exclude_unset=True)); db.commit(); db.refresh(item); return checklist_item_snapshot(item)
+
+@app.post("/api/checklist/{item_id}/ativar")
+def activate_checklist_rule(item_id: int, db: Session = Depends(get_db)):
+    item = db.get(models.ChecklistItem, item_id)
+    if not item: raise HTTPException(404, "Regra do Checklist Mestre não encontrada")
+    item = update_checklist_item(db, item, {"active": True}); db.commit(); db.refresh(item); return checklist_item_snapshot(item)
+
+@app.post("/api/checklist/{item_id}/desativar")
+def deactivate_checklist_rule(item_id: int, db: Session = Depends(get_db)):
+    item = db.get(models.ChecklistItem, item_id)
+    if not item: raise HTTPException(404, "Regra do Checklist Mestre não encontrada")
+    item = update_checklist_item(db, item, {"active": False}); db.commit(); db.refresh(item); return checklist_item_snapshot(item)
+
+@app.get("/api/checklist/{item_id}/historico")
+def checklist_rule_history(item_id: int, db: Session = Depends(get_db)):
+    if not db.get(models.ChecklistItem, item_id): raise HTTPException(404, "Regra do Checklist Mestre não encontrada")
+    return db.scalars(select(models.EntityHistory).where(models.EntityHistory.entity_type == "ChecklistItem", models.EntityHistory.entity_id == item_id).order_by(models.EntityHistory.created_at)).all()
+
+@app.get("/api/imoveis/{property_id}/checklist")
+def property_checklist(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    executions = db.scalars(select(models.ChecklistExecution).where(models.ChecklistExecution.property_id == prop.id).order_by(models.ChecklistExecution.created_at)).all()
+    return [{"id": execution.id, "analysis_version": execution.analysis_version, "triggered_by": execution.triggered_by, "created_at": execution.created_at, "results": [{"id": result.id, "checklist_item_id": result.checklist_item_id, "canonical_key": result.item.canonical_key, "item_version": result.item_version, "applicable": result.applicable, "state": result.state, "answer": result.answer, "confidence": result.confidence, "interpretation": result.interpretation, "risk": result.risk, "previous_result_id": result.previous_result_id} for result in execution.results]} for execution in executions]
+
+@app.get("/api/imoveis/{property_id}/checklist/historico")
+def property_checklist_history(property_id: int, db: Session = Depends(get_db)):
+    property_or_404(db, property_id)
+    return db.scalars(select(models.ChecklistExecution).where(models.ChecklistExecution.property_id == property_id).order_by(models.ChecklistExecution.created_at)).all()
+
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id); execution = latest_execution(prop); latest = prop.verdicts[-1] if prop.verdicts else None
-    checklist = [{"id": r.id, "item_number": r.item.priority // 10, "canonical_key": r.item.canonical_key, "question": r.item.question, "category": r.item.category, "origin": r.item.origin, "active": r.item.active, "required": r.item.required, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
+    checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
     return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": prop.analyses, "eventos": prop.events, "veredito": latest, "financeiro": serialize(build_finance(prop))}
 
 @app.post("/api/imoveis/{property_id}/leilao")

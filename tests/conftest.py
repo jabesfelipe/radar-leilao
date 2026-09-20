@@ -13,7 +13,7 @@ def postgres_engine():
     database_url = os.getenv("RAG_TEST_DATABASE_URL", settings.database_url)
     if not database_url.startswith("postgresql"):
         pytest.skip("RAG_TEST_DATABASE_URL deve apontar para PostgreSQL; SQLite não é aceito")
-    engine = create_engine(database_url, pool_pre_ping=True)
+    engine = create_engine(database_url, pool_pre_ping=True, connect_args={"connect_timeout": 3})
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))

@@ -129,13 +129,20 @@ class ChecklistItem(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     canonical_key: Mapped[str] = mapped_column(String(100), unique=True)
     question: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
     category: Mapped[str] = mapped_column(String(60), default="DUE_DILIGENCE")
-    origin: Mapped[str] = mapped_column(String(160), default="Método Radar")
-    priority: Mapped[int] = mapped_column(Integer, default=100)
+    domain: Mapped[list[str]] = mapped_column(JSON, default=list)
+    origin: Mapped[str] = mapped_column(String(160), default="METODO_RADAR")
+    priority: Mapped[int] = mapped_column(Integer, default=3)
     required: Mapped[bool] = mapped_column(Boolean, default=False)
     applicable: Mapped[bool] = mapped_column(Boolean, default=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    expected_evidence: Mapped[list[str]] = mapped_column(JSON, default=list)
+    potential_impact: Mapped[str | None] = mapped_column(Text)
+    related_rules: Mapped[list[str]] = mapped_column(JSON, default=list)
+    agents: Mapped[list[str]] = mapped_column(JSON, default=list)
+    risk_categories: Mapped[list[str]] = mapped_column(JSON, default=list)
     executions: Mapped[list["ChecklistResult"]] = relationship(back_populates="item")
 
 
@@ -154,6 +161,9 @@ class ChecklistResult(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     execution_id: Mapped[int] = mapped_column(ForeignKey("checklist_executions.id"), index=True)
     checklist_item_id: Mapped[int] = mapped_column(ForeignKey("checklist_items.id"), index=True)
+    item_version: Mapped[int] = mapped_column(Integer)
+    applicable: Mapped[bool] = mapped_column(Boolean, default=True)
+    previous_result_id: Mapped[int | None] = mapped_column(ForeignKey("checklist_results.id"))
     state: Mapped[str] = mapped_column(String(40), default="PENDENTE")
     answer: Mapped[str] = mapped_column(Text, default="")
     confidence: Mapped[str] = mapped_column(String(20), default="MEDIA")
@@ -161,7 +171,9 @@ class ChecklistResult(TimestampMixin, Base):
     risk: Mapped[str | None] = mapped_column(Text)
     execution: Mapped[ChecklistExecution] = relationship(back_populates="results")
     item: Mapped[ChecklistItem] = relationship(back_populates="executions")
+    previous_result: Mapped["ChecklistResult | None"] = relationship(remote_side="ChecklistResult.id", uselist=False)
     evidence_links: Mapped[list["ChecklistEvidence"]] = relationship(cascade="all, delete-orphan")
+    evidences: Mapped[list["Evidence"]] = relationship("Evidence", secondary="checklist_evidences", viewonly=True)
 
 
 class ChecklistEvidence(Base):
@@ -315,7 +327,7 @@ class KnowledgeItem(TimestampMixin, Base):
 class DomainEvent(TimestampMixin, Base):
     __tablename__ = "domain_events"
     id: Mapped[int] = mapped_column(primary_key=True)
-    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id"), index=True)
     event_type: Mapped[str] = mapped_column(String(80), index=True)
     aggregate_type: Mapped[str] = mapped_column(String(80))
     aggregate_id: Mapped[int | None] = mapped_column(Integer)
@@ -328,7 +340,7 @@ class DomainEvent(TimestampMixin, Base):
 class EntityHistory(TimestampMixin, Base):
     __tablename__ = "entity_history"
     id: Mapped[int] = mapped_column(primary_key=True)
-    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id"), index=True)
     entity_type: Mapped[str] = mapped_column(String(80))
     entity_id: Mapped[int] = mapped_column(Integer)
     action: Mapped[str] = mapped_column(String(30))

@@ -30,4 +30,24 @@ CHECKLIST_MASTER = [
 
 
 def master_items():
-    return [{"canonical_key": key, "question": question, "category": category, "origin": origin, "priority": index * 10, "required": index <= 15, "applicable": True, "active": True, "version": 1} for index, (key, question, category, origin) in enumerate(CHECKLIST_MASTER, 1)]
+    return [{
+        "canonical_key": key,
+        "question": question,
+        "description": question,
+        "category": category,
+        "domain": [category, "CHECKLIST"],
+        "origin": origin,
+        "priority": index,
+        "required": index <= 15,
+        "applicable": True,
+        "active": True,
+        "version": 1,
+        "expected_evidence": [],
+        "potential_impact": None,
+        "related_rules": [],
+        "agents": [],
+        "risk_categories": [category],
+    } for index, (key, question, category, origin) in enumerate(CHECKLIST_MASTER, 1)]
+
+CHECKLIST_STATES = ("PENDENTE", "EM_ANALISE", "CONFIRMADO", "RISCO_IDENTIFICADO", "ATENCAO", "NAO_IDENTIFICADO", "NAO_APLICAVEL")
+CHECKLIST_CONFIDENCES = ("BAIXA", "MEDIA", "ALTA")
