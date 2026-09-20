@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
 from . import models, schemas
-from .ai.agents import DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
+from .ai.agents import ChecklistAgent, DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
 from .ai.gateway import build_gateway
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
@@ -15,7 +15,7 @@ from .extraction import extract_document, persist_extraction
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
-from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
+from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -310,6 +310,46 @@ def run_market_agent(property_id: int, analysis_id: int, db: Session = Depends(g
     analysis.agents_executed = sorted(set((analysis.agents_executed or []) + ["mercado"]))
     db.commit()
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "mercado", "mercado": serialize(current), "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
+
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/checklist")
+def run_checklist_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    analysis = db.get(models.Analysis, analysis_id)
+    if not analysis or analysis.property_id != property_id:
+        raise HTTPException(404, "Análise não encontrada para este imóvel")
+    current_execution = latest_execution(prop)
+    checklist_items = [
+        {
+            "canonical_key": result.item.canonical_key,
+            "question": result.item.question,
+            "category": result.item.category,
+            "active": result.item.active,
+            "applicable": result.applicable,
+            "item_version": result.item_version,
+        }
+        for result in (current_execution.results if current_execution else [])
+    ]
+    retrieval = RAGService(db).retrieve_context(
+        "evidências matrícula edital processos documentos checklist regra pergunta",
+        property_id,
+        filters=RetrieverFilters(property_id=property_id, category="checklist"),
+    )
+    try:
+        gateway = build_gateway()
+    except (RuntimeError, ValueError):
+        gateway = None
+    result = ChecklistAgent(db, gateway).run(property_id, retrieval.context, retrieval.chunk_ids, checklist_items)
+    run_data = dict(result.llm_call.to_dict(), agent="checklist", retrieved_chunk_ids=retrieval.chunk_ids) if result.llm_call else {"agent": "checklist", "status": "ERRO", "error_message": "Chamada não criada", "retrieved_chunk_ids": retrieval.chunk_ids}
+    runs = persist_llm_runs(db, prop, analysis, [run_data])
+    if not result.llm_call or result.llm_call.status != "CONCLUIDO":
+        db.commit()
+        return {"status": result.llm_call.status if result.llm_call else "ERRO", "erro": result.llm_call.error_message if result.llm_call else "Chamada não criada", "llm_run_id": runs[0].id if runs else None, "analysis_id": analysis_id, "chunks_recuperados": retrieval.chunk_ids}
+    execution = create_execution(db, prop, "AGENTE_CHECKLIST", analysis.version)
+    evidence_ids = persist_checklist_agent_findings(db, prop, analysis, execution, result.facts)
+    analysis.agents_executed = sorted(set((analysis.agents_executed or []) + ["checklist"]))
+    db.commit()
+    checklist = [{"id": item.id, "checklist_item_id": item.checklist_item_id, "state": item.state, "answer": item.answer, "confidence": item.confidence, "interpretation": item.interpretation, "previous_result_id": item.previous_result_id} for item in execution.results]
+    return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "checklist", "execution_id": execution.id, "checklist": checklist, "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):

@@ -3,7 +3,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from . import models
-from .checklist import master_items
+from .checklist import CHECKLIST_CONFIDENCES, CHECKLIST_STATES, master_items
 from .finance import calculate_financial
 
 
@@ -109,6 +109,9 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     result_by_key = {result.item.canonical_key: result for result in execution.results} if execution else {}
     for result in agent_results:
         agent_name = result.get("agent", "IA")
+        if agent_name.lower() in {"checklist", "checklist_agent"}:
+            evidence_ids.extend(persist_checklist_agent_findings(db, prop, analysis, execution, result.get("facts", [])))
+            continue
         for finding in result.get("facts", []):
             statement = finding.get("statement") or finding.get("descricao")
             if not statement:
@@ -143,6 +146,61 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 checklist_result.confidence = finding.get("confidence", checklist_result.confidence)
                 checklist_result.interpretation = statement
                 db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
+    analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
+    analysis.documents_considered = sorted(set((analysis.documents_considered or []) + list(document_ids)))
+    db.flush()
+    return evidence_ids
+
+
+def persist_checklist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, facts: list[dict]) -> list[int]:
+    """Valida e aplica somente findings do Checklist Agent em uma nova execução."""
+    if not execution:
+        return []
+    results_by_key = {result.item.canonical_key: result for result in execution.results}
+    evidence_ids: list[int] = []
+    document_ids: set[int] = set()
+    for finding in facts:
+        checklist_key = finding.get("checklist_key")
+        state = finding.get("checklist_state")
+        statement = (finding.get("statement") or "").strip()
+        confidence = finding.get("confidence", "MEDIA")
+        if not checklist_key or checklist_key not in results_by_key or not state or not statement:
+            continue
+        if state not in CHECKLIST_STATES or confidence not in CHECKLIST_CONFIDENCES:
+            continue
+        checklist_result = results_by_key[checklist_key]
+        if state == "NAO_APLICAVEL" and checklist_result.applicable:
+            continue
+        if state != "NAO_APLICAVEL" and not checklist_result.applicable:
+            continue
+        chunk_ids = [int(value) for value in finding.get("chunk_ids", []) if str(value).isdigit()]
+        chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
+        version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
+        if not chunk or not version:
+            continue
+        document_ids.add(version.document_id)
+        from .evidence import normalize_documentary_evidence
+        evidence = normalize_documentary_evidence(
+            db=db,
+            property_id=prop.id,
+            document_version_id=version.id,
+            chunk_id=chunk.id,
+            category="CHECKLIST",
+            fact=statement,
+            confidence=confidence,
+            page=finding.get("page"),
+            section=finding.get("section"),
+            source_excerpt=finding.get("evidence_excerpt"),
+            target_type="Analysis",
+            target_id=analysis.id,
+        )
+        evidence_ids.append(evidence.id)
+        checklist_result.state = state
+        checklist_result.answer = statement
+        checklist_result.confidence = confidence
+        checklist_result.interpretation = statement if finding.get("kind") == "interpretacao" else checklist_result.interpretation
+        checklist_result.risk = finding.get("risk") or checklist_result.risk
+        db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
     analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
     analysis.documents_considered = sorted(set((analysis.documents_considered or []) + list(document_ids)))
     db.flush()

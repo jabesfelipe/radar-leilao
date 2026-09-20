@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..config import settings
 from ..market import calculate_market
-from ..services import build_finance, serialize
+from ..services import build_finance, latest_execution, serialize
 from .contracts import AgentResponse
 from .gateway import LLMCall, LLMGateway
 from .prompts import ANALYSIS_SYSTEM_PROMPT
@@ -169,8 +169,45 @@ class MarketAgent(RadarAgent):
 
 class ChecklistAgent(RadarAgent):
     name = "checklist"
-    def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
-        return self._run_llm(property_id, context, "Relacione evidências às perguntas do Checklist Mestre. Informe checklist_key e checklist_state somente quando houver suporte suficiente.", retrieved_chunk_ids or [])
+
+    def run(
+        self,
+        property_id: int,
+        context: str = "",
+        retrieved_chunk_ids: list[int] | None = None,
+        checklist_items: list[dict[str, Any]] | None = None,
+    ) -> AgentResult:
+        if checklist_items is None:
+            prop = self.db.get(models.Property, property_id)
+            execution = latest_execution(prop) if prop else None
+            checklist_items = [
+                {
+                    "canonical_key": result.item.canonical_key,
+                    "question": result.item.question,
+                    "category": result.item.category,
+                    "active": result.item.active,
+                    "applicable": result.applicable,
+                    "item_version": result.item_version,
+                }
+                for result in (execution.results if execution else [])
+            ]
+        instructions = (
+            "Relacione somente evidências às regras existentes do Checklist Mestre fornecidas em "
+            "checklist_mestre. Use exclusivamente canonical_key presentes nessa lista e os estados "
+            "PENDENTE, EM_ANALISE, CONFIRMADO, RISCO_IDENTIFICADO, ATENCAO, NAO_IDENTIFICADO ou "
+            "NAO_APLICAVEL. Não crie regras, canonical_key, perguntas ou estados. Diferencie fato, "
+            "interpretação, hipótese e ausência. Só indique NAO_APLICAVEL quando houver evidência "
+            "suficiente; caso contrário mantenha a pendência. Toda resposta baseada em documento deve "
+            "informar chunk_ids, page, section e evidence_excerpt. Sem evidência suficiente, registre "
+            "ausência ou pendência sem inventar resultado."
+        )
+        return self._run_llm(
+            property_id,
+            context,
+            instructions,
+            retrieved_chunk_ids or [],
+            {"checklist_mestre": checklist_items or []},
+        )
 
 class Supervisor:
     def __init__(self, db: Session, gateway: LLMGateway | None = None):
