@@ -36,6 +36,7 @@ class Property(TimestampMixin, Base):
     analyses: Mapped[list["Analysis"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     verdicts: Mapped[list["Verdict"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     events: Mapped[list["DomainEvent"]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    llm_runs: Mapped[list["LLMRun"]] = relationship(back_populates="property", cascade="all, delete-orphan")
 
 
 class Auction(TimestampMixin, Base):
@@ -282,6 +283,7 @@ class Analysis(TimestampMixin, Base):
     prompt_version: Mapped[str | None] = mapped_column(String(40))
     token_usage: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     property: Mapped[Property] = relationship(back_populates="analyses")
+    llm_runs: Mapped[list["LLMRun"]] = relationship(back_populates="analysis")
 
 
 class Verdict(TimestampMixin, Base):
@@ -340,13 +342,38 @@ class EntityHistory(TimestampMixin, Base):
 class LLMRun(TimestampMixin, Base):
     __tablename__ = "llm_runs"
     id: Mapped[int] = mapped_column(primary_key=True)
-    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id"))
-    analysis_id: Mapped[int | None] = mapped_column(ForeignKey("analyses.id"))
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id"), index=True)
+    analysis_id: Mapped[int | None] = mapped_column(ForeignKey("analyses.id"), index=True)
     agent: Mapped[str] = mapped_column(String(80))
     provider: Mapped[str] = mapped_column(String(40))
     model: Mapped[str] = mapped_column(String(120))
-    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
-    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int | None] = mapped_column(Integer)
+    output_tokens: Mapped[int | None] = mapped_column(Integer)
+    total_tokens: Mapped[int | None] = mapped_column(Integer)
+    input_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 8))
+    output_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 8))
+    total_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 8))
+    input_price_per_1m: Mapped[Decimal | None] = mapped_column(Numeric(14, 8))
+    output_price_per_1m: Mapped[Decimal | None] = mapped_column(Numeric(14, 8))
     retrieved_chunk_ids: Mapped[list[int]] = mapped_column(JSON, default=list)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
+    request_id: Mapped[str | None] = mapped_column(String(240))
     status: Mapped[str] = mapped_column(String(30), default="CONCLUIDO")
+    error_type: Mapped[str | None] = mapped_column(String(120))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    property: Mapped[Property | None] = relationship(back_populates="llm_runs")
+    analysis: Mapped[Analysis | None] = relationship(back_populates="llm_runs")
+
+
+class LLMPricing(Base):
+    __tablename__ = "llm_pricing"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(40))
+    model: Mapped[str] = mapped_column(String(120))
+    input_price_per_1m: Mapped[Decimal] = mapped_column(Numeric(14, 8), default=0)
+    output_price_per_1m: Mapped[Decimal] = mapped_column(Numeric(14, 8), default=0)
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    __table_args__ = (UniqueConstraint("provider", "model", name="uq_llm_pricing_provider_model"),)

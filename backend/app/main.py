@@ -9,7 +9,7 @@ from . import models, schemas
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .documents.embedding import embed_pending_chunks
-from .services import (build_finance, create_analysis, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, recalculate_risks, record_event, record_history, serialize)
+from .services import (aggregate_llm_usage, build_finance, create_analysis, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, serialize)
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
@@ -96,12 +96,14 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     analysis.token_usage = {"llm_used": orchestration.get("llm_used", False), "chunks_retrieved": len(orchestration.get("retrieved_chunk_ids", []))}
     execution.analysis_version = analysis.version
     evidence_ids = persist_agent_findings(db, prop, analysis, execution, orchestration.get("agent_results", []))
+    llm_runs = persist_llm_runs(db, prop, analysis, orchestration.get("llm_runs", []))
+    analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
     finance = build_finance(prop)
     db.add(models.FinancialAnalysis(property_id=prop.id, analysis_version=analysis.version, inputs={"domains": domains, "chunks": orchestration.get("retrieved_chunk_ids", [])}, outputs=serialize(finance)))
     recalculate_risks(db, prop, analysis.version)
     verdict = create_verdict(db, prop, analysis, orchestration.get("verdict"))
     db.commit()
-    return {"versao": analysis.version, "agentes": agents, "llm_usada": orchestration.get("llm_used", False), "modelo": analysis.model, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", []), "evidencias": evidence_ids, "financeiro": serialize(verdict.financial), "veredito": verdict.overall, "status": "concluida"}
+    return {"versao": analysis.version, "agentes": agents, "llm_usada": orchestration.get("llm_used", False), "modelo": analysis.model, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", []), "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "financeiro": serialize(verdict.financial), "veredito": verdict.overall, "status": "concluida"}
 
 @app.get("/api/imoveis/{property_id}/historico")
 def history(property_id: int, db: Session = Depends(get_db)):

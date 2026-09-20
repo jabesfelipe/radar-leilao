@@ -115,9 +115,31 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 checklist_result.confidence = finding.get("confidence", checklist_result.confidence)
                 checklist_result.interpretation = statement
                 db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
-            if result.get("llm_used"):
-                db.add(models.LLMRun(property_id=prop.id, analysis_id=analysis.id, agent=agent_name, provider="openai", model=analysis.model or "configurado", retrieved_chunk_ids=chunk_ids, status="CONCLUIDO"))
     analysis.evidence_ids = evidence_ids
     analysis.documents_considered = sorted(document_ids)
     db.flush()
     return evidence_ids
+
+
+def persist_llm_runs(db: Session, prop: models.Property, analysis: models.Analysis, runs: list[dict]) -> list[models.LLMRun]:
+    """Persiste exatamente um registro por chamada real ou tentativa rastreada."""
+    from .ai.costs import calculate_cost, resolve_pricing
+    persisted: list[models.LLMRun] = []
+    for run in runs:
+        provider = run.get("provider") or "desconhecido"
+        model = run.get("model") or "desconhecido"
+        pricing = resolve_pricing(db, provider, model)
+        costs = calculate_cost(run.get("input_tokens"), run.get("output_tokens"), pricing)
+        llm_run = models.LLMRun(property_id=prop.id, analysis_id=analysis.id, agent=run.get("agent", "desconhecido"), provider=provider, model=model, input_tokens=run.get("input_tokens"), output_tokens=run.get("output_tokens"), total_tokens=run.get("total_tokens"), input_cost=costs["input_cost"], output_cost=costs["output_cost"], total_cost=costs["total_cost"], input_price_per_1m=pricing.input_price_per_1m if pricing else None, output_price_per_1m=pricing.output_price_per_1m if pricing else None, retrieved_chunk_ids=run.get("retrieved_chunk_ids", []), duration_ms=run.get("duration_ms"), request_id=run.get("request_id"), status=run.get("status", "CONCLUIDO"), error_type=run.get("error_type"), error_message=run.get("error_message"))
+        db.add(llm_run); persisted.append(llm_run)
+    db.flush()
+    return persisted
+
+
+def aggregate_llm_usage(runs: list[models.LLMRun]) -> dict:
+    input_tokens = sum((run.input_tokens or 0 for run in runs), 0)
+    output_tokens = sum((run.output_tokens or 0 for run in runs), 0)
+    total_cost = sum((run.total_cost or Decimal("0") for run in runs), Decimal("0"))
+    known_input = any(run.input_tokens is not None for run in runs)
+    known_output = any(run.output_tokens is not None for run in runs)
+    return {"input_tokens": input_tokens if known_input else None, "output_tokens": output_tokens if known_output else None, "total_tokens": (input_tokens + output_tokens) if known_input and known_output else None, "total_cost": total_cost if any(run.total_cost is not None for run in runs) else None, "runs": len(runs), "successful_runs": len([run for run in runs if run.status == "CONCLUIDO"]), "error_runs": len([run for run in runs if run.status not in {"CONCLUIDO", "IGNORADO"}])}
