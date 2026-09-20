@@ -46,10 +46,14 @@ class RadarAgent:
         call = self.gateway.structured_chat(AgentResponse, messages)
         if call.status != "CONCLUIDO":
             return AgentResult(self.name, [], [], "", [call.error_message or "Falha na execução do agente"], False, call.model, call, retrieved_chunk_ids)
-        response = call.content
-        parsed = response if isinstance(response, AgentResponse) else AgentResponse.model_validate(response)
-        facts = [finding.model_dump() for finding in parsed.findings]
-        evidence_ids = [chunk_id for finding in facts for chunk_id in finding.get("chunk_ids", [])]
+        try:
+            response = call.content
+            parsed = response if isinstance(response, AgentResponse) else AgentResponse.model_validate(response)
+            facts = [finding.model_dump() for finding in parsed.findings]
+            evidence_ids = [chunk_id for finding in facts for chunk_id in finding.get("chunk_ids", [])]
+        except Exception as exc:
+            call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = str(exc)[:2000]
+            return AgentResult(self.name, [], [], "", ["Resposta estruturada inválida"], False, call.model, call, retrieved_chunk_ids)
         return AgentResult(self.name, facts, sorted(set(evidence_ids)), parsed.summary, parsed.pending, True, call.model, call, retrieved_chunk_ids)
 
     def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:

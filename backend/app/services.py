@@ -106,7 +106,7 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     """Converte findings estruturados em evidências rastreáveis e atualiza o checklist da execução."""
     evidence_ids: list[int] = []
     document_ids: set[int] = set()
-    result_by_key = {result.item.canonical_key: result for result in execution.results}
+    result_by_key = {result.item.canonical_key: result for result in execution.results} if execution else {}
     for result in agent_results:
         agent_name = result.get("agent", "IA")
         for finding in result.get("facts", []):
@@ -130,8 +130,8 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 checklist_result.confidence = finding.get("confidence", checklist_result.confidence)
                 checklist_result.interpretation = statement
                 db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
-    analysis.evidence_ids = evidence_ids
-    analysis.documents_considered = sorted(document_ids)
+    analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
+    analysis.documents_considered = sorted(set((analysis.documents_considered or []) + document_ids))
     db.flush()
     return evidence_ids
 

@@ -7,10 +7,13 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
 from . import models, schemas
+from .ai.agents import DocumentAgent
+from .ai.gateway import build_gateway
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .extraction import extract_document, persist_extraction
 from .market import calculate_market
+from .rag.service import RAGService
 from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
@@ -193,6 +196,28 @@ def get_document_extraction(property_id: int, document_version_id: int, db: Sess
     notices = db.scalars(select(models.AuctionNotice).where(models.AuctionNotice.property_id == property_id, models.AuctionNotice.document_version_id == document_version_id).order_by(models.AuctionNotice.created_at)).all()
     evidence = db.scalars(select(models.Evidence).where(models.Evidence.property_id == property_id, models.Evidence.document_version_id == document_version_id).order_by(models.Evidence.created_at)).all()
     return {"property_id": prop.id, "document_version_id": document_version_id, "matriculas": registrations, "editais": notices, "evidencias": evidence}
+
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/documental")
+def run_document_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    analysis = db.get(models.Analysis, analysis_id)
+    if not analysis or analysis.property_id != property_id: raise HTTPException(404, "Análise não encontrada para este imóvel")
+    retrieval = RAGService(db).retrieve_context("fatos documentais matrícula edital", property_id)
+    try:
+        gateway = build_gateway()
+    except RuntimeError as exc:
+        gateway = None
+    result = DocumentAgent(db, gateway).run(property_id, retrieval.context, retrieval.chunk_ids)
+    run_data = dict(result.llm_call.to_dict(), agent="documental", retrieved_chunk_ids=retrieval.chunk_ids) if result.llm_call else {"agent": "documental", "status": "ERRO", "error_message": "Chamada não criada", "retrieved_chunk_ids": retrieval.chunk_ids}
+    runs = persist_llm_runs(db, prop, analysis, [run_data])
+    if not result.llm_call or result.llm_call.status != "CONCLUIDO":
+        db.commit()
+        return {"status": result.llm_call.status if result.llm_call else "ERRO", "erro": result.llm_call.error_message if result.llm_call else "Chamada não criada", "llm_run_id": runs[0].id if runs else None, "analysis_id": analysis_id, "chunks_recuperados": retrieval.chunk_ids}
+    execution = latest_execution(prop)
+    evidence_ids = persist_agent_findings(db, prop, analysis, execution, [result.to_dict()])
+    analysis.agents_executed = sorted(set((analysis.agents_executed or []) + ["documental"]))
+    db.commit()
+    return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "documental", "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):
