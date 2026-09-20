@@ -517,11 +517,18 @@ def link_evidence(property_id: int, evidence_id: int, data: schemas.EvidenceLink
 
 @app.post("/api/imoveis/{property_id}/analisar")
 def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); request = request or AnalyzeRequest(); domains = request.domains or ["documental", "juridico", "financeiro", "mercado", "checklist"]
-    execution = create_execution(db, prop, "REANALISE_INCREMENTAL", len(prop.analyses) + 1); db.flush()
-    orchestration = AnalysisOrchestrator(db).run(property_id, domains, request.query)
+    prop = property_or_404(db, property_id)
+    request = request or AnalyzeRequest()
+    domains = request.domains or ["documental", "juridico", "financeiro", "mercado", "checklist"]
+    analysis = create_analysis(db, prop, ",".join(domains), domains, [], f"Domínios afetados: {', '.join(domains)}", [])
+    execution = create_execution(db, prop, "REANALISE_INCREMENTAL", analysis.version)
+    try:
+        orchestration = AnalysisOrchestrator(db).run(property_id, domains, request.query, analysis_id=analysis.id)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(502, f"Falha na orquestração da análise: {str(exc)[:500]}") from exc
     agents = [item["agent"] for item in orchestration.get("agent_results", [])]
-    analysis = create_analysis(db, prop, ",".join(domains), domains, [], f"Domínios afetados: {', '.join(domains)}", agents)
+    analysis.agents_executed = agents
     analysis.model = orchestration.get("model")
     analysis.prompt_version = "radar-analysis-v1"
     analysis.token_usage = {"llm_used": orchestration.get("llm_used", False), "chunks_retrieved": len(orchestration.get("retrieved_chunk_ids", []))}

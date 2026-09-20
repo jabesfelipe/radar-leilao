@@ -216,4 +216,14 @@ class Supervisor:
 
     def run(self, property_id: int, domains: list[str], context: str = "", retrieved_chunk_ids: list[int] | None = None) -> list[AgentResult]:
         available = {a.name: a for a in [DocumentAgent(self.db, self.gateway), LegalAgent(self.db, self.gateway), FinancialAgent(self.db, self.gateway), MarketAgent(self.db, self.gateway), ChecklistAgent(self.db, self.gateway)]}
-        return [available[name].run(property_id, context, retrieved_chunk_ids) for name in domains if name in available]
+        results: list[AgentResult] = []
+        for name in domains:
+            agent = available.get(name)
+            if not agent:
+                continue
+            try:
+                results.append(agent.run(property_id, context, retrieved_chunk_ids))
+            except Exception as exc:
+                call = LLMCall(provider=self.gateway.provider_name if self.gateway else settings.llm_provider, model=self.gateway.model if self.gateway else settings.llm_model, status="ERRO", error_type=type(exc).__name__, error_message=str(exc)[:2000])
+                results.append(AgentResult(name, [], [], "", [call.error_message or "Falha no agente"], False, call.model, call, retrieved_chunk_ids or []))
+        return results
