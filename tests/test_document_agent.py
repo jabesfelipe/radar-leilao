@@ -4,8 +4,14 @@ from backend.app.ai.contracts import AgentResponse, Finding
 from backend.app.ai.gateway import LLMGateway, ProviderResponse
 
 class Provider:
-    def __init__(self, content): self.content=content
-    def structured_chat(self, schema, messages, **kwargs): return ProviderResponse(content=self.content, input_tokens=12, output_tokens=6, request_id="doc-run")
+    def __init__(self, content):
+        self.content = content
+        self.messages = []
+
+    def structured_chat(self, schema, messages, **kwargs):
+        self.messages = messages
+        return ProviderResponse(content=self.content, input_tokens=12, output_tokens=6, request_id="doc-run")
+
     def chat(self,*args,**kwargs): return ProviderResponse(content="")
     def embed(self,texts): return []
 class Db:
@@ -19,6 +25,19 @@ def test_document_agent_produz_fato_rastreavel():
     assert result.facts[0]["chunk_ids"]==[7]
     assert result.facts[0]["page"]==2
     assert result.llm_call.total_tokens==18
+
+def test_document_agent_prompt_restringe_escopo_documental():
+    response=AgentResponse(findings=[Finding(kind="fato",statement="A matrícula é 123",chunk_ids=[7])])
+    provider = Provider(response)
+    DocumentAgent(Db(),LLMGateway(provider,"fake","modelo")).run(1,"contexto",[7])
+    prompt = provider.messages[0]["content"]
+    assert "fatos documentais" in prompt
+    assert "ausência de informação" in prompt
+    assert "interpretações documentais estritamente suportadas" in prompt
+    for forbidden_scope in ("risco", "avaliação de compra", "veredito", "conclusão jurídica", "validade", "nulidade", "regularidade"):
+        assert forbidden_scope in prompt
+    assert "Não produza" in prompt
+
 
 def test_document_agent_sem_gateway_retorna_erro_controlado():
     result=DocumentAgent(Db(),None).run(1,"",[])

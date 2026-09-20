@@ -118,9 +118,17 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
             version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
             if chunk and version:
                 document_ids.add(version.document_id)
-            evidence = models.Evidence(property_id=prop.id, document_version_id=version.id if version else None, chunk_id=chunk.id if chunk else None, category=agent_name.upper(), fact=statement, interpretation=statement if finding.get("kind") == "interpretacao" else None, hypothesis=statement if finding.get("kind") == "hipotese" else None, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page") or (chunk.page if chunk else None), section=finding.get("section") or (chunk.section if chunk else None), source_excerpt=finding.get("evidence_excerpt") or (chunk.content[:1000] if chunk else None))
-            db.add(evidence); db.flush(); evidence_ids.append(evidence.id)
-            db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="SUSTENTA"))
+            is_documental = agent_name.lower() in {"documental", "document_agent", "document"}
+            if is_documental:
+                if not chunk or not version:
+                    continue
+                from .evidence import normalize_documentary_evidence
+                evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=chunk.id, category="DOCUMENTAL", fact=statement, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page"), section=finding.get("section"), source_excerpt=finding.get("evidence_excerpt"), target_type="Analysis", target_id=analysis.id)
+                evidence_ids.append(evidence.id); document_ids.add(version.document_id)
+            else:
+                evidence = models.Evidence(property_id=prop.id, document_version_id=version.id if version else None, chunk_id=chunk.id if chunk else None, category=agent_name.upper(), fact=statement, interpretation=statement if finding.get("kind") == "interpretacao" else None, hypothesis=statement if finding.get("kind") == "hipotese" else None, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page") or (chunk.page if chunk else None), section=finding.get("section") or (chunk.section if chunk else None), source_excerpt=finding.get("evidence_excerpt") or (chunk.content[:1000] if chunk else None))
+                db.add(evidence); db.flush(); evidence_ids.append(evidence.id)
+                db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="SUSTENTA"))
             checklist_key = finding.get("checklist_key")
             if checklist_key and checklist_key in result_by_key:
                 checklist_result = result_by_key[checklist_key]

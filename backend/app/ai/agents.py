@@ -62,7 +62,7 @@ class RadarAgent:
 class DocumentAgent(RadarAgent):
     name = "documental"
     def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
-        return self._run_llm(property_id, context, "Interprete edital, matrícula e documentos. Extraia fatos, localização de atos, ausência de informação e riscos documentais.", retrieved_chunk_ids or [])
+        return self._run_llm(property_id, context, "Extraia somente fatos documentais, ausência de informação e interpretações documentais estritamente suportadas pelo trecho. Não produza risco, avaliação de compra, veredito, conclusão jurídica, validade, nulidade ou regularidade.", retrieved_chunk_ids or [])
 
 class LegalAgent(RadarAgent):
     name = "juridico"
