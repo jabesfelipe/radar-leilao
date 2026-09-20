@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -9,7 +9,6 @@ from .database import get_db
 from . import models, schemas
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
-from .documents.embedding import embed_pending_chunks
 from .market import calculate_market
 from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
@@ -182,14 +181,58 @@ def update_checklist(property_id: int, item_id: int, data: schemas.ChecklistUpda
     if not result or not execution or result.execution_id != execution.id: raise HTTPException(404, "Resultado do Checklist Mestre não encontrado")
     before = {"state": result.state, "answer": result.answer, "confidence": result.confidence}; result.state, result.answer, result.confidence, result.interpretation, result.risk = data.state, data.answer, data.confidence, data.interpretation, data.risk; db.flush(); event = record_event(db, prop, "CHECKLIST_ATUALIZADO", "ChecklistResult", result.id, data.model_dump(), ["checklist", "financeiro", "juridico"]); record_history(db, prop, "ChecklistResult", result.id, "UPDATE", before, data.model_dump(), event.id); db.commit(); return result
 
+def document_or_404(db: Session, document_id: int) -> models.Document:
+    document = db.get(models.Document, document_id)
+    if not document: raise HTTPException(404, "Documento não encontrado")
+    return document
+
+
+def document_snapshot(document: models.Document) -> dict:
+    return {"id": document.id, "property_id": document.property_id, "name": document.name, "document_type": document.document_type, "source": document.source, "status": document.status, "created_at": document.created_at, "updated_at": document.updated_at, "versions": [{"id": version.id, "version": version.version, "content_hash": version.content_hash, "original_path": version.original_path, "normalized_path": version.normalized_path, "extraction_metadata": version.extraction_metadata, "status": version.status, "created_at": version.created_at, "updated_at": version.updated_at} for version in document.versions]}
+
+
+async def process_document_upload(document: models.Document, file: UploadFile, db: Session):
+    try:
+        content = await file.read()
+        version = DocumentPipeline(db).ingest(document, content, file.filename or "documento")
+        return version
+    except ValueError as exc:
+        document.status = "ERRO"; db.commit(); raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        document.status = "ERRO"; db.commit(); raise HTTPException(422, f"Falha ao processar documento: {exc}") from exc
+
+
 @app.post("/api/imoveis/{property_id}/documentos")
-async def upload_document(property_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); filename = file.filename or "documento"; content = await file.read()
-    document = models.Document(property_id=property_id, name=filename, document_type="Edital" if "edital" in filename.lower() else ("Matrícula" if "matr" in filename.lower() else "Outro"), source="Upload manual"); db.add(document); db.flush()
-    version = DocumentPipeline(db).ingest(document, content, filename); event = record_event(db, prop, "DOCUMENTO_ADICIONADO", "DocumentVersion", version.id, {"document_id": document.id, "version": version.version, "hash": version.content_hash}, impacted_domains("DOCUMENTO_ADICIONADO")); record_history(db, prop, "DocumentVersion", version.id, "CREATE", None, {"version": version.version, "hash": version.content_hash}, event.id)
-    embeddings = 0
-    if settings.effective_llm_api_key: embeddings = embed_pending_chunks(db, version.id)
-    db.commit(); return {"documento_id": document.id, "versao_id": version.id, "versao": version.version, "chunks": len(version.chunks), "embeddings": embeddings, "status": version.status}
+async def upload_document(property_id: int, file: UploadFile = File(...), document_type: str | None = Form(None), source: str | None = Form(None), db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    filename = file.filename or "documento"
+    document = models.Document(property_id=property_id, name=filename, document_type=document_type or "Outro", source=source or "Upload manual")
+    db.add(document); db.flush()
+    version = await process_document_upload(document, file, db)
+    payload = {"document_id": document.id, "version": version.version, "hash": version.content_hash}
+    event = record_event(db, prop, "DOCUMENTO_ADICIONADO", "DocumentVersion", version.id, payload, ["documental", "juridico", "checklist"])
+    record_history(db, prop, "DocumentVersion", version.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(document)
+    return document_snapshot(document)
+
+@app.get("/api/imoveis/{property_id}/documentos")
+def list_documents(property_id: int, db: Session = Depends(get_db)):
+    property_or_404(db, property_id)
+    documents = db.scalars(select(models.Document).where(models.Document.property_id == property_id).order_by(models.Document.created_at)).all()
+    return {"property_id": property_id, "documentos": [document_snapshot(document) for document in documents]}
+
+@app.post("/api/documentos/{document_id}/versoes")
+async def add_document_version(document_id: int, file: UploadFile = File(...), document_type: str | None = Form(None), source: str | None = Form(None), db: Session = Depends(get_db)):
+    document = document_or_404(db, document_id)
+    prop = property_or_404(db, document.property_id)
+    if document_type is not None: document.document_type = document_type
+    if source is not None: document.source = source
+    version = await process_document_upload(document, file, db)
+    payload = {"document_id": document.id, "version": version.version, "hash": version.content_hash}
+    event = record_event(db, prop, "DOCUMENTO_VERSAO_ADICIONADA", "DocumentVersion", version.id, payload, ["documental", "juridico", "checklist"])
+    record_history(db, prop, "DocumentVersion", version.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(document)
+    return document_snapshot(document)
 
 @app.post("/api/imoveis/{property_id}/evidencias")
 def create_evidence(property_id: int, data: schemas.EvidenceCreate, db: Session = Depends(get_db)):
