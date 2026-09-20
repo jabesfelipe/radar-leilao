@@ -147,11 +147,39 @@ def add_auction(property_id: int, data: schemas.AuctionCreate, db: Session = Dep
 
 @app.post("/api/imoveis/{property_id}/custos")
 def add_cost(property_id: int, data: schemas.CostCreate, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); item = models.Cost(property_id=property_id, **data.model_dump()); db.add(item); db.flush(); record_event(db, prop, "CUSTO_ADICIONADO", "Cost", item.id, data.model_dump(mode="json"), ["financeiro", "checklist"]); db.commit(); return item
+    prop = property_or_404(db, property_id)
+    item = models.Cost(property_id=property_id, **data.model_dump())
+    db.add(item); db.flush()
+    payload = data.model_dump(mode="json")
+    event = record_event(db, prop, "CUSTO_ADICIONADO", "Cost", item.id, payload, ["financeiro", "checklist"])
+    record_history(db, prop, "Cost", item.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(item)
+    return item
+
+@app.get("/api/imoveis/{property_id}/custos")
+def list_costs(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    costs = db.scalars(select(models.Cost).where(models.Cost.property_id == property_id).order_by(models.Cost.created_at)).all()
+    history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "Cost").order_by(models.EntityHistory.created_at)).all()
+    return {"property_id": prop.id, "custos": costs, "historico": history}
 
 @app.post("/api/imoveis/{property_id}/dividas")
 def add_debt(property_id: int, data: schemas.DebtCreate, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); item = models.Debt(property_id=property_id, **data.model_dump()); db.add(item); db.flush(); record_event(db, prop, "DIVIDA_ADICIONADA", "Debt", item.id, data.model_dump(mode="json"), impacted_domains("DIVIDA_ADICIONADA")); db.commit(); return item
+    prop = property_or_404(db, property_id)
+    item = models.Debt(property_id=property_id, **data.model_dump())
+    db.add(item); db.flush()
+    payload = data.model_dump(mode="json")
+    event = record_event(db, prop, "DIVIDA_ADICIONADA", "Debt", item.id, payload, ["financeiro", "checklist"])
+    record_history(db, prop, "Debt", item.id, "CREATE", None, payload, event.id, data.evidence_id)
+    db.commit(); db.refresh(item)
+    return item
+
+@app.get("/api/imoveis/{property_id}/dividas")
+def list_debts(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    debts = db.scalars(select(models.Debt).where(models.Debt.property_id == property_id).order_by(models.Debt.created_at)).all()
+    history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "Debt").order_by(models.EntityHistory.created_at)).all()
+    return {"property_id": prop.id, "dividas": debts, "historico": history}
 
 @app.post("/api/imoveis/{property_id}/comparaveis")
 def add_comparable(property_id: int, data: schemas.ComparableCreate, db: Session = Depends(get_db)):
