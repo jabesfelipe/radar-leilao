@@ -135,6 +135,38 @@ def get_occupancy(property_id: int, db: Session = Depends(get_db)):
         return {"id": item.id, "property_id": item.property_id, "status": item.status, "occupant_profile": item.occupant_profile, "estimated_cost": item.estimated_cost, "estimated_months": item.estimated_months, "evidence_id": item.evidence_id, "created_at": item.created_at, "updated_at": item.updated_at}
     return {"property_id": property_id, "situacao_atual": snapshot(history[-1]) if history else None, "ultimo_registro": snapshot(history[-1]) if history else None, "historico": [snapshot(item) for item in history]}
 
+@app.post("/api/imoveis/{property_id}/matricula")
+def create_registration(property_id: int, data: schemas.RegistrationCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    item = models.PropertyRegistration(property_id=property_id, **data.model_dump())
+    db.add(item); db.flush(); payload = data.model_dump(mode="json")
+    event = record_event(db, prop, "MATRICULA_CADASTRADA", "PropertyRegistration", item.id, payload, ["juridico", "checklist"])
+    record_history(db, prop, "PropertyRegistration", item.id, "CREATE", None, payload, event.id, data.evidence_id)
+    db.commit(); db.refresh(item); return item
+
+@app.get("/api/imoveis/{property_id}/matricula")
+def list_registrations(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    records = db.scalars(select(models.PropertyRegistration).where(models.PropertyRegistration.property_id == property_id).order_by(models.PropertyRegistration.created_at)).all()
+    history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "PropertyRegistration").order_by(models.EntityHistory.created_at)).all()
+    return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
+
+@app.post("/api/imoveis/{property_id}/edital")
+def create_notice(property_id: int, data: schemas.AuctionNoticeCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    item = models.AuctionNotice(property_id=property_id, **data.model_dump())
+    db.add(item); db.flush(); payload = data.model_dump(mode="json")
+    event = record_event(db, prop, "EDITAL_CADASTRADO", "AuctionNotice", item.id, payload, ["documental", "juridico", "financeiro", "checklist"])
+    record_history(db, prop, "AuctionNotice", item.id, "CREATE", None, payload, event.id, data.evidence_id)
+    db.commit(); db.refresh(item); return item
+
+@app.get("/api/imoveis/{property_id}/edital")
+def list_notices(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    records = db.scalars(select(models.AuctionNotice).where(models.AuctionNotice.property_id == property_id).order_by(models.AuctionNotice.created_at)).all()
+    history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "AuctionNotice").order_by(models.EntityHistory.created_at)).all()
+    return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
+
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id); execution = latest_execution(prop); latest = prop.verdicts[-1] if prop.verdicts else None

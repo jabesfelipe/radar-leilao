@@ -26,6 +26,8 @@ class Property(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(40), default="EM_ANALISE")
     auctions: Mapped[list["Auction"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     documents: Mapped[list["Document"]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    registrations: Mapped[list["PropertyRegistration"]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    notices: Mapped[list["AuctionNotice"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     processes: Mapped[list["LegalProcess"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     costs: Mapped[list["Cost"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     debts: Mapped[list["Debt"]] = relationship(back_populates="property", cascade="all, delete-orphan")
@@ -83,6 +85,38 @@ class DocumentVersion(TimestampMixin, Base):
     chunks: Mapped[list["DocumentChunk"]] = relationship(back_populates="document_version", cascade="all, delete-orphan")
     evidences: Mapped[list["Evidence"]] = relationship(back_populates="document_version")
     __table_args__ = (UniqueConstraint("document_id", "version", name="uq_document_version"),)
+
+
+class PropertyRegistration(TimestampMixin, Base):
+    __tablename__ = "property_registrations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    registration_number: Mapped[str] = mapped_column(String(80))
+    registry_office: Mapped[str | None] = mapped_column(String(160))
+    comarca: Mapped[str | None] = mapped_column(String(160))
+    consultation_date: Mapped[date | None] = mapped_column(Date)
+    holder: Mapped[str | None] = mapped_column(String(240))
+    observations: Mapped[str | None] = mapped_column(Text)
+    document_version_id: Mapped[int | None] = mapped_column(ForeignKey("document_versions.id"))
+    evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+    property: Mapped[Property] = relationship(back_populates="registrations")
+
+
+class AuctionNotice(TimestampMixin, Base):
+    __tablename__ = "auction_notices"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    identifier: Mapped[str] = mapped_column(String(160))
+    notice_date: Mapped[date | None] = mapped_column(Date)
+    auction_stage: Mapped[str | None] = mapped_column(String(80))
+    appraisal_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    minimum_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    auction_date: Mapped[date | None] = mapped_column(Date)
+    auctioneer: Mapped[str | None] = mapped_column(String(160))
+    observations: Mapped[str | None] = mapped_column(Text)
+    document_version_id: Mapped[int | None] = mapped_column(ForeignKey("document_versions.id"))
+    evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+    property: Mapped[Property] = relationship(back_populates="notices")
 
 
 class DocumentChunk(TimestampMixin, Base):

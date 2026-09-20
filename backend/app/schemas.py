@@ -36,6 +36,28 @@ class ChecklistUpdate(BaseModel):
     interpretation: str | None = None
     risk: str | None = None
 
+class RegistrationCreate(BaseModel):
+    registration_number: str
+    registry_office: str | None = None
+    comarca: str | None = None
+    consultation_date: date | None = None
+    holder: str | None = None
+    observations: str | None = None
+    document_version_id: int | None = None
+    evidence_id: int | None = None
+
+class AuctionNoticeCreate(BaseModel):
+    identifier: str
+    notice_date: date | None = None
+    auction_stage: str | None = None
+    appraisal_value: Decimal | None = None
+    minimum_value: Decimal | None = None
+    auction_date: date | None = None
+    auctioneer: str | None = None
+    observations: str | None = None
+    document_version_id: int | None = None
+    evidence_id: int | None = None
+
 class ChecklistItemCreate(BaseModel):
     canonical_key: str = Field(min_length=1, max_length=100)
     question: str = Field(min_length=1)
