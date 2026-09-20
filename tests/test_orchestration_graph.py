@@ -1,13 +1,12 @@
 from backend.app import models
 from backend.app.ai.agents import AgentResult
-from backend.app.ai.contracts import VerdictResponse
 from backend.app.ai.gateway import LLMGateway, LLMCall, ProviderResponse
 from backend.app.rag.service import RAGResult
 
 
 class Provider:
     def structured_chat(self, schema, messages, **kwargs):
-        return ProviderResponse(content=VerdictResponse(summary="consolidado"), input_tokens=10, output_tokens=5, request_id="graph-run")
+        return ProviderResponse(content=None, input_tokens=10, output_tokens=5, request_id="graph-run")
 
     def chat(self, *args, **kwargs):
         return ProviderResponse(content="")
@@ -63,6 +62,9 @@ def test_grafo_tem_topologia_explicita_e_preserva_estado(monkeypatch):
     assert [call[0] for call in calls] == ["RETRIEVE_RAG", "RUN_AGENTS"]
     assert calls[0][2] == 1
     assert calls[1][2] == ["mercado"]
+    assert {"agent_results", "evidence_ids", "retrieved_chunk_ids", "llm_runs", "pending", "interpretations", "errors", "llm_used", "model"} <= set(result["consolidated"])
+    assert "verdict" not in result
+    assert "risk_candidates" not in result
 
 
 def test_grafo_executa_somente_dominios_solicitados(monkeypatch):
@@ -126,3 +128,14 @@ def test_orquestrador_retorna_retrieval_do_grafo(monkeypatch):
     result = AnalysisOrchestrator(Db()).run(1, ["financeiro"], "custos", analysis_id=12)
     assert invoked == {"property_id": 1, "analysis_id": 12, "domains": ["financeiro"], "query": "custos"}
     assert result["retrieved_chunk_ids"] == [4]
+
+
+def test_graph_nao_utiliza_verdict_ou_risk_no_consolidate():
+    import inspect
+    from backend.app.ai import graph
+
+    source = inspect.getsource(graph)
+    assert "VerdictResponse" not in source
+    assert "risk_candidates" not in source
+    assert "\"verdict\"" not in source
+    assert "structured_chat" not in source

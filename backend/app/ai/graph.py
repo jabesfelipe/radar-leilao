@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any, TypedDict
 
 from sqlalchemy.orm import Session
@@ -8,8 +7,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..rag.retriever import RetrieverFilters
 from ..rag.service import RAGService
-from .contracts import VerdictResponse
-from .gateway import LLMCall, LLMGateway, build_gateway
+from .gateway import LLMGateway, build_gateway
 
 
 class AnalysisState(TypedDict, total=False):
@@ -29,7 +27,6 @@ class AnalysisState(TypedDict, total=False):
     errors: list[str]
     llm_used: bool
     model: str | None
-    verdict: dict[str, Any]
     consolidated: dict[str, Any]
 
 
@@ -55,22 +52,26 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
     graph = StateGraph(AnalysisState)
 
     def load_context(state: AnalysisState) -> dict[str, Any]:
-        property_id = state["property_id"]
-        prop = db.get(models.Property, property_id)
+        prop = db.get(models.Property, state["property_id"])
         return {"context_loaded": prop is not None, "context": state.get("context", "")}
 
     def retrieve_rag(state: AnalysisState) -> dict[str, Any]:
         property_id = state["property_id"]
         domains = state.get("domains", [])
         query = state.get("query") or "análise documental do imóvel"
-        filters = _rag_filter(domains)
-        if filters.property_id is None:
-            filters = RetrieverFilters(property_id=property_id, category=filters.category)
+        selected = _rag_filter(domains)
+        filters = RetrieverFilters(property_id=property_id, category=selected.category)
         try:
             retrieval = RAGService(db).retrieve_context(query, property_id=property_id, filters=filters)
         except Exception as exc:
             message = f"Falha no RAG: {type(exc).__name__}: {str(exc)[:500]}"
-            return {"context": "", "retrieved_chunk_ids": [], "retrieval": {"context_found": False, "count": 0, "vector_search": False, "text_fallback": True, "reason": message, "chunks": []}, "errors": state.get("errors", []) + [message], "pending": state.get("pending", []) + ["Recuperação RAG indisponível"]}
+            return {
+                "context": "",
+                "retrieved_chunk_ids": [],
+                "retrieval": {"context_found": False, "count": 0, "vector_search": False, "text_fallback": True, "reason": message, "chunks": []},
+                "errors": list(state.get("errors", [])) + [message],
+                "pending": list(state.get("pending", [])) + ["Recuperação RAG indisponível"],
+            }
         return {
             "context": retrieval.context,
             "retrieved_chunk_ids": retrieval.chunk_ids,
@@ -85,83 +86,41 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
         }
 
     def run_agents(state: AnalysisState) -> dict[str, Any]:
-        results = supervisor.run(
-            state["property_id"],
-            state.get("domains", []),
-            state.get("context", ""),
-            state.get("retrieved_chunk_ids", []),
-        )
+        results = supervisor.run(state["property_id"], state.get("domains", []), state.get("context", ""), state.get("retrieved_chunk_ids", []))
         calls = [
             dict(result.llm_call.to_dict(), agent=result.agent, retrieved_chunk_ids=result.retrieved_chunk_ids)
             for result in results
             if result.llm_call
         ]
-        agent_results = [result.to_dict() for result in results]
-        pending = [item for result in results for item in result.pending]
-        interpretations = [result.interpretation for result in results if result.interpretation]
-        errors = [result.llm_call.error_message or "Falha na chamada" for result in results if result.llm_call and result.llm_call.status == "ERRO"]
+        errors = list(state.get("errors", [])) + [
+            result.llm_call.error_message or "Falha na chamada"
+            for result in results
+            if result.llm_call and result.llm_call.status == "ERRO"
+        ]
         return {
-            "agent_results": agent_results,
+            "agent_results": [result.to_dict() for result in results],
             "llm_runs": calls,
             "evidence_ids": sorted(set(sum((result.evidence_ids for result in results), []))),
-            "pending": pending,
-            "interpretations": interpretations,
+            "pending": list(state.get("pending", [])) + [item for result in results for item in result.pending],
+            "interpretations": list(state.get("interpretations", [])) + [result.interpretation for result in results if result.interpretation],
             "errors": errors,
             "llm_used": any(result.llm_used for result in results),
             "model": gateway.model if gateway else None,
         }
 
     def consolidate(state: AnalysisState) -> dict[str, Any]:
-        results = state.get("agent_results", [])
-        llm_runs = list(state.get("llm_runs", []))
-        pending = list(state.get("pending", []))
-        interpretations = list(state.get("interpretations", []))
-        if not gateway:
-            call = LLMCall.unavailable("openai", "desconhecido", "LLM não configurada; consolidação não executada")
-            verdict = {
-                "summary": "Análise determinística concluída; interpretação LLM pendente de OPENAI_API_KEY",
-                "known": [],
-                "unknown": ["A consolidação interpretativa ainda não foi executada"],
-                "pending": ["Configurar OPENAI_API_KEY"],
-                "risk_candidates": [],
-            }
-            llm_runs.append(dict(call.to_dict(), agent="supervisor", retrieved_chunk_ids=state.get("retrieved_chunk_ids", [])))
-            pending.extend(verdict["pending"])
-            return {
-                "verdict": verdict,
-                "llm_runs": llm_runs,
-                "pending": pending,
-                "consolidated": {"agent_results": results, "evidence_ids": state.get("evidence_ids", []), "pending": pending, "interpretations": interpretations},
-                "model": call.model,
-            }
-        messages = [
-            {"role": "system", "content": "Você é o Supervisor do Radar Leilão. Sintetize resultados de agentes fundamentados em RAG. Não invente fatos. Separe conhecido, desconhecido, pendências e riscos candidatos."},
-            {"role": "user", "content": json.dumps({"resultados_agentes": results, "evidencias_chunk_ids": state.get("evidence_ids", [])}, ensure_ascii=False, default=str)},
-        ]
-        call = gateway.structured_chat(VerdictResponse, messages)
-        llm_runs.append(dict(call.to_dict(), agent="supervisor", retrieved_chunk_ids=state.get("retrieved_chunk_ids", [])))
-        if call.status != "CONCLUIDO":
-            verdict = {"summary": "A consolidação falhou; resultados parciais foram preservados.", "known": [], "unknown": [], "pending": [call.error_message or "Erro desconhecido na consolidação"], "risk_candidates": []}
-            pending.extend(verdict["pending"])
-        else:
-            try:
-                response = call.content if isinstance(call.content, VerdictResponse) else VerdictResponse.model_validate(call.content)
-                verdict = response.model_dump()
-                pending.extend(verdict.get("pending", []))
-            except Exception as exc:
-                verdict = {"summary": "A consolidação retornou resposta inválida; resultados parciais foram preservados.", "known": [], "unknown": [], "pending": ["Resposta estruturada inválida na consolidação"], "risk_candidates": []}
-                pending.extend(verdict["pending"])
-                call.status = "ERRO"
-                call.error_type = type(exc).__name__
-                call.error_message = str(exc)[:2000]
-        return {
-            "verdict": verdict,
-            "llm_runs": llm_runs,
-            "pending": pending,
-            "consolidated": {"agent_results": results, "evidence_ids": state.get("evidence_ids", []), "pending": pending, "interpretations": interpretations},
-            "llm_used": state.get("llm_used", False) or call.status == "CONCLUIDO",
-            "model": call.model,
+        consolidated = {
+            "agent_results": list(state.get("agent_results", [])),
+            "evidence_ids": list(state.get("evidence_ids", [])),
+            "retrieved_chunk_ids": list(state.get("retrieved_chunk_ids", [])),
+            "llm_runs": list(state.get("llm_runs", [])),
+            "pending": list(state.get("pending", [])),
+            "interpretations": list(state.get("interpretations", [])),
+            "errors": list(state.get("errors", [])),
+            "llm_used": state.get("llm_used", False),
+            "model": state.get("model"),
         }
+        return {"consolidated": consolidated}
 
     graph.add_node("LOAD_CONTEXT", load_context)
     graph.add_node("RETRIEVE_RAG", retrieve_rag)
