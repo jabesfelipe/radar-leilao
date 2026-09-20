@@ -10,6 +10,7 @@ from . import models, schemas
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .documents.embedding import embed_pending_chunks
+from .market import calculate_market
 from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
 app = FastAPI(title=settings.app_name, version="0.2.0")
@@ -109,6 +110,12 @@ def analyze_financial(property_id: int, db: Session = Depends(get_db)):
     analysis = models.FinancialAnalysis(property_id=property_id, analysis_version=version, inputs=inputs, outputs=serialize(current))
     db.add(analysis); db.commit()
     return {"property_id": property_id, "analysis_version": version, "financeiro": serialize(current)}
+
+@app.get("/api/imoveis/{property_id}/mercado")
+def get_market(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    comparables = [{"kind": comparable.kind, "price": comparable.price, "rent": comparable.rent, "area_m2": comparable.area_m2} for comparable in prop.comparables]
+    return {"property_id": property_id, "mercado": calculate_market(comparables)}
 
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):

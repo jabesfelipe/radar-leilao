@@ -5,6 +5,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from backend.app import models
+from backend.app.config import settings
 
 
 @pytest.fixture(scope="session")
