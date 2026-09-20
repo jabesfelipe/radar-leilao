@@ -1,0 +1,1 @@
+As migrações deste projeto são executadas contra PostgreSQL. Não use create_all no runtime da API.
