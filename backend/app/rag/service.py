@@ -17,5 +17,5 @@ class RAGService:
 
     def context_text(self, query: str, property_id: int | None = None, limit: int = 8) -> tuple[str, list[int]]:
         chunks = self.retrieve_context(query, property_id, limit)
-        context = "\n\n".join(f"[Documento {c['document_id']} · página {c.get('page') or '?'}]\n{c['content']}" for c in chunks)
+        context = "\n\n".join(f"[chunk_id={c['id']} documento={c['document_id']} página={c.get('page') or '?'} seção={c.get('section') or '?'}]\n{c['content']}" for c in chunks)
         return context, [c["id"] for c in chunks]

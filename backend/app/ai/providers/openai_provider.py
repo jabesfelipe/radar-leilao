@@ -21,5 +21,13 @@ class OpenAIProvider:
         result = self.chat_model.invoke(converted, **kwargs)
         return str(result.content)
 
+    def structured_chat(self, schema: Any, messages: list[dict[str, str]], **kwargs: Any) -> Any:
+        from langchain_core.messages import HumanMessage, SystemMessage
+        converted = []
+        for message in messages:
+            cls = SystemMessage if message.get("role") == "system" else HumanMessage
+            converted.append(cls(content=message.get("content", "")))
+        return self.chat_model.with_structured_output(schema).invoke(converted, **kwargs)
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         return self.embedding_model.embed_documents(texts)

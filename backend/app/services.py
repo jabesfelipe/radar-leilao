@@ -73,9 +73,51 @@ def recalculate_risks(db: Session, prop: models.Property, analysis_version: int)
     db.flush(); return risks
 
 
-def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis):
+def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None):
     finance = build_finance(prop); execution = latest_execution(prop); pending = [r.item.question for r in execution.results if r.state == "PENDENTE"] if execution else []
     risks = list(db.scalars(select(models.Risk).where(models.Risk.property_id == prop.id, models.Risk.analysis_version == analysis.version)).all())
-    overall = "ATENÇÃO" if risks or pending else "FAVORÁVEL"
-    verdict = models.Verdict(property_id=prop.id, analysis_version=analysis.version, overall=overall, summary=f"Análise V{analysis.version}: {len(pending)} pendência(s) e {len(risks)} risco(s) identificados.", what_is_known="Resultados determinísticos e evidências registradas no dossiê.", what_is_unknown="; ".join(pending[:5]), pending_items=pending, financial=serialize(finance), risk_ids=[r.id for r in risks], evidence_ids=analysis.evidence_ids)
+    synthesis = synthesis or {}
+    known = synthesis.get("known", []) or ["Resultados determinísticos e evidências registradas no dossiê."]
+    unknown = synthesis.get("unknown", [])
+    llm_pending = synthesis.get("pending", [])
+    all_pending = pending + [item for item in llm_pending if item not in pending]
+    overall = "ATENÇÃO" if risks or all_pending else "FAVORÁVEL"
+    summary = synthesis.get("summary") or f"Análise V{analysis.version}: {len(all_pending)} pendência(s) e {len(risks)} risco(s) identificados."
+    verdict = models.Verdict(property_id=prop.id, analysis_version=analysis.version, overall=overall, summary=summary, what_is_known="; ".join(known), what_is_unknown="; ".join(unknown), pending_items=all_pending, financial=serialize(finance), risk_ids=[r.id for r in risks], evidence_ids=analysis.evidence_ids)
     db.add(verdict); db.flush(); return verdict
+
+
+def persist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, agent_results: list[dict]) -> list[int]:
+    """Converte findings estruturados em evidências rastreáveis e atualiza o checklist da execução."""
+    evidence_ids: list[int] = []
+    document_ids: set[int] = set()
+    result_by_key = {result.item.canonical_key: result for result in execution.results}
+    for result in agent_results:
+        agent_name = result.get("agent", "IA")
+        for finding in result.get("facts", []):
+            statement = finding.get("statement") or finding.get("descricao")
+            if not statement:
+                continue
+            chunk_ids = [int(value) for value in finding.get("chunk_ids", []) if str(value).isdigit()]
+            chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
+            version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
+            if chunk and version:
+                document_ids.add(version.document_id)
+            evidence = models.Evidence(property_id=prop.id, document_version_id=version.id if version else None, chunk_id=chunk.id if chunk else None, category=agent_name.upper(), fact=statement, interpretation=statement if finding.get("kind") == "interpretacao" else None, hypothesis=statement if finding.get("kind") == "hipotese" else None, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page") or (chunk.page if chunk else None), section=finding.get("section") or (chunk.section if chunk else None), source_excerpt=finding.get("evidence_excerpt") or (chunk.content[:1000] if chunk else None))
+            db.add(evidence); db.flush(); evidence_ids.append(evidence.id)
+            db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="SUSTENTA"))
+            checklist_key = finding.get("checklist_key")
+            if checklist_key and checklist_key in result_by_key:
+                checklist_result = result_by_key[checklist_key]
+                new_state = finding.get("checklist_state") or checklist_result.state
+                checklist_result.state = new_state
+                checklist_result.answer = statement
+                checklist_result.confidence = finding.get("confidence", checklist_result.confidence)
+                checklist_result.interpretation = statement
+                db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
+            if result.get("llm_used"):
+                db.add(models.LLMRun(property_id=prop.id, analysis_id=analysis.id, agent=agent_name, provider="openai", model=analysis.model or "configurado", retrieved_chunk_ids=chunk_ids, status="CONCLUIDO"))
+    analysis.evidence_ids = evidence_ids
+    analysis.documents_considered = sorted(document_ids)
+    db.flush()
+    return evidence_ids

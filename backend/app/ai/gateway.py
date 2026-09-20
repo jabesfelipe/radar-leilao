@@ -5,6 +5,7 @@ from ..config import settings
 
 class ChatProvider(Protocol):
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str: ...
+    def structured_chat(self, schema: Any, messages: list[dict[str, str]], **kwargs: Any) -> Any: ...
     def embed(self, texts: list[str]) -> list[list[float]]: ...
 
 
@@ -16,6 +17,9 @@ class LLMGateway:
 
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         return self.provider.chat(messages, **kwargs)
+
+    def structured_chat(self, schema: Any, messages: list[dict[str, str]], **kwargs: Any) -> Any:
+        return self.provider.structured_chat(schema, messages, **kwargs)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         return self.provider.embed(texts)
