@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: radar-leilao-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: radar_leilao
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: radar_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
