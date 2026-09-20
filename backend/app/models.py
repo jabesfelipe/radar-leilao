@@ -30,6 +30,7 @@ class Property(TimestampMixin, Base):
     costs: Mapped[list["Cost"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     debts: Mapped[list["Debt"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     comparables: Mapped[list["MarketComparable"]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    occupancy_analyses: Mapped[list["OccupancyAnalysis"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     checklist_executions: Mapped[list["ChecklistExecution"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     evidences: Mapped[list["Evidence"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     risks: Mapped[list["Risk"]] = relationship(back_populates="property", cascade="all, delete-orphan")
@@ -251,11 +252,12 @@ class OccupancyAnalysis(TimestampMixin, Base):
     __tablename__ = "occupancy_analyses"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
-    status: Mapped[str] = mapped_column(String(40), default="DESCONHECIDA")
+    status: Mapped[str] = mapped_column(String(40), default="DESCONHECIDO")
     occupant_profile: Mapped[str | None] = mapped_column(String(160))
-    estimated_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
-    estimated_months: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_cost: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    estimated_months: Mapped[int | None] = mapped_column(Integer)
     evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+    property: Mapped[Property] = relationship(back_populates="occupancy_analyses")
 
 
 class FinancialAnalysis(TimestampMixin, Base):

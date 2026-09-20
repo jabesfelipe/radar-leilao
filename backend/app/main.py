@@ -117,6 +117,25 @@ def get_market(property_id: int, db: Session = Depends(get_db)):
     comparables = [{"kind": comparable.kind, "price": comparable.price, "rent": comparable.rent, "area_m2": comparable.area_m2} for comparable in prop.comparables]
     return {"property_id": property_id, "mercado": calculate_market(comparables)}
 
+@app.post("/api/imoveis/{property_id}/ocupacao")
+def create_occupancy(property_id: int, data: schemas.OccupancyCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    occupancy = models.OccupancyAnalysis(property_id=property_id, **data.model_dump())
+    db.add(occupancy); db.flush()
+    payload = data.model_dump(mode="json")
+    event = record_event(db, prop, "OCUPACAO_ATUALIZADA", "OccupancyAnalysis", occupancy.id, payload, ["desocupacao", "financeiro", "checklist"])
+    record_history(db, prop, "OccupancyAnalysis", occupancy.id, "CREATE", None, payload, event.id, data.evidence_id)
+    db.commit(); db.refresh(occupancy)
+    return occupancy
+
+@app.get("/api/imoveis/{property_id}/ocupacao")
+def get_occupancy(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    history = db.scalars(select(models.OccupancyAnalysis).where(models.OccupancyAnalysis.property_id == property_id).order_by(models.OccupancyAnalysis.created_at)).all()
+    def snapshot(item):
+        return {"id": item.id, "property_id": item.property_id, "status": item.status, "occupant_profile": item.occupant_profile, "estimated_cost": item.estimated_cost, "estimated_months": item.estimated_months, "evidence_id": item.evidence_id, "created_at": item.created_at, "updated_at": item.updated_at}
+    return {"property_id": property_id, "situacao_atual": snapshot(history[-1]) if history else None, "ultimo_registro": snapshot(history[-1]) if history else None, "historico": [snapshot(item) for item in history]}
+
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id); execution = latest_execution(prop); latest = prop.verdicts[-1] if prop.verdicts else None

@@ -56,5 +56,22 @@ class ChecklistItemPatch(BaseModel):
     related_rules: list[str] | None = None
     agents: list[str] | None = None
     risk_categories: list[str] | None = None
+class OccupancyCreate(BaseModel):
+    status: Literal["OCUPADO", "DESOCUPADO", "DESCONHECIDO"]
+    occupant_profile: str | None = None
+    estimated_cost: Decimal | None = None
+    estimated_months: int | None = Field(default=None, ge=0)
+    evidence_id: int | None = None
+
+
 class EvidenceCreate(BaseModel):
-    category: str = "DOCUMENTAL"; fact: str; interpretation: str | None = None; hypothesis: str | None = None; confidence: str = "MEDIA"; document_version_id: int | None = None; chunk_id: int | None = None; page: int | None = None; section: str | None = None; source_excerpt: str | None = None
+    category: str = "DOCUMENTAL"
+    fact: str
+    interpretation: str | None = None
+    hypothesis: str | None = None
+    confidence: str = "MEDIA"
+    document_version_id: int | None = None
+    chunk_id: int | None = None
+    page: int | None = None
+    section: str | None = None
+    source_excerpt: str | None = None

@@ -42,13 +42,19 @@ def latest_execution(prop: models.Property):
     return next(iter(reversed(prop.checklist_executions)), None)
 
 
+def latest_occupancy(prop: models.Property):
+    return next(iter(reversed(prop.occupancy_analyses)), None)
+
+
 def build_finance(prop: models.Property):
     auction = prop.auctions[-1] if prop.auctions else None
     acquisition = auction.acquisition_value if auction and auction.acquisition_value is not None else (auction.bid_value if auction else None)
     costs = [{"category": c.category, "amount": c.amount} for c in prop.costs]
     comparables = [{"kind": c.kind, "price": c.price, "rent": c.rent, "area_m2": c.area_m2} for c in prop.comparables]
     debts = [{"amount": d.amount, "status": d.status} for d in prop.debts]
-    return calculate_financial(bid=acquisition, appraisal=auction.appraisal_value if auction else None, costs=costs, comparables=comparables, debts=debts, area=prop.area_m2, commission_percent=auction.commission_percent if auction else None, commission_fixed=auction.commission_fixed if auction else None)
+    occupancy = latest_occupancy(prop)
+    occupancy_data = {"estimated_cost": occupancy.estimated_cost} if occupancy else {}
+    return calculate_financial(bid=acquisition, appraisal=auction.appraisal_value if auction else None, costs=costs, comparables=comparables, debts=debts, occupancy=occupancy_data, area=prop.area_m2, commission_percent=auction.commission_percent if auction else None, commission_fixed=auction.commission_fixed if auction else None)
 
 
 
