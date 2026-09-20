@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
 from . import models, schemas
-from .ai.agents import DocumentAgent, FinancialAgent, LegalAgent
+from .ai.agents import DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
 from .ai.gateway import build_gateway
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
@@ -281,6 +281,35 @@ def run_financial_agent(property_id: int, analysis_id: int, db: Session = Depend
     analysis.agents_executed = sorted(set((analysis.agents_executed or []) + ["financeiro"]))
     db.commit()
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "financeiro", "financial_analysis_id": financial_record.id, "financeiro": serialize(current), "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
+
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/mercado")
+def run_market_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    analysis = db.get(models.Analysis, analysis_id)
+    if not analysis or analysis.property_id != property_id:
+        raise HTTPException(404, "Análise não encontrada para este imóvel")
+    comparables = [{"kind": item.kind, "price": item.price, "rent": item.rent, "area_m2": item.area_m2} for item in prop.comparables]
+    current = calculate_market(comparables)
+    retrieval = RAGService(db).retrieve_context(
+        "comparáveis preço médio mediano preço por metro quadrado aluguel mercado região liquidez",
+        property_id,
+        filters=RetrieverFilters(property_id=property_id, category="mercado"),
+    )
+    try:
+        gateway = build_gateway()
+    except (RuntimeError, ValueError):
+        gateway = None
+    result = MarketAgent(db, gateway).run(property_id, retrieval.context, retrieval.chunk_ids, serialize(current))
+    run_data = dict(result.llm_call.to_dict(), agent="mercado", retrieved_chunk_ids=retrieval.chunk_ids) if result.llm_call else {"agent": "mercado", "status": "ERRO", "error_message": "Chamada não criada", "retrieved_chunk_ids": retrieval.chunk_ids}
+    runs = persist_llm_runs(db, prop, analysis, [run_data])
+    if not result.llm_call or result.llm_call.status != "CONCLUIDO":
+        db.commit()
+        return {"status": result.llm_call.status if result.llm_call else "ERRO", "erro": result.llm_call.error_message if result.llm_call else "Chamada não criada", "llm_run_id": runs[0].id if runs else None, "analysis_id": analysis_id, "mercado": serialize(current), "chunks_recuperados": retrieval.chunk_ids}
+    execution = latest_execution(prop)
+    evidence_ids = persist_agent_findings(db, prop, analysis, execution, [result.to_dict()])
+    analysis.agents_executed = sorted(set((analysis.agents_executed or []) + ["mercado"]))
+    db.commit()
+    return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "mercado", "mercado": serialize(current), "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):

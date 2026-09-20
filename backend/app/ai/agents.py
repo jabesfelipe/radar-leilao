@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 from .. import models
 from ..config import settings
+from ..market import calculate_market
 from ..services import build_finance, serialize
 from .contracts import AgentResponse
 from .gateway import LLMCall, LLMGateway
@@ -140,8 +141,31 @@ class FinancialAgent(RadarAgent):
 
 class MarketAgent(RadarAgent):
     name = "mercado"
-    def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
-        return self._run_llm(property_id, context, "Analise comparáveis, liquidez e mercado. Diferencie dado cadastrado de hipótese.", retrieved_chunk_ids or [])
+
+    def run(
+        self,
+        property_id: int,
+        context: str = "",
+        retrieved_chunk_ids: list[int] | None = None,
+        deterministic_market: dict[str, Any] | None = None,
+    ) -> AgentResult:
+        prop = self.db.get(models.Property, property_id)
+        if deterministic_market is None:
+            comparables = [{"kind": item.kind, "price": item.price, "rent": item.rent, "area_m2": item.area_m2} for item in (prop.comparables if prop else [])]
+            market = serialize(calculate_market(comparables))
+        else:
+            market = deterministic_market
+        instructions = (
+            "Interprete exclusivamente o resumo determinístico fornecido em mercado_deterministico. "
+            "Explique quantidade de comparáveis, preços médios/medianos, preço por m², aluguéis "
+            "médios/medianos e aluguel por m² quando disponíveis. Diferencie fatos calculados, "
+            "interpretações, hipóteses e ausências. Não recalcule. Não altere nenhum indicador; não "
+            "invente comparáveis, preços ou aluguéis; não crie valuation, valor de mercado, score de "
+            "liquidez, risco final ou veredito de compra. Não afirme liquidez como fato sem evidência. "
+            "Quando faltarem comparáveis ou área, registre ausência ou pendência sem inferir. Se usar "
+            "informação documental, informe chunk_ids, page, section e evidence_excerpt."
+        )
+        return self._run_llm(property_id, context, instructions, retrieved_chunk_ids or [], {"mercado_deterministico": market})
 
 class ChecklistAgent(RadarAgent):
     name = "checklist"
