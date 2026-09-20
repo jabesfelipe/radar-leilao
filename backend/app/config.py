@@ -11,14 +11,23 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
+    rag_vector_weight: float = 0.7
+    rag_text_weight: float = 0.3
+    rag_default_limit: int = 8
+    rag_max_limit: int = 50
+    rag_text_config: str = "portuguese"
     llm_api_key: str | None = None
     openai_api_key: str | None = None
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     @model_validator(mode="after")
-    def postgres_is_required(self):
+    def validate_runtime(self):
         if not self.database_url.startswith("postgresql"):
             raise ValueError("O Radar exige PostgreSQL; SQLite não é suportado")
+        if self.rag_vector_weight < 0 or self.rag_text_weight < 0 or self.rag_vector_weight + self.rag_text_weight <= 0:
+            raise ValueError("Os pesos do ranking RAG devem ser não negativos e somar um valor maior que zero")
+        if self.rag_default_limit < 1 or self.rag_max_limit < self.rag_default_limit:
+            raise ValueError("Os limites do RAG são inválidos")
         return self
 
     @property
