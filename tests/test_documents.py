@@ -102,3 +102,32 @@ def test_get_documentos_sem_documentos():
     prop = property_stub(); prop.documents = []
     result = list_documents(1, FakeDb(prop))
     assert result["documentos"] == []
+
+
+def test_chunks_preservam_metadata_completa_e_multiplos_chunks(monkeypatch, tmp_path):
+    monkeypatch.setattr("backend.app.documents.pipeline.DocumentNormalizer.normalize", lambda self, path, document_type: (path.read_text(encoding="utf-8"), {"engine": "fake"}))
+    monkeypatch.setattr(settings, "storage_dir", str(tmp_path))
+    db = FakeDb(property_stub())
+    document = models.Document(id=1, property_id=1, name="edital.txt", document_type="EDITAL", source="Fonte manual")
+    db.prop.documents.append(document)
+    version = DocumentPipeline(db).ingest(document, b"x" * 3000, "edital.txt")
+    chunks = [item for item in db.added if isinstance(item, models.DocumentChunk)]
+    assert len(chunks) > 1
+    assert all(chunk.document_version_id == version.id for chunk in chunks)
+    assert chunks[0].metadata_json["property_id"] == 1
+    assert chunks[0].metadata_json["document_id"] == 1
+    assert chunks[0].metadata_json["document_version_id"] == version.id
+    assert chunks[0].metadata_json["document_type"] == "EDITAL"
+    assert chunks[0].metadata_json["source"] == "Fonte manual"
+    assert chunks[0].metadata_json["chunk_index"] == chunks[0].chunk_index
+
+
+def test_erro_de_normalizacao_marca_documento_como_erro(monkeypatch, tmp_path):
+    def fail(*args, **kwargs): raise RuntimeError("falha de normalização")
+    monkeypatch.setattr("backend.app.documents.pipeline.DocumentNormalizer.normalize", fail)
+    monkeypatch.setattr(settings, "storage_dir", str(tmp_path))
+    db = FakeDb(property_stub())
+    document = models.Document(id=1, property_id=1, name="erro.txt", document_type="OUTRO", source="Manual")
+    db.prop.documents.append(document)
+    with pytest.raises(RuntimeError): DocumentPipeline(db).ingest(document, b"conteudo", "erro.txt")
+    assert document.status == "ERRO"
