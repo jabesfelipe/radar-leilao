@@ -8,7 +8,7 @@ class PropertyCreate(BaseModel):
 class PropertyOut(PropertyCreate):
     id: int; status: str; created_at: datetime; model_config = ConfigDict(from_attributes=True)
 class AuctionCreate(BaseModel):
-    auction_date: date | None = None; auction_stage: str = "2º leilão"; appraisal_value: Decimal = 0; bid_value: Decimal = 0; auctioneer: str = ""; notice_url: str = ""
+    auction_date: date | None = None; auction_stage: str = "2º leilão"; appraisal_value: Decimal = 0; bid_value: Decimal = 0; acquisition_value: Decimal | None = None; commission_percent: Decimal | None = None; commission_fixed: Decimal | None = None; auctioneer: str = ""; notice_url: str = ""
 class CostCreate(BaseModel):
     category: str; description: str; amount: Decimal = 0; recurring: bool = False
 class DebtCreate(BaseModel):

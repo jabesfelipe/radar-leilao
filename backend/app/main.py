@@ -91,6 +91,25 @@ def property_checklist_history(property_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id)
     return db.scalars(select(models.ChecklistExecution).where(models.ChecklistExecution.property_id == property_id).order_by(models.ChecklistExecution.created_at)).all()
 
+@app.get("/api/imoveis/{property_id}/financeiro")
+def get_financial(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    current = build_finance(prop)
+    history = db.scalars(select(models.FinancialAnalysis).where(models.FinancialAnalysis.property_id == property_id).order_by(models.FinancialAnalysis.analysis_version)).all()
+    latest = history[-1] if history else None
+    return {"property_id": property_id, "analysis_version": latest.analysis_version if latest else None, "financeiro": serialize(current), "historico": [{"id": item.id, "analysis_version": item.analysis_version, "inputs": item.inputs, "outputs": item.outputs, "created_at": item.created_at} for item in history]}
+
+@app.post("/api/imoveis/{property_id}/financeiro/analisar")
+def analyze_financial(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    current = build_finance(prop)
+    latest = db.scalar(select(models.FinancialAnalysis).where(models.FinancialAnalysis.property_id == property_id).order_by(models.FinancialAnalysis.analysis_version.desc()))
+    version = (latest.analysis_version + 1) if latest else 1
+    inputs = {"auction_id": prop.auctions[-1].id if prop.auctions else None, "cost_ids": [cost.id for cost in prop.costs], "debt_ids": [debt.id for debt in prop.debts], "comparable_ids": [comparable.id for comparable in prop.comparables]}
+    analysis = models.FinancialAnalysis(property_id=property_id, analysis_version=version, inputs=inputs, outputs=serialize(current))
+    db.add(analysis); db.commit()
+    return {"property_id": property_id, "analysis_version": version, "financeiro": serialize(current)}
+
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id); execution = latest_execution(prop); latest = prop.verdicts[-1] if prop.verdicts else None

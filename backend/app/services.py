@@ -44,8 +44,12 @@ def latest_execution(prop: models.Property):
 
 def build_finance(prop: models.Property):
     auction = prop.auctions[-1] if prop.auctions else None
-    occupancy = {}
-    return calculate_financial(auction.bid_value if auction else Decimal("0"), auction.appraisal_value if auction else Decimal("0"), [{"amount": c.amount} for c in prop.costs], [{"kind": c.kind, "price": c.price, "rent": c.rent, "area_m2": c.area_m2} for c in prop.comparables], [{"amount": d.amount, "status": d.status} for d in prop.debts], occupancy, prop.area_m2)
+    acquisition = auction.acquisition_value if auction and auction.acquisition_value is not None else (auction.bid_value if auction else Decimal("0"))
+    costs = [{"category": c.category, "amount": c.amount} for c in prop.costs]
+    comparables = [{"kind": c.kind, "price": c.price, "rent": c.rent, "area_m2": c.area_m2} for c in prop.comparables]
+    debts = [{"amount": d.amount, "status": d.status} for d in prop.debts]
+    return calculate_financial(bid=acquisition, appraisal=auction.appraisal_value if auction else None, costs=costs, comparables=comparables, debts=debts, area=prop.area_m2, commission_percent=auction.commission_percent if auction else None, commission_fixed=auction.commission_fixed if auction else None)
+
 
 
 def record_event(db: Session, prop: models.Property, event_type: str, aggregate_type: str, aggregate_id: int | None, payload: dict, domains: list[str]):
@@ -72,7 +76,7 @@ def recalculate_risks(db: Session, prop: models.Property, analysis_version: int)
     finance = build_finance(prop)
     risks = []
     if pending: risks.append(("Documental", f"{pending} item(ns) do Checklist Mestre ainda pendente(s).", "MEDIA"))
-    if finance["custo_total"] > finance["valor_mercado"]: risks.append(("Financeiro", "O custo total estimado supera o valor de mercado informado.", "ALTA"))
+    if finance["valor_mercado"] is not None and finance["custo_total"] > finance["valor_mercado"]: risks.append(("Financeiro", "O custo total estimado supera o valor de mercado informado.", "ALTA"))
     if not prop.documents: risks.append(("Documental", "Nenhum documento foi anexado ao dossiê.", "ALTA"))
     for category, description, severity in risks: db.add(models.Risk(property_id=prop.id, category=category, description=description, severity=severity, analysis_version=analysis_version))
     db.flush(); return risks

@@ -5,14 +5,13 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
 from backend.app import models
-from backend.app.config import settings
 
 
 @pytest.fixture(scope="session")
 def postgres_engine():
-    database_url = os.getenv("RAG_TEST_DATABASE_URL", settings.database_url)
-    if not database_url.startswith("postgresql"):
-        pytest.skip("RAG_TEST_DATABASE_URL deve apontar para PostgreSQL; SQLite não é aceito")
+    database_url = os.getenv("RAG_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("RAG_TEST_DATABASE_URL não configurada; testes de integração exigem PostgreSQL explícito")
     engine = create_engine(database_url, pool_pre_ping=True, connect_args={"connect_timeout": 3})
     try:
         with engine.connect() as connection:
