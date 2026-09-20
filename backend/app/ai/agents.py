@@ -116,10 +116,27 @@ class LegalAgent(RadarAgent):
 
 class FinancialAgent(RadarAgent):
     name = "financeiro"
-    def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
+
+    def run(
+        self,
+        property_id: int,
+        context: str = "",
+        retrieved_chunk_ids: list[int] | None = None,
+        deterministic_finance: dict[str, Any] | None = None,
+    ) -> AgentResult:
         prop = self.db.get(models.Property, property_id)
-        finance = serialize(build_finance(prop)) if prop else {}
-        return self._run_llm(property_id, context, "Interprete os resultados financeiros fornecidos. Não recalcule nem altere os números do motor determinístico.", retrieved_chunk_ids or [], {"financeiro_deterministico": finance})
+        finance = deterministic_finance if deterministic_finance is not None else (serialize(build_finance(prop)) if prop else {})
+        instructions = (
+            "Interprete exclusivamente o resultado financeiro determinístico fornecido em "
+            "financeiro_deterministico. Explique custo total, desconto, margem, yield e dados ausentes "
+            "quando disponíveis; diferencie fato calculado, interpretação, hipótese e ausência. "
+            "Não recalcule. Não altere qualquer número do Finance Engine. Não invente custos, "
+            "dívidas, aluguel, valor de mercado ou preço máximo; não crie score, risco final ou veredito "
+            "de compra. O preço máximo pode permanecer pendente quando o motor informar essa pendência. "
+            "Se mencionar dado financeiro documental, informe chunk_ids, page, section e evidence_excerpt. "
+            "Quando faltarem dados, registre ausência ou pendência sem inferir valores."
+        )
+        return self._run_llm(property_id, context, instructions, retrieved_chunk_ids or [], {"financeiro_deterministico": finance})
 
 class MarketAgent(RadarAgent):
     name = "mercado"

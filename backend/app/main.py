@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
 from . import models, schemas
-from .ai.agents import DocumentAgent, LegalAgent
+from .ai.agents import DocumentAgent, FinancialAgent, LegalAgent
 from .ai.gateway import build_gateway
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
@@ -246,6 +246,41 @@ def run_legal_agent(property_id: int, analysis_id: int, db: Session = Depends(ge
     analysis.agents_executed = sorted(set((analysis.agents_executed or []) + ["juridico"]))
     db.commit()
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "juridico", "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
+
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/financeiro")
+def run_financial_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    analysis = db.get(models.Analysis, analysis_id)
+    if not analysis or analysis.property_id != property_id:
+        raise HTTPException(404, "Análise não encontrada para este imóvel")
+
+    current = build_finance(prop)
+    latest = db.scalar(select(models.FinancialAnalysis).where(models.FinancialAnalysis.property_id == property_id).order_by(models.FinancialAnalysis.analysis_version.desc()))
+    financial_version = (latest.analysis_version + 1) if latest else 1
+    financial_inputs = {"auction_id": prop.auctions[-1].id if prop.auctions else None, "cost_ids": [cost.id for cost in prop.costs], "debt_ids": [debt.id for debt in prop.debts], "comparable_ids": [comparable.id for comparable in prop.comparables]}
+    financial_record = models.FinancialAnalysis(property_id=property_id, analysis_version=financial_version, inputs=financial_inputs, outputs=serialize(current))
+    db.add(financial_record); db.flush()
+
+    retrieval = RAGService(db).retrieve_context(
+        "custos dívidas aquisição desconto margem aluguel yield valor de mercado financeiro",
+        property_id,
+        filters=RetrieverFilters(property_id=property_id, category="financeiro"),
+    )
+    try:
+        gateway = build_gateway()
+    except (RuntimeError, ValueError):
+        gateway = None
+    result = FinancialAgent(db, gateway).run(property_id, retrieval.context, retrieval.chunk_ids, serialize(current))
+    run_data = dict(result.llm_call.to_dict(), agent="financeiro", retrieved_chunk_ids=retrieval.chunk_ids) if result.llm_call else {"agent": "financeiro", "status": "ERRO", "error_message": "Chamada não criada", "retrieved_chunk_ids": retrieval.chunk_ids}
+    runs = persist_llm_runs(db, prop, analysis, [run_data])
+    if not result.llm_call or result.llm_call.status != "CONCLUIDO":
+        db.commit()
+        return {"status": result.llm_call.status if result.llm_call else "ERRO", "erro": result.llm_call.error_message if result.llm_call else "Chamada não criada", "llm_run_id": runs[0].id if runs else None, "analysis_id": analysis_id, "financial_analysis_id": financial_record.id, "financeiro": serialize(current), "chunks_recuperados": retrieval.chunk_ids}
+    execution = latest_execution(prop)
+    evidence_ids = persist_agent_findings(db, prop, analysis, execution, [result.to_dict()])
+    analysis.agents_executed = sorted(set((analysis.agents_executed or []) + ["financeiro"]))
+    db.commit()
+    return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "financeiro", "financial_analysis_id": financial_record.id, "financeiro": serialize(current), "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):
