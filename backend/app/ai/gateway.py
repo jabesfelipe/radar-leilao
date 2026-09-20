@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from ..config import settings
+
+
+_SECRET_PATTERNS = (
+    (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(api[_-]?key\s*[=:]\s*)[^\s,;]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)\bsk-[A-Za-z0-9_-]+"), "[REDACTED]"),
+)
+
+
+def sanitize_error(message: str) -> str:
+    sanitized = message[:2000]
+    for pattern, replacement in _SECRET_PATTERNS:
+        sanitized = pattern.sub(replacement, sanitized)
+    return sanitized
 
 
 class ChatProvider(Protocol):
@@ -43,7 +58,7 @@ class LLMCall:
 
     @classmethod
     def unavailable(cls, provider: str, model: str, error_message: str) -> "LLMCall":
-        return cls(provider=provider, model=model, status="SEM_CHAVE", error_type="ConfigurationError", error_message=error_message)
+        return cls(provider=provider, model=model, status="SEM_CHAVE", error_type="ConfigurationError", error_message=sanitize_error(error_message))
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -68,7 +83,7 @@ class LLMGateway:
             return LLMCall(content=raw, provider=self.provider_name, model=self.model, duration_ms=elapsed, status="CONCLUIDO")
         except Exception as exc:
             elapsed = int((time.perf_counter() - started) * 1000)
-            return LLMCall(provider=self.provider_name, model=self.model, duration_ms=elapsed, status="ERRO", error_type=type(exc).__name__, error_message=str(exc)[:2000])
+            return LLMCall(provider=self.provider_name, model=self.model, duration_ms=elapsed, status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)))
 
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> LLMCall:
         return self._execute(lambda: self.provider.chat(messages, **kwargs))

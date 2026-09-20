@@ -32,7 +32,11 @@ class RAGService:
         text_fallback = False
         reason = None
         try:
-            embedding = build_gateway().embed([query])[0]
+            if not settings.effective_llm_api_key:
+                text_fallback = True
+                reason = "OPENAI_API_KEY não configurada"
+            else:
+                embedding = build_gateway().embed([query])[0]
         except RuntimeError as exc:
             text_fallback = True
             reason = str(exc)

@@ -103,3 +103,51 @@ def test_agregacao_de_usage_por_analise_preserva_desconhecido():
     assert result["total_cost"] == Decimal("1.25")
     assert result["runs"] == 2
     assert result["error_runs"] == 1
+
+
+def test_pricing_ausente_mantem_custo_nulo():
+    result = calculate_cost(100, 50, None)
+    assert result == {"input_cost": None, "output_cost": None, "total_cost": None}
+
+
+def test_erro_com_api_key_nunca_expoe_segredo():
+    secret = "sk-projeto-secreto-123"
+    call = LLMGateway(FakeProvider(error=RuntimeError(f"request failed api_key={secret} bearer {secret}")), "fake", "modelo-teste").structured_chat(AgentResponse, [])
+    assert call.status == "ERRO"
+    assert secret not in (call.error_message or "")
+    assert "[REDACTED]" in (call.error_message or "")
+
+
+def test_persistencia_registra_run_com_erro_sem_segredo():
+    db = FakeDb()
+    call = LLMGateway(FakeProvider(error=RuntimeError("falha sem segredo")), "fake", "modelo-teste").structured_chat(AgentResponse, [])
+    run = persist_llm_runs(db, type("Property", (), {"id": 8})(), type("Analysis", (), {"id": 12})(), [dict(call.to_dict(), agent="supervisor", retrieved_chunk_ids=[9])])[0]
+    assert run.status == "ERRO"
+    assert run.property_id == 8
+    assert run.analysis_id == 12
+    assert run.error_message == "falha sem segredo"
+    assert run.total_cost is None
+
+
+def test_rag_nao_tenta_embedding_sem_api_key(monkeypatch):
+    from backend.app.rag.service import RAGService
+    class NoQueryDb:
+        def query(self, *args, **kwargs): raise AssertionError("não deve consultar chunks para gerar embedding")
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "openai_api_key", None)
+    monkeypatch.setattr(settings, "llm_api_key", None)
+    monkeypatch.setattr("backend.app.rag.service.HybridRetriever.search", lambda self, **kwargs: [])
+    service = RAGService(object())
+    result = service.retrieve_context("consulta", property_id=1)
+    assert result.vector_search is False
+    assert result.text_fallback is True
+
+
+def test_document_embedding_nao_constroi_gateway_sem_api_key(monkeypatch):
+    from backend.app.documents.embedding import embed_pending_chunks
+    class NoQueryDb:
+        def query(self, *args, **kwargs): raise AssertionError("não deve buscar chunks sem API key")
+    from backend.app.config import settings
+    monkeypatch.setattr(settings, "openai_api_key", None)
+    monkeypatch.setattr(settings, "llm_api_key", None)
+    assert embed_pending_chunks(NoQueryDb(), 1) == 0
