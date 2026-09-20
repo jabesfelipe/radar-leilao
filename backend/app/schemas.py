@@ -98,6 +98,12 @@ class OccupancyCreate(BaseModel):
     evidence_id: int | None = None
 
 
+class EvidenceLinkCreate(BaseModel):
+    target_type: str
+    target_id: int
+    relation: str = "SUSTENTA"
+
+
 class EvidenceCreate(BaseModel):
     category: str = "DOCUMENTAL"
     fact: str

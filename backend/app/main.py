@@ -296,11 +296,40 @@ async def add_document_version(document_id: int, file: UploadFile = File(...), d
 
 @app.post("/api/imoveis/{property_id}/evidencias")
 def create_evidence(property_id: int, data: schemas.EvidenceCreate, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); evidence = models.Evidence(property_id=property_id, **data.model_dump()); db.add(evidence); db.flush(); event = record_event(db, prop, "EVIDENCIA_REGISTRADA", "Evidence", evidence.id, data.model_dump(), ["checklist", "juridico", "documental"]); record_history(db, prop, "Evidence", evidence.id, "CREATE", None, data.model_dump(), event.id, evidence.id); db.commit(); return evidence
+    prop = property_or_404(db, property_id)
+    if data.document_version_id is not None:
+        version = db.get(models.DocumentVersion, data.document_version_id)
+        if not version or version.document.property_id != property_id: raise HTTPException(400, "DocumentVersion não pertence ao imóvel")
+    if data.chunk_id is not None:
+        chunk = db.get(models.DocumentChunk, data.chunk_id)
+        if not chunk or chunk.document_version.document.property_id != property_id: raise HTTPException(400, "DocumentChunk não pertence ao imóvel")
+    evidence = models.Evidence(property_id=property_id, **data.model_dump())
+    db.add(evidence); db.flush(); payload = data.model_dump(mode="json")
+    event = record_event(db, prop, "EVIDENCIA_REGISTRADA", "Evidence", evidence.id, payload, ["checklist", "juridico", "documental"])
+    record_history(db, prop, "Evidence", evidence.id, "CREATE", None, payload, event.id, evidence.id)
+    db.commit(); db.refresh(evidence); return evidence
 
 @app.get("/api/imoveis/{property_id}/evidencias")
 def list_evidence(property_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id); return db.scalars(select(models.Evidence).where(models.Evidence.property_id == property_id).order_by(models.Evidence.created_at.desc())).all()
+
+@app.get("/api/imoveis/{property_id}/evidencias/{evidence_id}")
+def get_evidence(property_id: int, evidence_id: int, db: Session = Depends(get_db)):
+    property_or_404(db, property_id)
+    evidence = db.get(models.Evidence, evidence_id)
+    if not evidence or evidence.property_id != property_id: raise HTTPException(404, "Evidência não encontrada")
+    return {"evidencia": evidence, "document_version": evidence.document_version, "chunk": db.get(models.DocumentChunk, evidence.chunk_id) if evidence.chunk_id else None, "links": evidence.links}
+
+@app.post("/api/imoveis/{property_id}/evidencias/{evidence_id}/links")
+def link_evidence(property_id: int, evidence_id: int, data: schemas.EvidenceLinkCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    evidence = db.get(models.Evidence, evidence_id)
+    if not evidence or evidence.property_id != property_id: raise HTTPException(404, "Evidência não encontrada")
+    link = models.EvidenceLink(evidence_id=evidence_id, target_type=data.target_type, target_id=data.target_id, relation=data.relation)
+    db.add(link); db.flush(); payload = data.model_dump(mode="json") | {"evidence_id": evidence_id}
+    event = record_event(db, prop, "EVIDENCIA_VINCULADA", "EvidenceLink", link.id, payload, ["checklist", "juridico", "documental", "financeiro"])
+    record_history(db, prop, "EvidenceLink", link.id, "CREATE", None, payload, event.id, evidence_id)
+    db.commit(); db.refresh(link); return link
 
 @app.post("/api/imoveis/{property_id}/analisar")
 def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session = Depends(get_db)):
