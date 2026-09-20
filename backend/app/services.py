@@ -26,9 +26,9 @@ def ensure_checklist_master(db: Session) -> None:
 
 def create_execution(db: Session, prop: models.Property, triggered_by: str = "MANUAL", analysis_version: int | None = None):
     ensure_checklist_master(db)
+    previous = latest_execution(prop)
     execution = models.ChecklistExecution(property_id=prop.id, triggered_by=triggered_by, analysis_version=analysis_version)
     db.add(execution); db.flush()
-    previous = latest_execution(prop)
     previous_by_item = {r.checklist_item_id: r for r in previous.results} if previous else {}
     items = db.scalars(select(models.ChecklistItem).where(models.ChecklistItem.active.is_(True)).order_by(models.ChecklistItem.priority, models.ChecklistItem.canonical_key)).all()
     for item in items:
