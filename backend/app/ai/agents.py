@@ -66,8 +66,53 @@ class DocumentAgent(RadarAgent):
 
 class LegalAgent(RadarAgent):
     name = "juridico"
+
+    def _property_snapshot(self, property_id: int) -> dict[str, Any]:
+        snapshot = super()._property_snapshot(property_id)
+        prop = self.db.get(models.Property, property_id)
+        if not prop:
+            return snapshot
+        snapshot["processos"] = [
+            {
+                "numero": process.number,
+                "tribunal": process.court,
+                "comarca": process.comarca,
+                "natureza": process.nature,
+                "assunto": process.subject,
+                "status": process.status,
+                "polo_ativo": process.polo_active,
+                "polo_passivo": process.polo_passive,
+                "data_distribuicao": serialize(process.distribution_date),
+                "observacoes": process.observations,
+                "fonte": process.source,
+                "consultado_em": serialize(process.consulted_at),
+                "impacto_cadastrado": process.impact,
+                "movimentacoes": [
+                    {
+                        "data": serialize(movement.movement_date),
+                        "descricao": movement.description,
+                        "fonte": movement.source,
+                    }
+                    for movement in process.movements
+                ],
+            }
+            for process in prop.processes
+        ]
+        return snapshot
+
     def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
-        return self._run_llm(property_id, context, "Analise registros, consolidação, processos e possíveis riscos jurídicos sem afirmar conclusão legal sem evidência.", retrieved_chunk_ids or [])
+        instructions = (
+            "Analise exclusivamente fatos jurídicos e documentais do imóvel, incluindo matrícula, edital, "
+            "processos, movimentações, consolidação, registros e averbações. Identifique fatos relevantes e "
+            "relacione-os a checklist_key e checklist_state somente quando a regra existente estiver explicitamente "
+            "suportada. Diferencie fato, interpretação, hipótese e ausência de informação. Use somente o contexto "
+            "RAG e o snapshot cadastrado; informe chunk_ids, página, seção e trecho para cada conclusão baseada "
+            "em documento. Não invente fatos, não afirme certeza jurídica sem base, não declare validade ou "
+            "nulidade automaticamente, não emita veredito de compra, não calcule preço e não crie risco final. "
+            "Quando houver dúvida, registre como hipótese ou ausência e preserve a evidência; a análise não substitui "
+            "decisão jurídica profissional."
+        )
+        return self._run_llm(property_id, context, instructions, retrieved_chunk_ids or [])
 
 class FinancialAgent(RadarAgent):
     name = "financeiro"

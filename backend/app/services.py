@@ -119,11 +119,16 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
             if chunk and version:
                 document_ids.add(version.document_id)
             is_documental = agent_name.lower() in {"documental", "document_agent", "document"}
+            is_juridico = agent_name.lower() in {"juridico", "jurídico", "legal", "legal_agent"}
             if is_documental:
                 if not chunk or not version:
                     continue
                 from .evidence import normalize_documentary_evidence
                 evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=chunk.id, category="DOCUMENTAL", fact=statement, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page"), section=finding.get("section"), source_excerpt=finding.get("evidence_excerpt"), target_type="Analysis", target_id=analysis.id)
+                evidence_ids.append(evidence.id); document_ids.add(version.document_id)
+            elif is_juridico and chunk and version:
+                from .evidence import normalize_documentary_evidence
+                evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=chunk.id, category="JURIDICO", fact=statement, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page"), section=finding.get("section"), source_excerpt=finding.get("evidence_excerpt"), target_type="Analysis", target_id=analysis.id)
                 evidence_ids.append(evidence.id); document_ids.add(version.document_id)
             else:
                 evidence = models.Evidence(property_id=prop.id, document_version_id=version.id if version else None, chunk_id=chunk.id if chunk else None, category=agent_name.upper(), fact=statement, interpretation=statement if finding.get("kind") == "interpretacao" else None, hypothesis=statement if finding.get("kind") == "hipotese" else None, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page") or (chunk.page if chunk else None), section=finding.get("section") or (chunk.section if chunk else None), source_excerpt=finding.get("evidence_excerpt") or (chunk.content[:1000] if chunk else None))
@@ -139,7 +144,7 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 checklist_result.interpretation = statement
                 db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
     analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
-    analysis.documents_considered = sorted(set((analysis.documents_considered or []) + document_ids))
+    analysis.documents_considered = sorted(set((analysis.documents_considered or []) + list(document_ids)))
     db.flush()
     return evidence_ids
 
