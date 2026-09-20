@@ -72,3 +72,26 @@ def test_persistencia_cria_registro_e_evidencia_rastreavel(monkeypatch):
     item,evidence_ids=persist_extraction(db,prop,result)
     assert item.registration_number=="123" and len(evidence_ids)==1
     assert any(isinstance(value,models.EvidenceLink) for value in db.added)
+
+
+def test_campo_preenchido_com_referencia_correspondente_sucesso(monkeypatch):
+    fake_rag(monkeypatch)
+    output = RegistrationExtraction(registration_number="123456", references=[{"field":"registration_number","value":"123456"}])
+    result = extract_document(FakeDb(version_for()), 1, 3, "MATRICULA", LLMGateway(FakeProvider(output), "fake", "modelo"))
+    assert result.success is True
+
+
+def test_campo_preenchido_sem_referencia_retorna_erro(monkeypatch):
+    fake_rag(monkeypatch)
+    output = RegistrationExtraction(registration_number="123456", references=[])
+    result = extract_document(FakeDb(version_for()), 1, 3, "MATRICULA", LLMGateway(FakeProvider(output), "fake", "modelo"))
+    assert result.success is False
+    assert result.call.status == "ERRO"
+    assert "registration_number" in (result.call.error_message or "")
+
+
+def test_campo_nulo_sem_referencia_e_permitido(monkeypatch):
+    fake_rag(monkeypatch)
+    output = RegistrationExtraction(registration_number=None, registry_office=None, references=[])
+    result = extract_document(FakeDb(version_for()), 1, 3, "MATRICULA", LLMGateway(FakeProvider(output), "fake", "modelo"))
+    assert result.success is True
