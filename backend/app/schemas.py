@@ -16,7 +16,19 @@ class DebtCreate(BaseModel):
 class ComparableCreate(BaseModel):
     kind: str = "VENDA"; price: Decimal = 0; rent: Decimal | None = None; area_m2: Decimal = 0; source: str = "Cadastro manual"; url: str = ""
 class ProcessCreate(BaseModel):
-    number: str; court: str = ""; subject: str = ""; status: str = "Em análise"; source: str = "Cadastro manual"; impact: str = ""
+    number: str
+    court: str | None = None
+    comarca: str | None = None
+    nature: str | None = None
+    subject: str | None = None
+    status: str | None = None
+    polo_active: str | None = None
+    polo_passive: str | None = None
+    distribution_date: date | None = None
+    observations: str | None = None
+    source: str | None = None
+    impact: str | None = None
+    evidence_id: int | None = None
 class ChecklistUpdate(BaseModel):
     state: Literal["PENDENTE", "EM_ANALISE", "CONFIRMADO", "RISCO_IDENTIFICADO", "ATENCAO", "NAO_IDENTIFICADO", "NAO_APLICAVEL"]
     answer: str = ""

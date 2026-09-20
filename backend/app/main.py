@@ -160,7 +160,21 @@ def add_comparable(property_id: int, data: schemas.ComparableCreate, db: Session
 
 @app.post("/api/imoveis/{property_id}/processos")
 def add_process(property_id: int, data: schemas.ProcessCreate, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); item = models.LegalProcess(property_id=property_id, **data.model_dump()); db.add(item); db.flush(); record_event(db, prop, "PROCESSO_ADICIONADO", "LegalProcess", item.id, data.model_dump(mode="json"), impacted_domains("PROCESSO_ADICIONADO")); db.commit(); return item
+    prop = property_or_404(db, property_id)
+    item = models.LegalProcess(property_id=property_id, **data.model_dump())
+    db.add(item); db.flush()
+    payload = data.model_dump(mode="json")
+    event = record_event(db, prop, "PROCESSO_ADICIONADO", "LegalProcess", item.id, payload, ["juridico", "checklist", "financeiro"])
+    record_history(db, prop, "LegalProcess", item.id, "CREATE", None, payload, event.id, data.evidence_id)
+    db.commit(); db.refresh(item)
+    return item
+
+@app.get("/api/imoveis/{property_id}/processos")
+def list_processes(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    processes = db.scalars(select(models.LegalProcess).where(models.LegalProcess.property_id == property_id).order_by(models.LegalProcess.created_at)).all()
+    history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "LegalProcess").order_by(models.EntityHistory.created_at)).all()
+    return {"property_id": prop.id, "processos": processes, "historico": history}
 
 @app.patch("/api/imoveis/{property_id}/checklist/{item_id}")
 def update_checklist(property_id: int, item_id: int, data: schemas.ChecklistUpdate, db: Session = Depends(get_db)):
