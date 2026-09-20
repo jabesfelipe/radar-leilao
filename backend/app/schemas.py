@@ -98,6 +98,10 @@ class OccupancyCreate(BaseModel):
     evidence_id: int | None = None
 
 
+class DocumentExtractionRequest(BaseModel):
+    document_type: Literal["MATRICULA", "EDITAL"]
+
+
 class EvidenceLinkCreate(BaseModel):
     target_type: str
     target_id: int

@@ -9,6 +9,7 @@ from .database import get_db
 from . import models, schemas
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
+from .extraction import extract_document, persist_extraction
 from .market import calculate_market
 from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
@@ -166,6 +167,32 @@ def list_notices(property_id: int, db: Session = Depends(get_db)):
     records = db.scalars(select(models.AuctionNotice).where(models.AuctionNotice.property_id == property_id).order_by(models.AuctionNotice.created_at)).all()
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "AuctionNotice").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
+
+@app.post("/api/imoveis/{property_id}/documentos/{document_version_id}/extrair")
+def extract_document_endpoint(property_id: int, document_version_id: int, data: schemas.DocumentExtractionRequest, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    try:
+        result = extract_document(db, property_id, document_version_id, data.document_type)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    run_data = dict(result.call.to_dict(), agent="extracao_documental", retrieved_chunk_ids=[chunk["chunk_id"] for chunk in result.chunks])
+    runs = persist_llm_runs(db, prop, None, [run_data])
+    if not result.success:
+        db.commit()
+        return {"status": result.call.status, "erro": result.call.error_message, "llm_run_id": runs[0].id if runs else None, "document_version_id": document_version_id}
+    record, evidence_ids = persist_extraction(db, prop, result)
+    db.commit(); db.refresh(record)
+    return {"status": "PROCESSADO", "document_type": data.document_type, "document_version_id": document_version_id, "registro_id": record.id, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "dados": record}
+
+@app.get("/api/imoveis/{property_id}/documentos/{document_version_id}/extracao")
+def get_document_extraction(property_id: int, document_version_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    version = db.get(models.DocumentVersion, document_version_id)
+    if not version or version.document.property_id != property_id: raise HTTPException(404, "DocumentVersion não pertence ao imóvel")
+    registrations = db.scalars(select(models.PropertyRegistration).where(models.PropertyRegistration.property_id == property_id, models.PropertyRegistration.document_version_id == document_version_id).order_by(models.PropertyRegistration.created_at)).all()
+    notices = db.scalars(select(models.AuctionNotice).where(models.AuctionNotice.property_id == property_id, models.AuctionNotice.document_version_id == document_version_id).order_by(models.AuctionNotice.created_at)).all()
+    evidence = db.scalars(select(models.Evidence).where(models.Evidence.property_id == property_id, models.Evidence.document_version_id == document_version_id).order_by(models.Evidence.created_at)).all()
+    return {"property_id": prop.id, "document_version_id": document_version_id, "matriculas": registrations, "editais": notices, "evidencias": evidence}
 
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):

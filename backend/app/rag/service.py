@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from .retriever import HybridRetriever, RetrieverFilters, clamp_limit
 from ..ai.gateway import build_gateway
+from ..config import settings
 
 
 @dataclass(frozen=True)

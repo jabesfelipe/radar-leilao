@@ -91,7 +91,7 @@ class PropertyRegistration(TimestampMixin, Base):
     __tablename__ = "property_registrations"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
-    registration_number: Mapped[str] = mapped_column(String(80))
+    registration_number: Mapped[str | None] = mapped_column(String(80))
     registry_office: Mapped[str | None] = mapped_column(String(160))
     comarca: Mapped[str | None] = mapped_column(String(160))
     consultation_date: Mapped[date | None] = mapped_column(Date)
@@ -106,7 +106,7 @@ class AuctionNotice(TimestampMixin, Base):
     __tablename__ = "auction_notices"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
-    identifier: Mapped[str] = mapped_column(String(160))
+    identifier: Mapped[str | None] = mapped_column(String(160))
     notice_date: Mapped[date | None] = mapped_column(Date)
     auction_stage: Mapped[str | None] = mapped_column(String(80))
     appraisal_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
