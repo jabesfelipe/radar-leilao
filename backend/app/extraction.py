@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from . import models
 from .ai.gateway import LLMCall, LLMGateway, build_gateway
+from .evidence import normalize_documentary_evidence
 from .rag.retriever import RetrieverFilters
 from .rag.service import RAGService
 from .services import persist_llm_runs, record_event, record_history
@@ -97,10 +98,8 @@ def persist_extraction(db, prop: models.Property, result: ExtractionResult):
         target_type = "AuctionNotice"; event_type = "EDITAL_EXTRAIDO"; domains = ["documental", "juridico", "financeiro", "checklist"]
     db.add(item); db.flush(); evidence_ids = []
     for reference in output.references:
-        chunk = db.get(models.DocumentChunk, reference.chunk_id) if reference.chunk_id else None
-        if reference.chunk_id and (not chunk or chunk.document_version_id != version.id): continue
-        evidence = models.Evidence(property_id=prop.id, document_version_id=version.id, chunk_id=chunk.id if chunk else None, category=result.document_type, fact=f"{reference.field}: {reference.value}", confidence=reference.confidence, page=reference.page or (chunk.page if chunk else None), section=reference.section or (chunk.section if chunk else None), source_excerpt=reference.excerpt or (chunk.content[:1000] if chunk else None))
-        db.add(evidence); db.flush(); evidence_ids.append(evidence.id); db.add(models.EvidenceLink(evidence_id=evidence.id, target_type=target_type, target_id=item.id, relation="SUSTENTA"))
+        evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=reference.chunk_id, category=result.document_type, fact=f"{reference.field}: {reference.value}", confidence=reference.confidence, page=reference.page, section=reference.section, source_excerpt=reference.excerpt, target_type=target_type, target_id=item.id)
+        evidence_ids.append(evidence.id)
     item.evidence_id = evidence_ids[0] if evidence_ids else None
     payload = {"document_version_id": version.id, "record_id": item.id, "evidence_ids": evidence_ids}
     event = record_event(db, prop, event_type, target_type, item.id, payload, domains); record_history(db, prop, target_type, item.id, "CREATE", None, payload, event.id, item.evidence_id)

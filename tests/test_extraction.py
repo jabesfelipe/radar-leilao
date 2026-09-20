@@ -12,9 +12,10 @@ class FakeProvider:
     def chat(self,*args,**kwargs): return ProviderResponse(content="")
     def embed(self,texts): return []
 class FakeDb:
-    def __init__(self, version): self.version=version; self.added=[]
+    def __init__(self, version): self.version=version; self.added=[]; self.prop=models.Property(id=1,title="Teste",address="Rua",city="São Paulo",state="SP")
     def get(self, model, identifier):
         if model is models.DocumentVersion: return self.version
+        if model is models.Property: return self.prop
         return None
     def add(self,item):
         if isinstance(item,(models.PropertyRegistration,models.AuctionNotice,models.Evidence,models.EvidenceLink,models.DomainEvent,models.EntityHistory)) and getattr(item,"id",None) is None: item.id=len([x for x in self.added if type(x) is type(item)])+1
