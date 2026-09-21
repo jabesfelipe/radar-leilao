@@ -77,6 +77,7 @@ def test_nova_versao_preserva_tipo_source_e_anteriores(monkeypatch, tmp_path):
     monkeypatch.setattr("backend.app.documents.pipeline.DocumentNormalizer.normalize", lambda self, path, document_type: (path.read_text(encoding="utf-8"), {"engine": "fake"}))
     monkeypatch.setattr(settings, "storage_dir", str(tmp_path))
     prop = property_stub(); document = models.Document(id=1, property_id=1, name="edital.txt", document_type="EDITAL", source="Manual")
+    document.versions.append(models.DocumentVersion(id=1, document_id=1, version=1, content_hash="a" * 64, original_path="v1-edital.txt"))
     db = FakeDb(prop, document); prop.documents.append(document)
     result = asyncio.run(add_document_version(1, upload("edital.txt", b"dois"), None, None, db))
     assert result["document_type"] == "EDITAL"
