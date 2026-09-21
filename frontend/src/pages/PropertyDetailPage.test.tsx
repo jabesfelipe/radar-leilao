@@ -42,8 +42,8 @@ describe('PropertyDetailPage', () => {
     await screen.findByRole('heading', { name: 'Apartamento Centro' })
 
     expect(screen.getByRole('button', { name: 'Visão geral' })).toHaveAttribute('aria-current', 'page')
-    fireEvent.click(screen.getByRole('button', { name: 'Financeiro' }))
-    expect(screen.getByRole('button', { name: 'Financeiro' })).toHaveAttribute('aria-current', 'page')
+    fireEvent.click(screen.getByRole('button', { name: 'Mercado' }))
+    expect(screen.getByRole('button', { name: 'Mercado' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByText('MÓDULO EM PREPARAÇÃO')).toBeInTheDocument()
   })
 
@@ -111,6 +111,19 @@ describe('PropertyDetailPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Processos Jurídicos' }))
     expect(await screen.findByText('Nenhum processo cadastrado')).toBeInTheDocument()
     expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/processos')
+  })
+
+  it('abre a seção Financeiro real dentro do imóvel', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response({ property_id: 7, custos: [], historico: [] }))
+      .mockReturnValueOnce(response({ property_id: 7, dividas: [], historico: [] }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Financeiro' }))
+    expect(await screen.findByText('Nenhum custo cadastrado')).toBeInTheDocument()
+    expect(screen.getByText('Nenhuma dívida cadastrada')).toBeInTheDocument()
   })
 
   it('apresenta todas as seções futuras do dossiê', async () => {

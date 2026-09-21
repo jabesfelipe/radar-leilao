@@ -421,3 +421,19 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 @media (max-width: 680px) {
   .process-card-head { flex-direction: column; }
 }
+
+/* Seção financeira: custos e dívidas */
+.financial-section { display: grid; gap: 2rem; }
+.finance-check { display: flex; align-items: center; gap: .55rem; align-self: end; min-height: 44px; color: var(--color-text); font-size: var(--font-size-sm); }
+.finance-check input { width: 18px; height: 18px; }
+.finance-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .85rem; }
+.finance-card { display: grid; gap: .75rem; min-width: 0; }
+.finance-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.finance-card-head strong { color: var(--color-text); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.finance-card-meta { display: flex; align-items: flex-end; justify-content: space-between; gap: .75rem; padding-top: .6rem; border-top: 1px solid var(--color-border); color: var(--color-text-soft); font-size: var(--font-size-xs); }
+.finance-card-meta strong { color: var(--color-text); font-size: var(--font-size-sm); }
+
+@media (max-width: 680px) {
+  .finance-list { grid-template-columns: 1fr; }
+  .finance-check { align-self: start; }
+}
