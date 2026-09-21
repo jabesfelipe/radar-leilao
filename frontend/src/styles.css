@@ -296,3 +296,42 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   .property-grid { grid-template-columns: 1fr; }
   .property-card { min-height: 0; }
 }
+
+/* Card de imóvel clicável */
+.property-card-button { display: grid; gap: .85rem; width: 100%; min-height: 210px; padding: 1.5rem; border: 0; border-radius: inherit; background: transparent; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.property-card-button:hover { background: var(--color-surface-subtle); }
+
+/* Hub de detalhe do imóvel */
+.property-detail { display: grid; gap: 1.5rem; }
+.detail-back { width: fit-content; padding-left: 0; }
+.detail-error { display: grid; gap: 1rem; justify-items: start; }
+.detail-hero { display: flex; align-items: flex-start; gap: 1.25rem; }
+.detail-hero-icon { display: grid; width: 54px; height: 54px; flex-shrink: 0; place-items: center; border-radius: var(--radius-md); color: #ebc579; background: #ffffff1a; }
+.detail-hero-info { flex: 1; min-width: 0; }
+.detail-hero .eyebrow { color: #e3bb6d; }
+.detail-hero h2 { margin: .5rem 0 .6rem; color: #fff; font-size: var(--font-size-xl); overflow-wrap: anywhere; }
+.detail-address { display: flex; align-items: flex-start; gap: .4rem; margin: 0 0 .3rem; color: #d5deec; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.detail-address svg { flex: 0 0 auto; margin-top: .15rem; }
+.detail-location { margin: 0; color: #aab7cd; font-size: var(--font-size-sm); }
+.detail-status { flex-shrink: 0; }
+.detail-nav { display: flex; flex-wrap: wrap; gap: .5rem; padding-bottom: .25rem; }
+.detail-nav-item { min-height: 40px; padding: .5rem .85rem; border: 1px solid var(--color-border); border-radius: 999px; color: var(--color-text-muted); background: var(--color-surface); cursor: pointer; font-size: var(--font-size-sm); font-weight: 700; transition: color .18s ease, background .18s ease, border-color .18s ease; }
+.detail-nav-item:hover { color: var(--color-brand-primary); border-color: var(--color-accent); }
+.detail-nav-item-active { color: var(--color-brand-primary); border-color: var(--color-accent); background: #fff7e8; }
+.detail-section { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1.5rem; background: var(--color-surface); }
+.detail-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.detail-fact { display: grid; gap: .3rem; padding: .85rem 1rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-subtle); min-width: 0; }
+.detail-fact span { color: var(--color-text-soft); font-size: var(--font-size-xs); font-weight: 800; letter-spacing: .04em; }
+.detail-fact strong { color: var(--color-text); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.detail-placeholder { display: grid; gap: .4rem; }
+.detail-placeholder h3 { margin: .3rem 0 0; color: var(--color-text); font-size: var(--font-size-lg); }
+.detail-placeholder p:last-child { max-width: 560px; margin: 0; color: var(--color-text-soft); font-size: var(--font-size-sm); line-height: 1.6; }
+
+@media (max-width: 680px) {
+  .property-card-button { min-height: 0; padding: 1.25rem; }
+  .detail-hero { flex-direction: column; }
+  .detail-status { align-self: flex-start; }
+  .detail-nav { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px; padding: 0 16px .5rem; }
+  .detail-nav-item { flex: 0 0 auto; }
+  .detail-facts { grid-template-columns: 1fr; }
+}

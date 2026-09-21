@@ -47,6 +47,15 @@ describe('PropertiesPage', () => {
     expect(screen.getByText('EM ANALISE')).toBeInTheDocument()
   })
 
+  it('abre o detalhe do imóvel ao clicar no card', async () => {
+    const onOpenProperty = vi.fn()
+    vi.mocked(fetch).mockReturnValueOnce(response([property]))
+    render(<PropertiesPage onOpenProperty={onOpenProperty} />)
+
+    fireEvent.click(await screen.findByText('Apartamento Centro'))
+    expect(onOpenProperty).toHaveBeenCalledWith(1)
+  })
+
   it('abre o cadastro e valida campos obrigatórios', async () => {
     vi.mocked(fetch).mockReturnValueOnce(response([]))
     render(<PropertiesPage />)

@@ -25,7 +25,11 @@ function validate(form: PropertyForm): FieldErrors {
   return errors
 }
 
-export function PropertiesPage() {
+type PropertiesPageProps = {
+  onOpenProperty?: (id: number) => void
+}
+
+export function PropertiesPage({ onOpenProperty }: PropertiesPageProps = {}) {
   const [properties, setProperties] = useState<Property[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -132,7 +136,7 @@ export function PropertiesPage() {
           <Card padding="none"><EmptyState title="Nenhum imóvel cadastrado" description="Comece adicionando o primeiro imóvel ao seu radar." icon={<Building2 size={24} />} action={<Button onClick={openForm}><Plus size={17} /> Novo imóvel</Button>} /></Card>
         ) : (
           <div className="property-grid">
-            {properties.map((property) => <PropertyCard key={property.id} property={property} />)}
+            {properties.map((property) => <PropertyCard key={property.id} property={property} onOpen={onOpenProperty} />)}
           </div>
         )}
       </Section>
@@ -141,19 +145,21 @@ export function PropertiesPage() {
   )
 }
 
-function PropertyCard({ property }: { property: Property }) {
+function PropertyCard({ property, onOpen }: { property: Property; onOpen?: (id: number) => void }) {
   return (
-    <Card className="property-card" padding="md">
-      <div className="property-card-head">
-        <div className="property-card-icon"><Building2 size={20} /></div>
-        <Badge tone={property.status === 'EM_ANALISE' ? 'warning' : 'neutral'} size="sm">{property.status.split('_').join(' ')}</Badge>
-      </div>
-      <h3>{property.title}</h3>
-      <p className="property-address"><MapPin size={14} /> {property.address}</p>
-      <div className="property-card-meta">
-        <span>{property.city} · {property.state}</span>
-        <strong>{property.property_type}</strong>
-      </div>
+    <Card className="property-card" padding="none">
+      <button type="button" className="property-card-button" onClick={() => onOpen?.(property.id)}>
+        <div className="property-card-head">
+          <div className="property-card-icon"><Building2 size={20} /></div>
+          <Badge tone={property.status === 'EM_ANALISE' ? 'warning' : 'neutral'} size="sm">{property.status.split('_').join(' ')}</Badge>
+        </div>
+        <h3>{property.title}</h3>
+        <p className="property-address"><MapPin size={14} /> {property.address}</p>
+        <div className="property-card-meta">
+          <span>{property.city} · {property.state}</span>
+          <strong>{property.property_type}</strong>
+        </div>
+      </button>
     </Card>
   )
 }

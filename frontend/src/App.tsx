@@ -4,12 +4,21 @@ import { Badge, Card, EmptyState, Section } from './components/ui'
 import { Layout } from './components/Layout'
 import { PageContainer } from './components/PageContainer'
 import { PropertiesPage } from './pages/PropertiesPage'
+import { PropertyDetailPage } from './pages/PropertyDetailPage'
 import { navigationItems } from './components/Sidebar'
 
 const defaultPath = '/dashboard'
 
+const propertyDetailPattern = /^\/imoveis\/(\d+)$/
+
 function normalizePath(pathname: string) {
+  if (propertyDetailPattern.test(pathname)) return pathname
   return navigationItems.some((item) => item.path === pathname) ? pathname : defaultPath
+}
+
+function matchPropertyDetail(pathname: string): number | null {
+  const match = propertyDetailPattern.exec(pathname)
+  return match ? Number(match[1]) : null
 }
 
 function App() {
@@ -27,12 +36,23 @@ function App() {
     setCurrentPath(path)
   }
 
+  const detailPropertyId = matchPropertyDetail(currentPath)
+  if (detailPropertyId !== null) {
+    return (
+      <Layout currentPath="/imoveis" onNavigate={navigate}>
+        <PageContainer title="Detalhe do imóvel" description="Centro de navegação do imóvel e ponto de partida para as análises.">
+          <PropertyDetailPage propertyId={detailPropertyId} onBack={() => navigate('/imoveis')} />
+        </PageContainer>
+      </Layout>
+    )
+  }
+
   const page = navigationItems.find((item) => item.path === currentPath) ?? navigationItems[0]
 
   return (
     <Layout currentPath={currentPath} onNavigate={navigate}>
       <PageContainer title={page.label} description={pageDescription[page.path]}>
-        <FoundationPage path={page.path} />
+        <FoundationPage path={page.path} onNavigate={navigate} />
       </PageContainer>
     </Layout>
   )
@@ -52,8 +72,8 @@ const pageDescription: Record<string, string> = {
   '/historico': 'Espaço reservado para o histórico de análises e alterações.',
 }
 
-function FoundationPage({ path }: { path: string }) {
-  if (path === '/imoveis') return <PropertiesPage />
+function FoundationPage({ path, onNavigate }: { path: string; onNavigate: (path: string) => void }) {
+  if (path === '/imoveis') return <PropertiesPage onOpenProperty={(id) => onNavigate(`/imoveis/${id}`)} />
 
   if (path === '/dashboard') {
     return (

@@ -58,3 +58,8 @@ export function createProperty(payload: PropertyCreate): Promise<Property> {
     body: JSON.stringify(payload),
   })
 }
+
+export async function getProperty(id: number): Promise<Property> {
+  const detail = await request<{ imovel: Property }>(`/api/imoveis/${id}`)
+  return detail.imovel
+}
