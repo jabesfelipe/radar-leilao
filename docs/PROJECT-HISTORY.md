@@ -191,3 +191,30 @@ A partir de agora, alterações de andamento devem ser registradas principalment
 ## Próxima etapa
 
 - TASK 54 — Reexecutar a suíte e corrigir somente a próxima falha real, uma por vez.
+
+
+## TASK 54 — Correção da próxima falha
+
+- `ecde86518d4d9d4136184877974f103b9735e80d` — `fix: corrige proxima falha da suite`
+- Auditoria: 🟢 aprovado.
+- Corrigida fixture de `test_documents.py`.
+- Suíte: 213 passed, 8 failed.
+
+## TASK 55 — Correção da próxima falha
+
+- `27a65e3cd21053d710c68338a4f1a853a4ad8caa` — `fix: corrige proxima falha da suite`
+- Auditoria: 🟢 aprovado.
+- Corrigida fixture de `test_extraction.py` para respeitar o contrato de rastreabilidade.
+- Suíte: 214 passed, 7 failed.
+
+## TASK 56 — Correção da próxima falha
+
+- `1aa3912445c3e25a6f0b9e2ac4fa93d9e82f1d74` — `fix: corrige proxima falha da suite`
+- Auditoria: 🟢 aprovado.
+- Corrigida fixture de `test_extraction.py` para fornecer referências aos campos preenchidos.
+- Suíte: 215 passed, 6 failed.
+
+## TASK 57 — Em execução
+
+- Próxima falha: `tests/test_extraction.py::test_persistencia_cria_registro_e_evidencia_rastreavel`.
+- Correção em andamento pelo Kiro.
