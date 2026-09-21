@@ -2,6 +2,29 @@
 
 MVP em português do Brasil para análise rastreável de imóveis em leilões extrajudiciais, alinhado à `SPEC-VIBE-CODING-RADAR-LEILAO.md`.
 
+## Controle do projeto
+
+**Próxima TASK:** TASK 44 — Mercado + Ocupação no Hub do Imóvel  
+**Última TASK aprovada:** TASK 43 — Financeiro no Hub do Imóvel
+
+Acompanhe o desenvolvimento por estes documentos:
+
+- [Controle central de andamento](docs/PROJECT-STATUS.md) — TASKs concluídas, pendentes, próxima TASK e regras de continuidade.
+- [Histórico de implementação](docs/PROJECT-HISTORY.md) — histórico técnico e commits relevantes.
+- [Workflow de desenvolvimento](docs/DEVELOPMENT-WORKFLOW.md) — ciclo Kiro → commit → revisão → aprovação → próxima TASK.
+- [SPEC oficial](SPEC-VIBE-CODING-RADAR-LEILAO.md) — arquitetura e requisitos do produto.
+
+### Regra de continuidade
+
+Uma TASK por vez.
+
+1. Kiro lê a próxima TASK pendente em `docs/PROJECT-STATUS.md`.
+2. Implementa somente o escopo definido.
+3. Cria o commit.
+4. Usuário solicita **"da pull"**.
+5. O commit é auditado contra a SPEC, contratos e escopo da TASK.
+6. Após aprovação, o controle é atualizado e a próxima TASK é liberada.
+
 ## Arquitetura local
 
 - React + TypeScript
