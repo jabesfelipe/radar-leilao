@@ -47,12 +47,12 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `13b6c9325978908b7960e17edb65700fd94c0aa2`  
-**Mensagem:** `feat: implementa mercado e ocupacao no hub do imovel`
+**Último commit implementado:** `14da0329cb7c03fd59291d6b0fc585943fc83abc`  
+**Mensagem:** `fix: corrige contrato e valores ausentes do checklist`
 
-**Última TASK aprovada:** TASK 44
+**Última TASK aprovada:** TASK 45
 
-**Próxima TASK:** TASK 45 — Checklist no Hub do Imóvel
+**Próxima TASK:** TASK 46 — Riscos + Veredito no Hub
 
 **Status global:** 🟡 MVP em construção
 
@@ -229,82 +229,109 @@ Uma TASK só é considerada concluída quando:
 
 # 5. PRÓXIMA TASK — PENDENTE
 
-## TASK 45 — Checklist no Hub do Imóvel
+## TASK 46 — Riscos + Veredito no Hub
 
 **Status: [ ] PENDENTE**
 
 ### Objetivo
 
-Implementar o frontend do Checklist Mestre já existente, conectado aos endpoints atuais do backend.
+Implementar no Hub do Imóvel a visualização dos resultados já existentes de Risk Engine e Verdict Engine, usando exclusivamente os contratos e regras já implementados no backend.
 
 ### Regras obrigatórias
 
-- inspecionar endpoints e payloads reais antes de implementar;
-- usar o Checklist Mestre existente;
-- não criar nova checklist nem duplicar regras por domínio;
-- não alterar matriz canônica sem necessidade;
-- não inventar regras de negócio;
-- não chamar LLM/RAG/Agents para a camada de visualização/edição.
+- primeiro inspecionar endpoints, schemas, models e payloads reais;
+- usar somente riscos e veredito já produzidos pelo backend;
+- não criar novas regras de risco;
+- não recalcular severidade no frontend;
+- não criar score/ranking de risco;
+- não alterar Risk Engine ou Verdict Engine sem necessidade comprovada pelo contrato;
+- não chamar LLM/RAG/Agents para visualização;
+- não inventar estados, severidades ou campos;
+- manter rastreabilidade quando disponível.
 
-### Endpoints atuais a verificar
+### Escopo
 
-- GET `/api/imoveis/{property_id}/checklist`
-- GET `/api/imoveis/{property_id}/checklist/historico`
-- PATCH `/api/imoveis/{property_id}/checklist/{item_id}`
-- GET `/api/checklist`
-- GET `/api/checklist/{item_id}`
+#### Riscos
 
-### Visualização
+Exibir, quando disponíveis no payload real:
 
-- lista dos resultados do Checklist Mestre;
-- pergunta, categoria, domínio e origem quando disponíveis;
-- estado, aplicabilidade, resposta e confiança;
-- interpretação e risco quando disponíveis;
-- loading, empty, erro e retry.
+- risco;
+- domínio/categoria;
+- título;
+- descrição;
+- severidade;
+- estado/status;
+- impacto;
+- confiança;
+- evidências;
+- itens do checklist relacionados.
 
-### Atualização
+#### Veredito
 
-Usar somente o contrato existente.
-Estados oficiais: `PENDENTE`, `EM_ANALISE`, `CONFIRMADO`, `RISCO_IDENTIFICADO`, `ATENCAO`, `NAO_IDENTIFICADO`, `NAO_APLICAVEL`.
-Confianças oficiais: `BAIXA`, `MEDIA`, `ALTA`.
-Não inventar outros estados.
+Exibir o veredito atual retornado pelo backend, incluindo apenas informações realmente existentes no contrato, como:
 
-### Escopo negativo
+- estado/veredito;
+- versão da análise;
+- riscos relacionados;
+- evidências;
+- pendências;
+- informações financeiras quando já retornadas pelo backend.
 
-- não criar novas perguntas/regras;
-- não criar score/ranking de checklist;
-- não criar motor de risco ou veredito;
-- não usar LLM/RAG/Agents;
-- não duplicar o Checklist Mestre.
+Não reinterpretar o veredito no frontend.
 
-### Testes
+### UX
 
 - loading;
 - empty;
-- listagem;
-- atualização;
-- erro de atualização;
+- erro;
 - retry;
+- feedback claro;
+- visual coerente com o design system;
+- destaque adequado para severidade e veredito;
+- desktop/tablet/mobile;
+- sem scroll horizontal.
+
+### Testes
+
+Cobrir pelo menos:
+
+- carregamento de riscos;
+- lista de riscos;
+- ausência de riscos;
+- erro/retry;
+- severidades/estados reais;
+- veredito existente;
+- ausência de veredito;
 - integração no Hub;
-- estados oficiais.
+- responsividade quando aplicável.
 
-### Responsividade
+### Escopo negativo
 
-- desktop, tablet e mobile;
-- sem scroll horizontal da página;
-- controles utilizáveis em toque;
-- textos legíveis;
-- preservar navegação existente.
+- não criar Risk Engine;
+- não criar Verdict Engine;
+- não alterar regras determinísticas;
+- não criar novas regras de negócio;
+- não criar score;
+- não criar ranking;
+- não usar LLM/RAG/Agents;
+- não implementar ainda o Histórico completo;
+- não implementar ainda o fluxo completo de análise.
 
 ### Commit esperado
 
-`feat: implementa checklist no hub do imovel`
+feat: implementa riscos e veredito no hub do imovel
 
 # 6. Backlog futuro
 
-Depois da TASK 44, continuar nesta ordem, refinando cada item somente quando chegar sua vez:
+Depois da TASK 45, continuar nesta ordem, refinando cada item somente quando chegar sua vez:
 
-- [ ] **TASK 45** — Checklist no Hub do Imóvel
+- [x] **TASK 45** — Checklist no Hub do Imóvel
+  - Commit inicial: `a8fe36ac643090ff4c74008dfe4bb3c2f9aaf0d2`
+  - Correção aprovada: `14da0329cb7c03fd59291d6b0fc585943fc83abc`
+  - Checklist Mestre integrado ao Hub usando o endpoint específico do checklist e enriquecimento pelos metadados existentes.
+  - Estados e confiança respeitados; ausência de informação não é convertida em valor inferido.
+  - Sem novas regras, score, ranking, LLM, RAG, Agents ou alterações de backend.
+
 - [ ] **TASK 46** — Riscos + Veredito no Hub
 - [ ] **TASK 47** — Histórico no Hub
 - [ ] **TASK 48** — Fluxo completo de análise do imóvel
