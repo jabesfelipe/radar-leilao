@@ -47,12 +47,12 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `30f366678b9359238cdca08d5a5724acacf6a9076f`  
-**Mensagem:** `feat: implementa financeiro no hub do imovel`
+**Último commit implementado:** `13b6c9325978908b7960e17edb65700fd94c0aa2`  
+**Mensagem:** `feat: implementa mercado e ocupacao no hub do imovel`
 
-**Última TASK aprovada:** TASK 43
+**Última TASK aprovada:** TASK 44
 
-**Próxima TASK:** TASK 44 — Mercado + Ocupação no Hub do Imóvel
+**Próxima TASK:** TASK 45 — Checklist no Hub do Imóvel
 
 **Status global:** 🟡 MVP em construção
 
@@ -217,147 +217,88 @@ Uma TASK só é considerada concluída quando:
 - [x] **TASK 43** — Implementar Financeiro no Hub.
   - Commit: `30f366678b9359238cdca08d5a5724acacf6a9076f`
 
+- [x] **TASK 44** — Implementar Mercado + Ocupação no Hub.
+  - Commit: `13b6c9325978908b7960e17edb65700fd94c0aa2`
+  - Mercado: listagem/cadastro de comparáveis, estados de loading/empty/error/retry/saving/sucesso e integração no Hub.
+  - Ocupação: consulta da situação atual e registro via endpoint POST existente, com recarga da situação após gravação.
+  - Não foram criados endpoints de update inexistentes nem regras de valuation/liquidez/yield/veredito.
+
 > Observação: TASKs A/B/C foram refinamentos do plano operacional original. Elas são mantidas aqui para preservar o histórico real dos commits sem alterar artificialmente a sequência principal.
 
 ---
 
 # 5. PRÓXIMA TASK — PENDENTE
 
-## TASK 44 — Mercado + Ocupação no Hub do Imóvel
+## TASK 45 — Checklist no Hub do Imóvel
 
 **Status: [ ] PENDENTE**
 
 ### Objetivo
 
-Implementar somente o frontend de cadastro e visualização dos dados já suportados pelo backend.
+Implementar o frontend do Checklist Mestre já existente, conectado aos endpoints atuais do backend.
 
 ### Regras obrigatórias
 
-Antes de implementar:
+- inspecionar endpoints e payloads reais antes de implementar;
+- usar o Checklist Mestre existente;
+- não criar nova checklist nem duplicar regras por domínio;
+- não alterar matriz canônica sem necessidade;
+- não inventar regras de negócio;
+- não chamar LLM/RAG/Agents para a camada de visualização/edição.
 
-- inspecionar os endpoints existentes;
-- usar exatamente os contratos atuais;
-- não alterar backend;
-- não alterar models;
-- não criar migration;
-- não criar regra de negócio;
-- não chamar LLM/RAG/Agents.
+### Endpoints atuais a verificar
 
-### Mercado
+- GET `/api/imoveis/{property_id}/checklist`
+- GET `/api/imoveis/{property_id}/checklist/historico`
+- PATCH `/api/imoveis/{property_id}/checklist/{item_id}`
+- GET `/api/checklist`
+- GET `/api/checklist/{item_id}`
 
-Usar exatamente o contrato `ComparableCreate`:
+### Visualização
 
-- `kind`
-- `price`
-- `rent`
-- `area_m2`
-- `source`
-- `url`
+- lista dos resultados do Checklist Mestre;
+- pergunta, categoria, domínio e origem quando disponíveis;
+- estado, aplicabilidade, resposta e confiança;
+- interpretação e risco quando disponíveis;
+- loading, empty, erro e retry.
 
-Implementar:
+### Atualização
 
-- listagem;
-- botão Novo comparável;
-- cadastro;
-- loading;
-- empty state;
-- erro;
-- retry;
-- saving;
-- sucesso;
-- integração no Hub.
-
-**Não implementar:** média de preço, preço/m², valuation, liquidez, yield, ranking, score ou veredito.
-
-Não criar enum artificial para `kind`; o contrato atual é string.
-
-### Ocupação
-
-Usar exatamente o contrato `OccupancyCreate`:
-
-- `status`
-- `occupant_profile`
-- `estimated_cost`
-- `estimated_months`
-- `evidence_id`
-
-Status válidos do contrato atual:
-
-- `OCUPADO`
-- `DESOCUPADO`
-- `DESCONHECIDO`
-
-Implementar visualização e cadastro/atualização **somente conforme os endpoints existentes**.
-
-**Não assumir endpoint de update:** primeiro verificar o backend. Se houver apenas criação, implementar o fluxo suportado pelo contrato atual, sem inventar PUT/PATCH.
-
-Não fazer interpretação jurídica ou financeira.
-
-### Hub
-
-Substituir os placeholders de:
-
-- Mercado
-- Ocupação
-
-### Testes
-
-Mercado:
-
-- loading;
-- empty;
-- list;
-- create;
-- error;
-- retry;
-- integração no Hub.
-
-Ocupação:
-
-- loading;
-- empty;
-- dado existente;
-- create/update conforme endpoint real;
-- error;
-- retry;
-- integração no Hub.
-
-### Responsividade
-
-Obrigatória:
-
-- desktop;
-- tablet;
-- mobile;
-- responsive-first;
-- formulários em uma coluna quando necessário;
-- botões com área de toque adequada;
-- sem scroll horizontal da página;
-- textos legíveis;
-- navegação mobile existente preservada.
+Usar somente o contrato existente.
+Estados oficiais: `PENDENTE`, `EM_ANALISE`, `CONFIRMADO`, `RISCO_IDENTIFICADO`, `ATENCAO`, `NAO_IDENTIFICADO`, `NAO_APLICAVEL`.
+Confianças oficiais: `BAIXA`, `MEDIA`, `ALTA`.
+Não inventar outros estados.
 
 ### Escopo negativo
 
-Não implementar nesta TASK:
+- não criar novas perguntas/regras;
+- não criar score/ranking de checklist;
+- não criar motor de risco ou veredito;
+- não usar LLM/RAG/Agents;
+- não duplicar o Checklist Mestre.
 
-- valuation;
-- preço/m²;
-- médias;
-- liquidez;
-- yield;
-- ROI;
-- risco;
-- veredito;
-- LLM;
-- RAG;
-- Agents;
-- novas regras de negócio.
+### Testes
+
+- loading;
+- empty;
+- listagem;
+- atualização;
+- erro de atualização;
+- retry;
+- integração no Hub;
+- estados oficiais.
+
+### Responsividade
+
+- desktop, tablet e mobile;
+- sem scroll horizontal da página;
+- controles utilizáveis em toque;
+- textos legíveis;
+- preservar navegação existente.
 
 ### Commit esperado
 
-`feat: implementa mercado e ocupacao no hub do imovel`
-
----
+`feat: implementa checklist no hub do imovel`
 
 # 6. Backlog futuro
 
