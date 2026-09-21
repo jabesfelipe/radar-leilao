@@ -229,55 +229,46 @@ Uma TASK só é considerada concluída quando:
 
 # 5. PRÓXIMA TASK — PENDENTE
 
+**TASK 49 — Revisão da integração Frontend ↔ Backend**
+
+## TASK 45 — Checklist no Hub
+- [x] CONCLUÍDA
+- Commit de implementação: `a8fe36ac643090ff4c74008dfe4bb3c2f9aaf0d2`
+- Correção aprovada: `14da0329cb7c03fd59291d6b0fc585943fc83abc`
+
 ## TASK 46 — Riscos + Veredito no Hub
+- [x] CONCLUÍDA
+- Commit: `3480a5ce388d5ff45250c217dcdb394f7f583c1d`
 
-**Status: [ ] PENDENTE**
+## TASK 47 — Histórico no Hub
+- [x] CONCLUÍDA
+- Commit inicial: `bed0c5688497accbd4db8413e40077c3cef9232d`
+- Correção aprovada: `b08b63002e7365e55be9b99d2abd6057e473332d`
+- Auditoria final: 🟢 aprovada.
 
-### Objetivo
+## TASK 48 — Fluxo completo de análise do imóvel
+- [x] CONCLUÍDA
+- Commit: `e508859375e2b14eaabb172b62675d6b2c91c53f`
+- Auditoria: 🟢 aprovada.
+- O Hub agora dispara o endpoint real de análise, exibe processamento, trata erro/retry e atualiza o dossiê após sucesso.
 
-Implementar no Hub do Imóvel a ação de execução do fluxo completo de análise já existente no backend, conectando a interface ao contrato real sem recriar regras de negócio., usando exclusivamente os contratos e regras já implementados no backend.
+## TASK 49 — Revisão da integração Frontend ↔ Backend
+- [ ] PENDENTE
 
-### Regras obrigatórias
+## TASK 50 — Testes de integração
+- [ ] PENDENTE
 
-- primeiro inspecionar endpoints, schemas, models e fluxo de análise reais;
-- reutilizar o fluxo de análise já implementado no backend;
-- não duplicar LangGraph, Agents, Risk Engine, Verdict Engine ou cálculos no frontend;
-- não inventar parâmetros, estados ou regras de negócio;
-- respeitar estados de loading, sucesso e erro;
-- permitir execução manual a partir do Hub do Imóvel.
+## TASK 51 — Primeiro teste E2E com imóvel real da Caixa
+- [ ] PENDENTE
 
-### Escopo
+## TASK 52 — Correções do teste real
+- [ ] PENDENTE
 
-- identificar o endpoint/contrato real de análise;
-- adicionar no Hub uma ação clara para iniciar a análise completa;
-- enviar somente os dados exigidos pelo backend;
-- exibir processamento em andamento;
-- atualizar o Hub com os resultados retornados;
-- tratar erro e permitir nova tentativa;
-- manter a experiência responsiva.
+## TASK 53 — Hardening do MVP
+- [ ] PENDENTE
 
-### Testes
+## TASK 54 — Revisão final contra a SPEC
+- [ ] PENDENTE
 
-Cobrir pelo menos:
-
-- ação de iniciar análise;
-- chamada ao endpoint real;
-- estado de processamento;
-- sucesso e atualização dos dados;
-- erro e retry;
-- integração no Hub.
-
-### Escopo negativo
-
-- não criar novo motor de análise;
-- não alterar Agents/LangGraph;
-- não alterar Risk Engine/Verdict Engine;
-- não criar novas regras de negócio;
-- não implementar ainda integração real com uma propriedade da Caixa;
-- não criar nova infraestrutura;
-- não adicionar LLM/RAG fora do fluxo existente.
-
-### Commit esperado
-
-feat: conecta fluxo completo de análise no hub do imovel
-
+## TASK 55 — Preparação / release do MVP
+- [ ] PENDENTE
