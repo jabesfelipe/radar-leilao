@@ -80,12 +80,9 @@ def create_analysis(db: Session, prop: models.Property, scope: str, domains: lis
 
 def recalculate_risks(db: Session, prop: models.Property, analysis_version: int):
     execution = latest_execution(prop)
-    finance = build_finance(prop)
     candidates = RiskEngine().evaluate(
         property_id=prop.id,
         checklist_results=execution.results if execution else [],
-        finance=finance,
-        documents_present=bool(prop.documents),
     )
     persisted: list[models.Risk] = []
     for candidate in candidates:

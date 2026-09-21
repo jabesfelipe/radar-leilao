@@ -50,8 +50,6 @@ class RiskEngine:
         self,
         property_id: int,
         checklist_results: Iterable[Any] = (),
-        finance: dict[str, Any] | None = None,
-        documents_present: bool = True,
     ) -> list[RiskCandidate]:
         risks: list[RiskCandidate] = []
         for result in checklist_results:
@@ -80,35 +78,4 @@ class RiskEngine:
                 checklist_result_ids=[int(_value(result, "id"))] if _value(result, "id") is not None else [],
             ))
 
-        finance = finance or {}
-        market_value = finance.get("valor_mercado")
-        total_cost = finance.get("custo_total")
-        if market_value is not None and total_cost is not None and total_cost > market_value:
-            risks.append(RiskCandidate(
-                risk_key="FINANCEIRO_CUSTO_ACIMA_MERCADO",
-                domain="financeiro",
-                title="Custo total acima do valor de mercado",
-                description="O custo total determinístico supera o valor de mercado informado.",
-                severity="ALTA",
-                status="ATIVO",
-                impact="A aquisição exige atenção financeira.",
-                confidence="ALTA",
-                origin="RiskEngine:FinanceEngine",
-                evidence_ids=[int(value) for value in finance.get("evidence_ids", [])],
-                checklist_result_ids=[],
-            ))
-        if not documents_present:
-            risks.append(RiskCandidate(
-                risk_key="DOCUMENTAL_SEM_DOCUMENTOS",
-                domain="documental",
-                title="Nenhum documento anexado",
-                description="O dossiê do imóvel não possui documentos anexados.",
-                severity="ALTA",
-                status="ATIVO",
-                impact="A análise documental permanece não comprovada.",
-                confidence="ALTA",
-                origin="RiskEngine:Documentos",
-                evidence_ids=[],
-                checklist_result_ids=[],
-            ))
         return risks

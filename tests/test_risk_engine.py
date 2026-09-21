@@ -36,10 +36,9 @@ def test_pendente_e_ausencia_de_evidencia_nao_geram_risco():
     assert RiskEngine().evaluate(1, [checklist_result("RISCO_IDENTIFICADO", [])]) == []
 
 
-def test_regras_financeira_e_documental_existentes_sao_deterministicas():
-    risks = RiskEngine().evaluate(1, [], {"custo_total": 120, "valor_mercado": 100}, documents_present=False)
-    assert [risk.risk_key for risk in risks] == ["FINANCEIRO_CUSTO_ACIMA_MERCADO", "DOCUMENTAL_SEM_DOCUMENTOS"]
-    assert all(risk.severity in {"BAIXA", "MEDIA", "ALTA", "CRITICA"} for risk in risks)
+def test_dados_financeiros_e_documentos_isolados_nao_geram_risco():
+    assert RiskEngine().evaluate(1, []) == []
+    assert RiskEngine().evaluate(1, [checklist_result("PENDENTE", [])]) == []
 
 
 def test_multiplos_riscos_e_determinismo():
