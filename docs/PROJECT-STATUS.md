@@ -47,10 +47,10 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `f36cecebb490112945d2f6a91ae96bf2e9492157`  
-**Mensagem:** `fix: corrige snapshot anterior do checklist`
+**Último commit implementado:** `1aa3912445c3e25a6f0b9e2ac4fa93d9e82f1d74`  
+**Mensagem:** `fix: corrige proxima falha da suite`
 
-**Última TASK aprovada:** TASK 53
+**Última TASK aprovada:** TASK 56
 
 **TASK 51:** execução diagnóstica realizada, não aprovada como E2E completo
 
@@ -60,7 +60,13 @@ Uma TASK só é considerada concluída quando:
 
 **TASK 53:** correção do snapshot anterior do Checklist aprovada
 
-**Próxima TASK:** TASK 54 — Reexecutar suíte e corrigir a próxima falha
+**TASK 54:** concluída — suíte checklist verde; primeira falha corrigida em `test_documents.py`
+
+**TASK 55:** concluída — próxima falha corrigida em `test_extraction.py`
+
+**TASK 56:** concluída — próxima falha corrigida em `test_extraction.py`; suíte atual: 215 passed, 6 failed
+
+**TASK 57:** em execução pelo Kiro — próxima falha: `test_persistencia_cria_registro_e_evidencia_rastreavel`
 
 **Status global:** 🟡 MVP em construção
 
@@ -278,16 +284,25 @@ Uma TASK só é considerada concluída quando:
 - Corrigido `create_execution` para preencher `previous_result_id` apontando para o resultado correspondente da execução anterior, sem copiar resposta/estado.
 
 ## TASK 54 — Reexecutar suíte e corrigir a próxima falha
-- [ ] **PENDENTE**
-- Rodar primeiro `tests/test_checklist.py` completo.
-- Se estiver verde, rodar a suíte geral e atacar somente a primeira falha restante.
-- Não corrigir múltiplas falhas na mesma task e não alterar migrations, schema, RAG, LLM, LangGraph, Risk ou Verdict sem necessidade comprovada.
+- [x] **CONCLUÍDA**
+- Commit: `ecde86518d4d9d4136184877974f103b9735e80d`
+- Corrigida fixture de `test_documents.py`.
+- Resultado: 213 passed, 8 failed.
 
-## TASK 55 — Hardening do MVP
-- [ ] PENDENTE
+## TASK 55 — Corrigir a próxima falha da suíte
+- [x] **CONCLUÍDA**
+- Commit: `27a65e3cd21053d710c68338a4f1a853a4ad8caa`
+- Corrigida fixture de `test_extraction.py` para manter rastreabilidade da extração.
+- Resultado: 214 passed, 7 failed.
 
-## TASK 56 — Revisão final contra a SPEC
-- [ ] PENDENTE
+## TASK 56 — Corrigir a próxima falha da suíte
+- [x] **CONCLUÍDA**
+- Commit: `1aa3912445c3e25a6f0b9e2ac4fa93d9e82f1d74`
+- Corrigida fixture de `test_extraction.py` para fornecer referências aos campos preenchidos.
+- Resultado: 215 passed, 6 failed.
 
-## TASK 57 — Preparação / release do MVP
-- [ ] PENDENTE
+## TASK 57 — Corrigir a próxima falha da suíte
+- [ ] **EM EXECUÇÃO**
+- Próxima falha: `tests/test_extraction.py::test_persistencia_cria_registro_e_evidencia_rastreavel`
+- Falha registrada: `AttributeError: 'Result' object has no attribute 'success'`.
+- Não avançar para as falhas seguintes até concluir esta task.
