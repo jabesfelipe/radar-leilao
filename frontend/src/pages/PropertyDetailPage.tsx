@@ -7,6 +7,8 @@ import { RegistrationSection } from './RegistrationSection'
 import { AuctionNoticeSection } from './AuctionNoticeSection'
 import { ProcessSection } from './ProcessSection'
 import { FinancialSection } from './FinancialSection'
+import { MarketSection } from './MarketSection'
+import { OccupancySection } from './OccupancySection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -119,6 +121,10 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             <ProcessSection propertyId={property.id} />
           ) : activeSection === 'financeiro' ? (
             <FinancialSection propertyId={property.id} />
+          ) : activeSection === 'mercado' ? (
+            <MarketSection propertyId={property.id} />
+          ) : activeSection === 'ocupacao' ? (
+            <OccupancySection propertyId={property.id} />
           ) : (
             <Card padding="lg" className="detail-placeholder">
               <p className="eyebrow">MÓDULO EM PREPARAÇÃO</p>

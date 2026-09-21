@@ -437,3 +437,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   .finance-list { grid-template-columns: 1fr; }
   .finance-check { align-self: start; }
 }
+
+/* Link de fonte de comparável */
+.market-link { display: inline-flex; align-items: center; gap: .3rem; color: var(--color-accent-strong); font-size: var(--font-size-xs); font-weight: 700; text-decoration: none; }
+.market-link:hover { text-decoration: underline; }
