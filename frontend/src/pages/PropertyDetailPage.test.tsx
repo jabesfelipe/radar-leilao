@@ -77,6 +77,30 @@ describe('PropertyDetailPage', () => {
     expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/documentos')
   })
 
+  it('abre a seção Matrícula real dentro do imóvel', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response({ property_id: 7, atual: null, historico: [], alteracoes: [] }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Matrícula' }))
+    expect(await screen.findByText('Nenhuma matrícula cadastrada')).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/matricula')
+  })
+
+  it('abre a seção Edital real dentro do imóvel', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response({ property_id: 7, atual: null, historico: [], alteracoes: [] }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edital' }))
+    expect(await screen.findByText('Nenhum edital cadastrado')).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/edital')
+  })
+
   it('apresenta todas as seções futuras do dossiê', async () => {
     vi.mocked(fetch).mockReturnValueOnce(response({ imovel: property }))
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)

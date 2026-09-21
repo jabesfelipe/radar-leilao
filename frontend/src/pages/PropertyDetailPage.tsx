@@ -3,6 +3,8 @@ import { ArrowLeft, Building2, MapPin, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, LoadingState, Section } from '../components/ui'
 import { getProperty, type Property } from '../services/properties'
 import { DocumentsSection } from './DocumentsSection'
+import { RegistrationSection } from './RegistrationSection'
+import { AuctionNoticeSection } from './AuctionNoticeSection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -107,6 +109,10 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             </Section>
           ) : activeSection === 'documentos' ? (
             <DocumentsSection propertyId={property.id} />
+          ) : activeSection === 'matricula' ? (
+            <RegistrationSection propertyId={property.id} />
+          ) : activeSection === 'edital' ? (
+            <AuctionNoticeSection propertyId={property.id} />
           ) : (
             <Card padding="lg" className="detail-placeholder">
               <p className="eyebrow">MÓDULO EM PREPARAÇÃO</p>
