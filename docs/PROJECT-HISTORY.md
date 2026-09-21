@@ -133,3 +133,18 @@ A partir de agora, alterações de andamento devem ser registradas principalment
 - Ausência de aplicabilidade/confiança não é convertida em valor inferido.
 - Estados oficiais foram preservados.
 - Não foram criadas novas regras, score, ranking, LLM, RAG, Agents ou alterações de backend.
+
+
+## TASK 46 — Riscos + Veredito no Hub
+
+- `3480a5ce388d5ff45250c217dcdb394f7f583c1d` — `feat: implementa riscos e veredito no hub do imovel`
+- Auditoria: 🟢 aprovado.
+- Frontend consumiu os resultados existentes de Risk Engine e Verdict Engine sem recalcular regras.
+
+## TASK 47 — Histórico no Hub
+
+- `bed0c5688497accbd4db8413e40077c3cef9232d` — `feat: implementa historico no hub do imovel`
+- `b08b63002e7365e55be9b99d2abd6057e473332d` — `fix: ajusta contrato do historico no hub do imovel`
+- Auditoria final: 🟢 aprovado.
+- A correção passou a usar o endpoint dedicado `/api/imoveis/{property_id}/historico` e incluiu `alteracoes` além de eventos e análises.
+- Testes cobrem endpoint, eventos, alterações, análises, vazio e erro/retry.
