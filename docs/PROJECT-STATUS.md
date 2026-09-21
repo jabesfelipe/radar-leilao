@@ -47,12 +47,12 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `b08b63002e7365e55be9b99d2abd6057e473332d`  
-**Mensagem:** `fix: ajusta contrato do historico no hub do imovel`
+**Último commit implementado:** `2a549c8e9b90e6fc07e50b1f915f109fdc31ca02`  
+**Mensagem:** `fix: revisa integracao frontend backend`
 
-**Última TASK aprovada:** TASK 47
+**Última TASK aprovada:** TASK 49
 
-**Próxima TASK:** TASK 48 — Fluxo completo de análise do imóvel
+**Próxima TASK:** TASK 50 — Testes de integração
 
 **Status global:** 🟡 MVP em construção
 
@@ -230,30 +230,10 @@ Uma TASK só é considerada concluída quando:
 # 5. PRÓXIMA TASK — PENDENTE
 
 **TASK 49 — Revisão da integração Frontend ↔ Backend**
-
-## TASK 45 — Checklist no Hub
 - [x] CONCLUÍDA
-- Commit de implementação: `a8fe36ac643090ff4c74008dfe4bb3c2f9aaf0d2`
-- Correção aprovada: `14da0329cb7c03fd59291d6b0fc585943fc83abc`
-
-## TASK 46 — Riscos + Veredito no Hub
-- [x] CONCLUÍDA
-- Commit: `3480a5ce388d5ff45250c217dcdb394f7f583c1d`
-
-## TASK 47 — Histórico no Hub
-- [x] CONCLUÍDA
-- Commit inicial: `bed0c5688497accbd4db8413e40077c3cef9232d`
-- Correção aprovada: `b08b63002e7365e55be9b99d2abd6057e473332d`
-- Auditoria final: 🟢 aprovada.
-
-## TASK 48 — Fluxo completo de análise do imóvel
-- [x] CONCLUÍDA
-- Commit: `e508859375e2b14eaabb172b62675d6b2c91c53f`
+- Commit: `2a549c8e9b90e6fc07e50b1f915f109fdc31ca02`
 - Auditoria: 🟢 aprovada.
-- O Hub agora dispara o endpoint real de análise, exibe processamento, trata erro/retry e atualiza o dossiê após sucesso.
-
-## TASK 49 — Revisão da integração Frontend ↔ Backend
-- [ ] PENDENTE
+- Revisados contratos, payloads, estados e testes das integrações alteradas; não foram identificadas novas regras de negócio.
 
 ## TASK 50 — Testes de integração
 - [ ] PENDENTE
