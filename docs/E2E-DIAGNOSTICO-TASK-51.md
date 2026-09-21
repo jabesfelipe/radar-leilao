@@ -330,3 +330,85 @@ imobiliária, duas datas de leilão, item do edital, área total × privativa,
 responsabilidades, FGTS, campos de matrícula) **permanecem como HIPÓTESE** — não foi
 possível confirmá-los porque a extração real depende de OCR/DB/LLM ainda indisponíveis.
 Nenhum contrato/modelo/regra foi alterado.
+
+
+---
+
+## TASK 51B — Atualização: runtime via WSL + Docker (correção do ambiente)
+
+> **Correção importante:** as verificações anteriores desta TASK 51B foram feitas a
+> partir do **PowerShell/Windows**, onde `docker`/`postgres` não estão no PATH — o que
+> levou à conclusão equivocada "PostgreSQL BLOQUEADO". O ambiente oficial é
+> **Windows → WSL (Ubuntu) → Docker**. Refeito **dentro do WSL**, o runtime está
+> disponível. Esta seção substitui as conclusões de ambiente acima.
+
+### Ambiente real (CONFIRMADO POR EXECUÇÃO REAL, dentro do WSL)
+
+| Item | Status | Evidência |
+|---|---|---|
+| WSL | **OK** | `wsl -l -v` → Ubuntu, WSL2, Running |
+| Docker | **OK** | `docker --version` → 29.8.0 (dentro do WSL) |
+| Docker Compose | **OK** | `docker compose version` → v5.5.1 |
+| PostgreSQL (container) | **OK** | `docker compose up -d postgres` → `radar-leilao-postgres` **healthy**, `pg_isready` aceitando conexões, `0.0.0.0:5432->5432` |
+| Versão do Postgres | **OK** | `16.15 (Debian)` |
+| pgvector | **OK** | extensões instaladas: `plpgsql`, **`vector`**, `pg_trgm` (via `infra/postgres/init.sql`) |
+| Deps do backend (venv WSL) | **OK** | `pip install -r backend/requirements.txt` → `pip_exit=0`; `markitdown=True`, **`pdfminer=True`**, `fastapi/sqlalchemy/psycopg/pgvector/alembic/langchain/langgraph/openai/httpx = True` |
+| Dependência de PDF | **OK / GAP da TASK 51 resolvido** | `pdfminer` presente no runtime; normalização de PDF funciona |
+| Migrations (alembic upgrade head) | **ERRO — GAP REAL (novo breakpoint)** | ver abaixo |
+| LLM | **BLOQUEADO — `LLM_BLOCKED = true`** | sem `.env` (raiz e `backend/`), `OPENAI_API_KEY`/`LLM_API_KEY` não definidos no WSL |
+
+O repositório é acessado no WSL via `/mnt/c/desenv/poc/radar-leilao` (mesmo repo do
+Windows; não houve duplicação de clone). O serviço de banco é `postgres`
+(`pgvector/pgvector:pg16`, container `radar-leilao-postgres`), conforme o
+`docker-compose.yml` existente — nada foi alterado no compose.
+
+### GAP REAL (novo, CONFIRMADO POR EXECUÇÃO REAL) — cadeia de migrations quebrada
+
+- **PROBLEMA:** `alembic upgrade head` **falha** e o banco fica **sem tabelas**
+  (`tables_after_migration = 0`).
+- **EVIDÊNCIA (saída real):**
+  `sqlalchemy.exc.ProgrammingError: (psycopg.errors.DuplicateColumn) column
+  "total_tokens" of relation "llm_runs" already exists`
+  `[SQL: ALTER TABLE llm_runs ADD COLUMN total_tokens INTEGER]` · `alembic_exit=1`.
+- **CAUSA PROVÁVEL (confirmada por leitura):** a migration inicial
+  `0001_fundacao_radar` executa `Base.metadata.create_all(bind)`, criando **todas** as
+  tabelas a partir dos **modelos atuais** (que já incluem `llm_runs.total_tokens`). Em
+  seguida, `0002_llm_usage_pricing` faz `op.add_column("llm_runs", "total_tokens", ...)`
+  — coluna que `0001` já criou → **DuplicateColumn**. Ou seja, `0001` reflete o schema
+  **mais recente** (via `create_all`) em vez do schema histórico, colidindo com as
+  migrations incrementais `0002+`.
+- **IMPACTO:** sem schema aplicado, **nada** que depende do banco roda: cadastro,
+  persistência, RAG, extração, Agents, LangGraph, Checklist, Risk, Verdict, Dossiê,
+  Histórico, e os testes de integração da TASK 50.
+- **PRÓXIMA AÇÃO SUGERIDA (TASK 52):** corrigir a cadeia de migrations (ex.: `0001` não
+  usar `create_all` do metadata atual, ou tornar `0002` idempotente/coerente com o
+  schema histórico). **Não corrigido aqui** (fora do escopo desta task).
+
+### Estado das etapas do E2E após o runtime WSL
+
+| Etapa | Status | Observação |
+|---|---|---|
+| WSL / Docker / Postgres / pgvector | **OK** | ver tabela de ambiente |
+| Normalização de PDF (matrícula) | **OK** | `pdfminer` presente; matrícula ainda sem OCR (ver GAP de conteúdo acima) |
+| Migrations | **ERRO (GAP REAL)** | DuplicateColumn `total_tokens` → 0 tabelas |
+| FastAPI (subir/integração TASK 50) | **BLOQUEADO** | depende do schema; migrations falham |
+| Embeddings / RAG / Extração | **BLOQUEADO** | dependem de DB + LLM |
+| Agents / LangGraph / Checklist / Risk / Verdict | **BLOQUEADO** | dependem de DB e/ou LLM (`LLM_BLOCKED`) |
+| Dossiê / Histórico | **BLOQUEADO** | dependem de DB |
+| Edital (download) | **BLOQUEADO (intermitente)** | anti-bot Radware no re-download (ver acima) |
+
+### Próximo breakpoint real (atualizado)
+
+1. **Migrations quebradas** (`DuplicateColumn total_tokens` em `0002`, causado pelo
+   `create_all` em `0001`) — **este é o próximo breakpoint a corrigir na TASK 52**,
+   pois bloqueia todo o restante do E2E que depende do banco.
+2. **Matrícula escaneada sem OCR** — breakpoint documental (conteúdo jurídico não
+   extraído).
+3. **LLM ausente** (`LLM_BLOCKED = true`) e **download do edital** bloqueado por
+   anti-bot — bloqueios de ambiente/dados.
+
+### GAPs de negócio confirmados
+
+**Nenhum novo.** Os GAPs de contrato seguem como **HIPÓTESE** — a confirmação depende
+de extração real, que está bloqueada pelas migrations/OCR/LLM. Nenhum contrato, modelo,
+migration, Agent, LangGraph, RAG, Risk ou Verdict foi alterado nesta task.
