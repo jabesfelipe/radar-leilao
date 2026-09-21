@@ -219,3 +219,114 @@ Ordenada por dependência:
 - Itens sobre etapas não executadas estão marcados como **NÃO TESTADO/BLOQUEADO**, e
   os GAPs de contrato como **HIPÓTESE** até confirmação com documento real normalizado.
 - Arquivos locais de teste (PDFs e scripts de sonda) **não** foram adicionados ao Git.
+
+
+---
+
+# TASK 51B — Segunda execução (preparar runtime + repetir E2E)
+
+> Data: 20/09/2026 · Mesmo imóvel (COND PARQUE ARVOREDO — nº Caixa 155552876506-4,
+> matrícula 25278, edital 0044/0226 - CPA/RE, item 258, Curitiba/PR) e mesmos
+> documentos oficiais. Objetivo: remover o bloqueio de PDF, disponibilizar o
+> Postgres/pgvector existente, configurar LLM se houver chave, repetir o E2E e
+> encontrar o próximo breakpoint real. **Sem corrigir GAPs de negócio.**
+
+## Ambiente
+
+- Python 3.13.9 / Windows / PowerShell.
+- Sem Docker, docker-compose, `psql` ou `pg_ctl` no ambiente (confirmado).
+- Sem `.env`, sem `OPENAI_API_KEY`/`LLM_API_KEY`.
+
+## Dependências instaladas (única alteração de código/ambiente)
+
+- **`backend/requirements.txt`:** `markitdown==0.1.7` → **`markitdown[pdf]==0.1.7`**.
+- `pip install "markitdown[pdf]==0.1.7"` instalou: **pdfminer-six 20260107, pdfplumber
+  0.11.10, pypdfium2 5.13.0, Pillow 12.3.0, cryptography, cffi, pycparser**.
+- Nenhum outro código alterado. Nenhum parser/pipeline/OCR novo. `DocumentNormalizer`
+  não foi refatorado.
+
+## Resultado por etapa
+
+| Etapa | Status | Observação (execução real) |
+|---|---|---|
+| PDF backend do MarkItDown | **OK / GAP REAL resolvido** | Normalização de PDF deixou de lançar `MissingDependencyException`. |
+| Normalização matrícula | **OK (com GAP REAL de conteúdo)** | `engine=MarkItDown`, mas só **423 chars** de markdown / **1 chunk**. |
+| Normalização edital | **BLOQUEADO (download)** | Re-download retornou **18.341 bytes** = página **anti-bot (Radware CAPTCHA)**, não o PDF. `is_pdf=False`. |
+| Chunks | **OK (parcial)** | matrícula: 1 chunk; "edital" (CAPTCHA): 2 chunks — conteúdo inválido. |
+| Embeddings | **BLOQUEADO** | Exigem LLM (`LLM_BLOCKED`). Não executado. |
+| PostgreSQL | **BLOQUEADO** | `DB_CONNECT=fail: OperationalError`; sem Docker/Postgres nativo. |
+| pgvector | **NÃO TESTADO** | Depende do Postgres. |
+| RAG | **NÃO TESTADO** | Sem DB e sem embeddings. |
+| Extração (matrícula/edital) | **NÃO TESTADO** | Exige DB + RAG + LLM. |
+| Agents | **BLOQUEADO** | `LLM_BLOCKED=true`. |
+| LangGraph | **NÃO TESTADO (real)** | Topologia já validada por teste; não exercitada aqui. |
+| Checklist | **NÃO TESTADO** | Sem findings de Agents. |
+| Risk Engine | **NÃO TESTADO (neste E2E)** | Já validado por teste; exige DB. |
+| Verdict Engine | **NÃO TESTADO (neste E2E)** | Idem. |
+| Dossiê | **BLOQUEADO** | Sem DB. |
+| Histórico | **BLOQUEADO** | Sem DB. |
+
+## Detalhe dos achados — CONFIRMADO POR EXECUÇÃO REAL
+
+### PDF: GAP REAL da TASK 51 resolvido
+Após `markitdown[pdf]`, a normalização de PDF funciona (engine=MarkItDown, sem exceção
+de dependência). Confirmado sobre a matrícula real.
+
+### GAP REAL (novo) — Matrícula é PDF de imagem/escaneado, sem OCR
+- **PROBLEMA:** a matrícula normaliza para apenas ~423 chars, contendo somente o
+  carimbo de autenticidade do CRI (`"Para consultar a autenticidade ... CNS ... código
+  de verificação ..."`). **Nenhum** termo do imóvel foi encontrado no markdown
+  (matrícula 25278, titular, averbações, ônus, etc.: todos ausentes).
+- **EVIDÊNCIA:** `pdfplumber` sobre o PDF real (538.507 bytes): **2 páginas, ~398 chars
+  de texto no total, 2 imagens**. Ou seja, o corpo da matrícula está em **imagem**; a
+  única camada de texto é o rodapé de autenticidade.
+- **CAUSA PROVÁVEL:** MarkItDown extrai a camada de texto do PDF, mas **não faz OCR**.
+  Matrícula real da Caixa vem escaneada → o conteúdo jurídico não é capturado.
+- **IMPACTO:** sem o texto da matrícula, a extração estruturada e as evidências
+  jurídicas (titular, averbações, consolidação, ônus) ficam sem insumo. É o **próximo
+  breakpoint real** do lado documental.
+- **PRÓXIMA AÇÃO SUGERIDA (TASK 52+):** decidir estratégia de OCR para PDFs de imagem
+  (fora do escopo desta task; não implementar agora).
+
+### BLOQUEADO — Edital não pôde ser re-baixado (anti-bot)
+- **PROBLEMA:** o re-download do edital retornou **18.341 bytes** de uma página
+  **Radware Bot Manager CAPTCHA** ("Precisamos fazer uma verificação de segurança"),
+  não o PDF. `is_pdf=False`.
+- **EVIDÊNCIA:** markdown normalizado começa com `"Radware Bot Manager CAPTCHA ...
+  Caixa Econômica Federal ... verificação de segurança"`.
+- **CAUSA PROVÁVEL:** o site `venda-imoveis.caixa.gov.br` aplica proteção anti-bot que,
+  neste momento, bloqueou o download automatizado. (Na TASK 51 o mesmo URL retornou o
+  PDF real de 1.126.227 bytes / ~142 páginas — o bloqueio é intermitente.)
+- **IMPACTO:** nesta execução, a normalização do edital **não** representa o edital real
+  (é a página de CAPTCHA). O edital, portanto, ficou **BLOQUEADO** nesta rodada.
+- **PRÓXIMA AÇÃO SUGERIDA:** obter o edital por um canal que não seja bloqueado
+  (download manual/local) e reprocessar; não criar integração com a Caixa.
+
+## Bloqueios de ambiente (inalterados desde a TASK 51)
+
+- **PostgreSQL/pgvector: BLOQUEADO** — sem container runtime e sem Postgres nativo;
+  não é possível subir sem instalar infraestrutura (proibido pela task).
+- **LLM_BLOCKED = true** — sem chave de API; provider OpenAI não pode ser exercitado.
+
+## Até qual etapa o E2E chegou
+
+Avançou **um passo além** da TASK 51: agora o **pipeline documental normaliza PDF**.
+A execução real parou logo depois, na **qualidade do conteúdo documental** (matrícula
+sem OCR) e em **bloqueios de ambiente** (download do edital, Postgres, LLM). Persistência,
+RAG, extração, Agents, LangGraph, Checklist, Risk, Verdict, Dossiê e Histórico
+**não foram executados**.
+
+## Próximo breakpoint real
+
+1. **Matrícula escaneada sem OCR** (conteúdo jurídico não extraído) — breakpoint
+   documental confirmado.
+2. **Ambiente:** Postgres/pgvector e LLM indisponíveis; download do edital bloqueado
+   por anti-bot.
+
+## GAPs de negócio confirmados nesta task
+
+**Nenhum.** Os GAPs de contrato levantados na TASK 51 (nº do imóvel Caixa, inscrição
+imobiliária, duas datas de leilão, item do edital, área total × privativa,
+responsabilidades, FGTS, campos de matrícula) **permanecem como HIPÓTESE** — não foi
+possível confirmá-los porque a extração real depende de OCR/DB/LLM ainda indisponíveis.
+Nenhum contrato/modelo/regra foi alterado.
