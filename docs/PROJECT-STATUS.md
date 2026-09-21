@@ -47,12 +47,12 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `14da0329cb7c03fd59291d6b0fc585943fc83abc`  
-**Mensagem:** `fix: corrige contrato e valores ausentes do checklist`
+**Último commit implementado:** `b08b63002e7365e55be9b99d2abd6057e473332d`  
+**Mensagem:** `fix: ajusta contrato do historico no hub do imovel`
 
-**Última TASK aprovada:** TASK 45
+**Última TASK aprovada:** TASK 47
 
-**Próxima TASK:** TASK 46 — Riscos + Veredito no Hub
+**Próxima TASK:** TASK 48 — Fluxo completo de análise do imóvel
 
 **Status global:** 🟡 MVP em construção
 
@@ -235,224 +235,49 @@ Uma TASK só é considerada concluída quando:
 
 ### Objetivo
 
-Implementar no Hub do Imóvel a visualização dos resultados já existentes de Risk Engine e Verdict Engine, usando exclusivamente os contratos e regras já implementados no backend.
+Implementar no Hub do Imóvel a ação de execução do fluxo completo de análise já existente no backend, conectando a interface ao contrato real sem recriar regras de negócio., usando exclusivamente os contratos e regras já implementados no backend.
 
 ### Regras obrigatórias
 
-- primeiro inspecionar endpoints, schemas, models e payloads reais;
-- usar somente riscos e veredito já produzidos pelo backend;
-- não criar novas regras de risco;
-- não recalcular severidade no frontend;
-- não criar score/ranking de risco;
-- não alterar Risk Engine ou Verdict Engine sem necessidade comprovada pelo contrato;
-- não chamar LLM/RAG/Agents para visualização;
-- não inventar estados, severidades ou campos;
-- manter rastreabilidade quando disponível.
+- primeiro inspecionar endpoints, schemas, models e fluxo de análise reais;
+- reutilizar o fluxo de análise já implementado no backend;
+- não duplicar LangGraph, Agents, Risk Engine, Verdict Engine ou cálculos no frontend;
+- não inventar parâmetros, estados ou regras de negócio;
+- respeitar estados de loading, sucesso e erro;
+- permitir execução manual a partir do Hub do Imóvel.
 
 ### Escopo
 
-#### Riscos
-
-Exibir, quando disponíveis no payload real:
-
-- risco;
-- domínio/categoria;
-- título;
-- descrição;
-- severidade;
-- estado/status;
-- impacto;
-- confiança;
-- evidências;
-- itens do checklist relacionados.
-
-#### Veredito
-
-Exibir o veredito atual retornado pelo backend, incluindo apenas informações realmente existentes no contrato, como:
-
-- estado/veredito;
-- versão da análise;
-- riscos relacionados;
-- evidências;
-- pendências;
-- informações financeiras quando já retornadas pelo backend.
-
-Não reinterpretar o veredito no frontend.
-
-### UX
-
-- loading;
-- empty;
-- erro;
-- retry;
-- feedback claro;
-- visual coerente com o design system;
-- destaque adequado para severidade e veredito;
-- desktop/tablet/mobile;
-- sem scroll horizontal.
+- identificar o endpoint/contrato real de análise;
+- adicionar no Hub uma ação clara para iniciar a análise completa;
+- enviar somente os dados exigidos pelo backend;
+- exibir processamento em andamento;
+- atualizar o Hub com os resultados retornados;
+- tratar erro e permitir nova tentativa;
+- manter a experiência responsiva.
 
 ### Testes
 
 Cobrir pelo menos:
 
-- carregamento de riscos;
-- lista de riscos;
-- ausência de riscos;
-- erro/retry;
-- severidades/estados reais;
-- veredito existente;
-- ausência de veredito;
-- integração no Hub;
-- responsividade quando aplicável.
+- ação de iniciar análise;
+- chamada ao endpoint real;
+- estado de processamento;
+- sucesso e atualização dos dados;
+- erro e retry;
+- integração no Hub.
 
 ### Escopo negativo
 
-- não criar Risk Engine;
-- não criar Verdict Engine;
-- não alterar regras determinísticas;
+- não criar novo motor de análise;
+- não alterar Agents/LangGraph;
+- não alterar Risk Engine/Verdict Engine;
 - não criar novas regras de negócio;
-- não criar score;
-- não criar ranking;
-- não usar LLM/RAG/Agents;
-- não implementar ainda o Histórico completo;
-- não implementar ainda o fluxo completo de análise.
+- não implementar ainda integração real com uma propriedade da Caixa;
+- não criar nova infraestrutura;
+- não adicionar LLM/RAG fora do fluxo existente.
 
 ### Commit esperado
 
-feat: implementa riscos e veredito no hub do imovel
+feat: conecta fluxo completo de análise no hub do imovel
 
-# 6. Backlog futuro
-
-Depois da TASK 45, continuar nesta ordem, refinando cada item somente quando chegar sua vez:
-
-- [x] **TASK 45** — Checklist no Hub do Imóvel
-  - Commit inicial: `a8fe36ac643090ff4c74008dfe4bb3c2f9aaf0d2`
-  - Correção aprovada: `14da0329cb7c03fd59291d6b0fc585943fc83abc`
-  - Checklist Mestre integrado ao Hub usando o endpoint específico do checklist e enriquecimento pelos metadados existentes.
-  - Estados e confiança respeitados; ausência de informação não é convertida em valor inferido.
-  - Sem novas regras, score, ranking, LLM, RAG, Agents ou alterações de backend.
-
-- [ ] **TASK 46** — Riscos + Veredito no Hub
-- [ ] **TASK 47** — Histórico no Hub
-- [ ] **TASK 48** — Fluxo completo de análise do imóvel
-- [ ] **TASK 49** — Revisão de integração Frontend ↔ Backend
-- [ ] **TASK 50** — Testes de integração
-- [ ] **TASK 51** — Primeiro teste end-to-end com imóvel real da Caixa
-- [ ] **TASK 52** — Correções encontradas no teste real
-- [ ] **TASK 53** — Hardening do MVP
-- [ ] **TASK 54** — Revisão final contra a SPEC
-- [ ] **TASK 55** — Preparação/release do MVP
-
-As descrições detalhadas dessas TASKs serão definidas **somente quando a TASK anterior for aprovada**, evitando planejamento excessivo e gasto desnecessário de tokens.
-
----
-
-# 7. Áreas já construídas
-
-## Backend / domínio
-
-- Imóvel
-- Leilão
-- Documentos e versões
-- Matrícula
-- Edital
-- Processos jurídicos
-- Custos
-- Dívidas
-- Mercado
-- Ocupação
-- Evidências
-- Checklist Mestre
-- Histórico de análises
-- Riscos
-- Veredito
-- Memória de casos
-
-## IA
-
-- LLM Gateway
-- RAG híbrido
-- embeddings
-- busca semântica
-- busca estruturada
-- memória híbrida
-- Document Agent
-- Jurídico Agent
-- Financeiro Agent
-- Mercado Agent
-- Checklist Agent
-- LangGraph
-- Impact Analyzer
-- reanálise incremental
-- consolidação de resultados
-- Risk Engine determinístico
-- Verdict Engine determinístico
-- evals básicos
-
-## Frontend
-
-- foundation React + TypeScript + Vite
-- responsividade
-- design system
-- identidade visual
-- cadastro de imóvel
-- Hub de detalhe
-- Documentos
-- Matrícula
-- Edital
-- Processos Jurídicos
-- Financeiro
-
----
-
-# 8. Regras de produto que não devem ser inventadas
-
-1. O produto é focado no MVP em leilões extrajudiciais.
-2. O imóvel é a entidade central.
-3. A evidência deve ser rastreável.
-4. Documento original deve permanecer preservado.
-5. A análise deve preservar histórico.
-6. Mudanças relevantes devem permitir reanálise incremental.
-7. Cálculos financeiros determinísticos não devem ser terceirizados ao LLM.
-8. Risk e Verdict devem seguir regras formalizadas.
-9. Não criar regras de negócio apenas porque parecem razoáveis.
-10. Não inventar enums quando o contrato é string.
-11. Não alterar backend durante TASKs explicitamente frontend-only.
-12. Não usar LLM/RAG/Agents em tarefas que não pedem isso.
-13. Não duplicar o Checklist Mestre por domínio.
-14. A contagem final do checklist deve vir da matriz canônica real, nunca de estimativa.
-15. Legal/jurisprudência deve ser tratado com evidência e verificação atual quando o módulo chegar à fase correspondente.
-
----
-
-# 9. Controle de auditoria
-
-Quando o usuário disser **"da pull"**:
-
-1. Buscar o commit mais recente do repositório.
-2. Comparar com o último commit aprovado.
-3. Listar arquivos alterados.
-4. Ler o código alterado.
-5. Conferir escopo positivo.
-6. Conferir escopo negativo.
-7. Conferir contratos existentes.
-8. Conferir testes/build quando evidenciados pelo commit.
-9. Classificar:
-   - 🟢 aprovado;
-   - 🟡 aprovado com observação;
-   - 🔴 correção necessária.
-10. Só após aprovação, atualizar este documento marcando a TASK como concluída e definindo a próxima.
-11. Fazer commit/push da atualização documental.
-
----
-
-# 10. Fonte de verdade
-
-Em caso de conflito:
-
-1. código e contratos reais do repositório;
-2. `SPEC-VIBE-CODING-RADAR-LEILAO.md`;
-3. este controle de andamento;
-4. descrição operacional da TASK.
-
-Este arquivo serve para **controle e continuidade**, não para substituir a implementação nem a SPEC.
