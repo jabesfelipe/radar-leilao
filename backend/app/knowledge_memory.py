@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models
@@ -58,4 +58,37 @@ class KnowledgeMemoryService:
             if normalized_kind not in KNOWLEDGE_CASE_KINDS:
                 raise ValueError(f"Tipo de memória inválido: {normalized_kind}")
             statement = statement.where(models.KnowledgeItem.kind == normalized_kind)
+        return list(self.db.scalars(statement).all())
+
+    def search_cases(
+        self,
+        query: str | None = None,
+        kind: str | None = None,
+        property_type: str | None = None,
+        city: str | None = None,
+        state: str | None = None,
+        auction_stage: str | None = None,
+        verdict: str | None = None,
+        limit: int = 20,
+    ) -> list[models.KnowledgeItem]:
+        if limit < 1:
+            raise ValueError("Limit deve ser maior que zero")
+        if limit > 100:
+            raise ValueError("Limit máximo é 100")
+        filters = {"property_type": property_type, "city": city, "state": state, "auction_stage": auction_stage, "verdict": verdict}
+        statement = select(models.KnowledgeItem)
+        if kind is not None:
+            normalized_kind = str(kind).strip()
+            if normalized_kind not in KNOWLEDGE_CASE_KINDS:
+                raise ValueError(f"Tipo de memória inválido: {normalized_kind}")
+            statement = statement.where(models.KnowledgeItem.kind == normalized_kind)
+        for key, value in filters.items():
+            if value is not None:
+                statement = statement.where(models.KnowledgeItem.metadata_json[key].as_string() == str(value))
+        normalized_query = str(query or "").strip()
+        if normalized_query:
+            text_vector = func.to_tsvector("portuguese", models.KnowledgeItem.title + " " + models.KnowledgeItem.content)
+            text_query = func.plainto_tsquery("portuguese", normalized_query)
+            statement = statement.where(text_vector.op("@@")(text_query))
+        statement = statement.order_by(models.KnowledgeItem.created_at.desc(), models.KnowledgeItem.id.desc()).limit(limit)
         return list(self.db.scalars(statement).all())

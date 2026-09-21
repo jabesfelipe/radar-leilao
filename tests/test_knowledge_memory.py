@@ -94,3 +94,59 @@ def test_operacoes_sao_deterministicas_e_nao_dependem_de_ia():
     assert "LLMGateway" not in source
     assert "RAGService" not in source
     assert "embedding=" in source
+
+
+class SearchDb:
+    def __init__(self, items):
+        self.items = items
+        self.statement = None
+
+    def scalars(self, statement):
+        self.statement = statement
+        limit = getattr(getattr(statement, "_limit_clause", None), "value", None)
+        items = self.items[:limit] if limit is not None else self.items
+        class Result:
+            def all(self):
+                return items
+        return Result()
+
+
+def search_items():
+    return [
+        models.KnowledgeItem(id=1, kind="CASE_ANALYSIS", title="Análise Curitiba", content="caso de imóvel", metadata_json={"city": "Curitiba", "state": "PR", "verdict": "ATENCAO", "property_type": "Apartamento", "auction_stage": "2º leilão"}),
+        models.KnowledgeItem(id=2, kind="CASE_OUTCOME", title="Resultado São Paulo", content="outcome documentado", metadata_json={"city": "São Paulo", "state": "SP", "verdict": "FAVORAVEL", "property_type": "Casa", "auction_stage": "1º leilão"}),
+    ]
+
+
+def test_search_cases_aplica_filtros_metadata_e_kind():
+    db = SearchDb(search_items())
+    items = KnowledgeMemoryService(db).search_cases(kind="CASE_ANALYSIS", property_type="Apartamento", city="Curitiba", state="PR", auction_stage="2º leilão", verdict="ATENCAO")
+    assert items
+    sql = str(db.statement)
+    assert "metadata_json" in sql
+    assert "CASE_ANALYSIS" in str(db.statement.compile().params.values())
+
+
+def test_search_cases_busca_textual_em_title_content_e_limita():
+    db = SearchDb(search_items())
+    items = KnowledgeMemoryService(db).search_cases(query="resultado documentado", limit=1)
+    assert len(items) == 1
+    assert "to_tsvector" in str(db.statement)
+    assert "plainto_tsquery" in str(db.statement)
+
+
+def test_search_cases_sem_resultado_e_limit_invalido():
+    db = SearchDb([])
+    assert KnowledgeMemoryService(db).search_cases(query="inexistente") == []
+    with pytest.raises(ValueError):
+        KnowledgeMemoryService(db).search_cases(limit=0)
+    with pytest.raises(ValueError):
+        KnowledgeMemoryService(db).search_cases(limit=101)
+
+
+def test_search_cases_isola_state_e_ordena_deterministicamente():
+    db = SearchDb([search_items()[0]])
+    items = KnowledgeMemoryService(db).search_cases(state="SP")
+    assert items
+    assert "SP" in str(db.statement.compile().params.values())
+    assert "created_at" in str(db.statement)
