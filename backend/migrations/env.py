@@ -19,11 +19,14 @@ def run_migrations_offline():
 
 def run_migrations_online():
     connectable = engine_from_config(config.get_section(config.config_ini_section, {}), prefix="sqlalchemy.", poolclass=pool.NullPool)
-    with connectable.connect() as connection:
+    # `connectable.begin()` garante COMMIT ao final (o `connect()` anterior não
+    # committava a transação das migrations, deixando o schema vazio apesar do
+    # log de sucesso). Extensões são criadas dentro da mesma transação.
+    with connectable.begin() as connection:
         connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS vector")
         connection.exec_driver_sql("CREATE EXTENSION IF NOT EXISTS pg_trgm")
         context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
-        with context.begin_transaction(): context.run_migrations()
+        context.run_migrations()
 
 if context.is_offline_mode(): run_migrations_offline()
 else: run_migrations_online()
