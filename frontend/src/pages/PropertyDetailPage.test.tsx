@@ -176,6 +176,17 @@ describe('PropertyDetailPage', () => {
     expect(await screen.findByText('Veredito não disponível')).toBeInTheDocument()
   })
 
+  it('abre a seção Histórico real dentro do imóvel', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response({ imovel: { id: 7 }, eventos: [], analises: [] }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Histórico' }))
+    expect(await screen.findByText('Nenhum histórico registrado')).toBeInTheDocument()
+  })
+
   it('apresenta todas as seções futuras do dossiê', async () => {
     vi.mocked(fetch).mockReturnValueOnce(response({ imovel: property }))
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)

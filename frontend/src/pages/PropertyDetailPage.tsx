@@ -12,6 +12,7 @@ import { OccupancySection } from './OccupancySection'
 import { ChecklistSection } from './ChecklistSection'
 import { RiskSection } from './RiskSection'
 import { VerdictSection } from './VerdictSection'
+import { HistorySection } from './HistorySection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -134,6 +135,8 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             <RiskSection propertyId={property.id} />
           ) : activeSection === 'veredito' ? (
             <VerdictSection propertyId={property.id} />
+          ) : activeSection === 'historico' ? (
+            <HistorySection propertyId={property.id} />
           ) : (
             <Card padding="lg" className="detail-placeholder">
               <p className="eyebrow">MÓDULO EM PREPARAÇÃO</p>
