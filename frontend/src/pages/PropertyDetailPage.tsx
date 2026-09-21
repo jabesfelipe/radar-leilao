@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeft, Building2, MapPin, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, LoadingState, Section } from '../components/ui'
 import { getProperty, type Property } from '../services/properties'
+import { DocumentsSection } from './DocumentsSection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -104,6 +105,8 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
                 <DetailFact label="Status" value={property.status.split('_').join(' ')} />
               </div>
             </Section>
+          ) : activeSection === 'documentos' ? (
+            <DocumentsSection propertyId={property.id} />
           ) : (
             <Card padding="lg" className="detail-placeholder">
               <p className="eyebrow">MÓDULO EM PREPARAÇÃO</p>
