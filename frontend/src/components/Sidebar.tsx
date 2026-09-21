@@ -1,4 +1,5 @@
 import { LayoutDashboard, Building2, FileText, Scale, Wallet, BarChart3, Home, ClipboardCheck, ShieldAlert, BadgeCheck, History, X } from 'lucide-react'
+import { IconButton } from './ui'
 
 type NavigationItem = {
   path: string
@@ -33,14 +34,12 @@ export function Sidebar({ currentPath, isOpen, onNavigate, onClose }: SidebarPro
       {isOpen && <button className="sidebar-overlay" type="button" onClick={onClose} aria-label="Fechar menu" />}
       <aside className={`sidebar ${isOpen ? 'sidebar-open' : ''}`}>
         <div className="brand-row">
-          <div className="brand-mark">R</div>
+          <div className="brand-mark" aria-hidden="true"><span /></div>
           <div>
             <strong>RADAR</strong>
             <span>LEILÃO</span>
           </div>
-          <button className="close-menu" type="button" onClick={onClose} aria-label="Fechar menu">
-            <X size={18} />
-          </button>
+          <IconButton label="Fechar menu" icon={<X size={18} />} className="close-menu" onClick={onClose} />
         </div>
         <p className="navigation-title">MÓDULOS PRINCIPAIS</p>
         <nav className="navigation" aria-label="Navegação principal">

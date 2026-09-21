@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, BarChart3, ClipboardCheck, FileText, ShieldCheck } from 'lucide-react'
+import { BarChart3, ClipboardCheck, FileText, ShieldCheck } from 'lucide-react'
+import { Badge, Card, EmptyState, Section } from './components/ui'
 import { Layout } from './components/Layout'
 import { PageContainer } from './components/PageContainer'
 import { navigationItems } from './components/Sidebar'
@@ -53,39 +54,39 @@ const pageDescription: Record<string, string> = {
 function FoundationPage({ path }: { path: string }) {
   if (path === '/dashboard') {
     return (
-      <div className="foundation-grid">
-        <div className="welcome-card">
-          <div className="welcome-icon"><ShieldCheck size={24} /></div>
-          <div>
-            <p className="eyebrow">BASE OPERACIONAL</p>
-            <h3>Seu radar está pronto para evoluir.</h3>
-            <p>A fundação visual está organizada para receber os próximos módulos do produto.</p>
-          </div>
+      <Section className="foundation-section">
+        <div className="foundation-grid">
+          <Card variant="brand" padding="lg" className="welcome-card">
+            <div className="welcome-icon"><ShieldCheck size={24} /></div>
+            <div>
+              <p className="eyebrow">BASE OPERACIONAL</p>
+              <h3>Seu radar está pronto para evoluir.</h3>
+              <p>A fundação visual está organizada para receber os próximos módulos do produto.</p>
+            </div>
+          </Card>
+          <Card padding="lg" className="foundation-card">
+            <BarChart3 size={20} />
+            <strong>11 módulos</strong>
+            <span>Navegação principal configurada</span>
+          </Card>
+          <Card padding="lg" className="foundation-card">
+            <ClipboardCheck size={20} />
+            <strong>Interface em pt-BR</strong>
+            <span>Identidade visual consistente</span>
+            <Badge tone="success" size="sm">Base ativa</Badge>
+          </Card>
         </div>
-        <div className="foundation-card">
-          <BarChart3 size={20} />
-          <strong>11 módulos</strong>
-          <span>Navegação principal configurada</span>
-        </div>
-        <div className="foundation-card">
-          <ClipboardCheck size={20} />
-          <strong>Interface em pt-BR</strong>
-          <span>Identidade visual consistente</span>
-        </div>
-      </div>
+      </Section>
     )
   }
 
   return (
-    <div className="module-placeholder">
-      <div className="placeholder-icon"><FileText size={24} /></div>
-      <div>
-        <p className="eyebrow">MÓDULO BASE</p>
-        <h3>{navigationItems.find((item) => item.path === path)?.label}</h3>
-        <p>Esta página define o ponto de entrada visual do módulo. Funcionalidades e dados serão adicionados em tarefas futuras.</p>
-      </div>
-      <span className="placeholder-arrow"><ArrowRight size={18} /></span>
-    </div>
+    <EmptyState
+      className="module-placeholder"
+      icon={<FileText size={24} />}
+      title={navigationItems.find((item) => item.path === path)?.label ?? 'Módulo'}
+      description="Esta página define o ponto de entrada visual do módulo. Funcionalidades e dados serão adicionados em tarefas futuras."
+    />
   )
 }
 
