@@ -6,6 +6,7 @@ from . import models
 from .checklist import CHECKLIST_CONFIDENCES, CHECKLIST_STATES, master_items
 from .finance import calculate_financial
 from .risk_engine import RiskEngine
+from .verdict_engine import VerdictEngine
 
 
 def serialize(value):
@@ -105,16 +106,17 @@ def recalculate_risks(db: Session, prop: models.Property, analysis_version: int)
 
 
 def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None):
-    finance = build_finance(prop); execution = latest_execution(prop); pending = [r.item.question for r in execution.results if r.state == "PENDENTE"] if execution else []
+    execution = latest_execution(prop)
     risks = list(db.scalars(select(models.Risk).where(models.Risk.property_id == prop.id, models.Risk.analysis_version == analysis.version)).all())
-    synthesis = synthesis or {}
-    known = synthesis.get("known", []) or ["Resultados determinísticos e evidências registradas no dossiê."]
-    unknown = synthesis.get("unknown", [])
-    llm_pending = synthesis.get("pending", [])
-    all_pending = pending + [item for item in llm_pending if item not in pending]
-    overall = "ATENÇÃO" if risks or all_pending else "FAVORÁVEL"
-    summary = synthesis.get("summary") or f"Análise V{analysis.version}: {len(all_pending)} pendência(s) e {len(risks)} risco(s) identificados."
-    verdict = models.Verdict(property_id=prop.id, analysis_version=analysis.version, overall=overall, summary=summary, what_is_known="; ".join(known), what_is_unknown="; ".join(unknown), pending_items=all_pending, financial=serialize(finance), risk_ids=[r.id for r in risks], evidence_ids=analysis.evidence_ids)
+    decision = VerdictEngine().evaluate(
+        property_id=prop.id,
+        analysis_version=analysis.version,
+        risks=risks,
+        checklist_results=execution.results if execution else [],
+        evidence_ids=analysis.evidence_ids or [],
+        financial=build_finance(prop),
+    )
+    verdict = models.Verdict(**decision.to_dict())
     db.add(verdict); db.flush(); return verdict
 
 
