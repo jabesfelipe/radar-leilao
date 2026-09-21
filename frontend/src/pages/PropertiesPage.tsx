@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Building2, MapPin, Plus, RefreshCw } from 'lucide-react'
-import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Select } from '../components/ui'
+import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
 import { createProperty, listProperties, type Property, type PropertyCreate } from '../services/properties'
 
 type PropertyForm = PropertyCreate
@@ -14,8 +14,6 @@ const initialForm: PropertyForm = {
   state: '',
   property_type: 'Apartamento',
 }
-
-const propertyTypes = ['Apartamento', 'Casa', 'Terreno', 'Sala comercial']
 
 function validate(form: PropertyForm): FieldErrors {
   const errors: FieldErrors = {}
@@ -119,9 +117,7 @@ export function PropertiesPage() {
               <Input label="Endereço" placeholder="Rua, número e complemento" value={form.address} onChange={(event) => updateField('address', event.target.value)} error={fieldErrors.address} required />
               <Input label="Cidade" placeholder="Ex.: São Paulo" value={form.city} onChange={(event) => updateField('city', event.target.value)} error={fieldErrors.city} required />
               <Input label="Estado (UF)" placeholder="SP" maxLength={2} value={form.state} onChange={(event) => updateField('state', event.target.value)} error={fieldErrors.state} required />
-              <Select label="Tipo do imóvel" value={form.property_type} onChange={(event) => updateField('property_type', event.target.value)} error={fieldErrors.property_type}>
-                {propertyTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-              </Select>
+              <Input label="Tipo do imóvel" placeholder="Ex.: Apartamento" value={form.property_type} onChange={(event) => updateField('property_type', event.target.value)} error={fieldErrors.property_type} required />
               <div className="property-form-actions">
                 {saveError && <Alert tone="danger">{saveError}</Alert>}
                 <Button type="submit" loading={saving}>Salvar imóvel</Button>

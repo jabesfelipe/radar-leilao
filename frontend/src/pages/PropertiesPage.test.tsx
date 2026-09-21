@@ -54,6 +54,7 @@ describe('PropertiesPage', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
     expect(screen.getByRole('heading', { name: 'Novo imóvel' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Tipo do imóvel')).toHaveValue('Apartamento')
     fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
 
     expect(await screen.findByText('Informe um título com pelo menos 2 caracteres.')).toBeInTheDocument()
@@ -71,6 +72,7 @@ describe('PropertiesPage', () => {
     await screen.findByText('Nenhum imóvel cadastrado')
     fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
     fillForm()
+    fireEvent.change(screen.getByLabelText('Tipo do imóvel'), { target: { value: 'Galpão' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
     expect(screen.getByRole('button', { name: 'Carregando…' })).toBeDisabled()
@@ -78,6 +80,8 @@ describe('PropertiesPage', () => {
 
     expect(await screen.findByText('Imóvel cadastrado com sucesso.')).toBeInTheDocument()
     expect(screen.getByText('Apartamento Centro')).toBeInTheDocument()
+    const postOptions = vi.mocked(fetch).mock.calls[1]?.[1]
+    expect(JSON.parse(String(postOptions?.body)).property_type).toBe('Galpão')
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
