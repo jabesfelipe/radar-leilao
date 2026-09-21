@@ -101,6 +101,18 @@ describe('PropertyDetailPage', () => {
     expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/edital')
   })
 
+  it('abre a seção Processos Jurídicos real dentro do imóvel', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response({ property_id: 7, processos: [], historico: [] }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Processos Jurídicos' }))
+    expect(await screen.findByText('Nenhum processo cadastrado')).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/processos')
+  })
+
   it('apresenta todas as seções futuras do dossiê', async () => {
     vi.mocked(fetch).mockReturnValueOnce(response({ imovel: property }))
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)

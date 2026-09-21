@@ -411,3 +411,13 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   .dossier-current-head { flex-direction: column; }
   .dossier-facts { grid-template-columns: 1fr; }
 }
+
+/* Seção de processos jurídicos */
+.process-list { display: grid; gap: .85rem; }
+.process-card { display: grid; gap: 1.1rem; }
+.process-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.process-card-head h3 { margin: .35rem 0 0; color: var(--color-text); font-size: var(--font-size-lg); overflow-wrap: anywhere; }
+
+@media (max-width: 680px) {
+  .process-card-head { flex-direction: column; }
+}

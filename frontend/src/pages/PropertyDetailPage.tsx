@@ -5,6 +5,7 @@ import { getProperty, type Property } from '../services/properties'
 import { DocumentsSection } from './DocumentsSection'
 import { RegistrationSection } from './RegistrationSection'
 import { AuctionNoticeSection } from './AuctionNoticeSection'
+import { ProcessSection } from './ProcessSection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -113,6 +114,8 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             <RegistrationSection propertyId={property.id} />
           ) : activeSection === 'edital' ? (
             <AuctionNoticeSection propertyId={property.id} />
+          ) : activeSection === 'juridico' ? (
+            <ProcessSection propertyId={property.id} />
           ) : (
             <Card padding="lg" className="detail-placeholder">
               <p className="eyebrow">MÓDULO EM PREPARAÇÃO</p>
