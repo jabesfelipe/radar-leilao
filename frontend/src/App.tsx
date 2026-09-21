@@ -3,6 +3,7 @@ import { BarChart3, ClipboardCheck, FileText, ShieldCheck } from 'lucide-react'
 import { Badge, Card, EmptyState, Section } from './components/ui'
 import { Layout } from './components/Layout'
 import { PageContainer } from './components/PageContainer'
+import { PropertiesPage } from './pages/PropertiesPage'
 import { navigationItems } from './components/Sidebar'
 
 const defaultPath = '/dashboard'
@@ -39,7 +40,7 @@ function App() {
 
 const pageDescription: Record<string, string> = {
   '/dashboard': 'Visão geral da operação e dos módulos do Radar Leilão.',
-  '/imoveis': 'Espaço reservado para a gestão dos imóveis monitorados.',
+  '/imoveis': 'Cadastre e acompanhe os imóveis que fazem parte do seu radar.',
   '/documentos': 'Espaço reservado para documentos e rastreabilidade documental.',
   '/juridico': 'Espaço reservado para informações e acompanhamentos jurídicos.',
   '/financeiro': 'Espaço reservado para a visão financeira dos imóveis.',
@@ -52,6 +53,8 @@ const pageDescription: Record<string, string> = {
 }
 
 function FoundationPage({ path }: { path: string }) {
+  if (path === '/imoveis') return <PropertiesPage />
+
   if (path === '/dashboard') {
     return (
       <Section className="foundation-section">

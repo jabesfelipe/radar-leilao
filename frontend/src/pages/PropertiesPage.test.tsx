@@ -1,0 +1,108 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { PropertiesPage } from './PropertiesPage'
+
+const property = {
+  id: 1,
+  title: 'Apartamento Centro',
+  address: 'Rua Exemplo, 100',
+  city: 'São Paulo',
+  state: 'SP',
+  property_type: 'Apartamento',
+  status: 'EM_ANALISE',
+}
+
+function response(body: unknown, ok = true, status = 200) {
+  return Promise.resolve({ ok, status, json: () => Promise.resolve(body) }) as Promise<Response>
+}
+
+function fillForm() {
+  fireEvent.change(screen.getByLabelText('Título ou identificação'), { target: { value: property.title } })
+  fireEvent.change(screen.getByLabelText('Endereço'), { target: { value: property.address } })
+  fireEvent.change(screen.getByLabelText('Cidade'), { target: { value: property.city } })
+  fireEvent.change(screen.getByLabelText('Estado (UF)'), { target: { value: property.state } })
+}
+
+describe('PropertiesPage', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    globalThis.fetch = vi.fn()
+  })
+
+  it('exibe carregamento e depois estado vazio', async () => {
+    vi.mocked(fetch).mockReturnValueOnce(response([]))
+    render(<PropertiesPage />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('Carregando imóveis')
+    expect(await screen.findByText('Nenhum imóvel cadastrado')).toBeInTheDocument()
+  })
+
+  it('renderiza imóveis cadastrados', async () => {
+    vi.mocked(fetch).mockReturnValueOnce(response([property]))
+    render(<PropertiesPage />)
+
+    expect(await screen.findByText('Apartamento Centro')).toBeInTheDocument()
+    expect(screen.getByText('Rua Exemplo, 100')).toBeInTheDocument()
+    expect(screen.getByText('São Paulo · SP')).toBeInTheDocument()
+    expect(screen.getByText('EM ANALISE')).toBeInTheDocument()
+  })
+
+  it('abre o cadastro e valida campos obrigatórios', async () => {
+    vi.mocked(fetch).mockReturnValueOnce(response([]))
+    render(<PropertiesPage />)
+    await screen.findByText('Nenhum imóvel cadastrado')
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
+    expect(screen.getByRole('heading', { name: 'Novo imóvel' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
+
+    expect(await screen.findByText('Informe um título com pelo menos 2 caracteres.')).toBeInTheDocument()
+    expect(screen.getByText('Informe o endereço.')).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('cria imóvel, mostra salvamento e atualiza a lista', async () => {
+    let resolveCreate: ((value: Response) => void) | undefined
+    const createResponse = new Promise<Response>((resolve) => { resolveCreate = resolve })
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response([]))
+      .mockReturnValueOnce(createResponse)
+    render(<PropertiesPage />)
+    await screen.findByText('Nenhum imóvel cadastrado')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
+    fillForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
+    expect(screen.getByRole('button', { name: 'Carregando…' })).toBeDisabled()
+    resolveCreate?.(await response(property))
+
+    expect(await screen.findByText('Imóvel cadastrado com sucesso.')).toBeInTheDocument()
+    expect(screen.getByText('Apartamento Centro')).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('exibe erro da API ao carregar e permite tentar novamente', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(Promise.reject(new Error('Servidor indisponível')))
+      .mockReturnValueOnce(response([property]))
+    render(<PropertiesPage />)
+
+    expect(await screen.findByText('Não foi possível conectar ao servidor. Tente novamente.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+    await waitFor(() => expect(screen.getByText('Apartamento Centro')).toBeInTheDocument())
+  })
+
+  it('exibe erro da API ao salvar', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response([]))
+      .mockReturnValueOnce(response({ detail: 'Dados inválidos' }, false, 422))
+    render(<PropertiesPage />)
+    await screen.findByText('Nenhum imóvel cadastrado')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
+    fillForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
+
+    expect(await screen.findByText('Dados inválidos')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Novo imóvel' })).toBeInTheDocument()
+  })
+})
