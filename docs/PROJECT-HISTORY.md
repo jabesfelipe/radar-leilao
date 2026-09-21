@@ -148,3 +148,10 @@ A partir de agora, alterações de andamento devem ser registradas principalment
 - Auditoria final: 🟢 aprovado.
 - A correção passou a usar o endpoint dedicado `/api/imoveis/{property_id}/historico` e incluiu `alteracoes` além de eventos e análises.
 - Testes cobrem endpoint, eventos, alterações, análises, vazio e erro/retry.
+
+
+## TASK 49 — Revisão da integração Frontend ↔ Backend
+
+- `2a549c8e9b90e6fc07e50b1f915f109fdc31ca02` — `fix: revisa integracao frontend backend`
+- Auditoria: 🟢 aprovado.
+- Revisão focada nos contratos de integração e cobertura dos fluxos existentes, sem criação de regras de negócio.
