@@ -162,3 +162,14 @@ A partir de agora, alterações de andamento devem ser registradas principalment
 - `1e50f30e09f314e058eaa396a49b0a769209f6c2` — `test: adiciona testes de integracao do radar`
 - Auditoria: 🟢 aprovado.
 - Cobertura de integração HTTP com FastAPI e PostgreSQL/pgvector para os principais fluxos do Radar, incluindo persistência, contratos, análise, riscos/veredito e histórico.
+
+
+## TASK 51 — Primeiro E2E com imóvel real da Caixa
+
+- `ea7db957b6ef6e739bfa19d086b4a508d462acc6` — `test: executa primeiro e2e com imovel real da caixa`
+- Auditoria: 🟡 não aprovado como E2E completo.
+- O teste foi efetivamente exercitado com o imóvel real `155552876506-4` e os PDFs oficiais da Caixa.
+- O primeiro breakpoint real foi confirmado no `DocumentNormalizer`: MarkItDown não possui a dependência necessária para processamento de PDF.
+- PostgreSQL/pgvector e LLM também estavam indisponíveis, impedindo a execução das etapas posteriores.
+- Nenhuma falha foi mascarada e nenhum dado/resultado foi inventado.
+- Próximo passo operacional: TASK 51B, reexecução controlada após preparar o runtime.
