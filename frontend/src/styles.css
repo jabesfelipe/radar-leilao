@@ -462,3 +462,31 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   .checklist-item-actions .ui-button, .checklist-form-actions .ui-button, .checklist-form-actions .ui-alert { width: 100%; }
   .checklist-form-actions { align-items: stretch; flex-direction: column; }
 }
+
+/* Seção de riscos */
+.risk-list { display: grid; gap: .85rem; }
+.risk-card { display: grid; gap: .85rem; }
+.risk-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.risk-card-title { display: flex; align-items: center; gap: .65rem; min-width: 0; }
+.risk-card-icon { display: grid; width: 38px; height: 38px; flex-shrink: 0; place-items: center; border-radius: var(--radius-md); color: var(--color-danger); background: #fff2f2; }
+.risk-card-title h3 { margin: 0; color: var(--color-text); font-size: var(--font-size-md); overflow-wrap: anywhere; }
+.risk-description { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
+
+/* Seção de veredito */
+.verdict-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 1.25rem; }
+.verdict-hero-info { flex: 1; min-width: 0; }
+.verdict-hero .eyebrow { color: #e3bb6d; }
+.verdict-hero h3 { margin: .5rem 0 .6rem; color: #fff; font-size: var(--font-size-xl); }
+.verdict-summary { margin: 0; color: #d5deec; font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.verdict-badge { flex-shrink: 0; }
+.verdict-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.verdict-block { display: grid; gap: .5rem; }
+.verdict-block p:last-child { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.verdict-pending { margin: 0; padding-left: 1.1rem; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.7; }
+.verdict-facts { margin-top: 1rem; }
+
+@media (max-width: 680px) {
+  .risk-card-head { flex-direction: column; }
+  .verdict-hero { flex-direction: column; }
+  .verdict-grid { grid-template-columns: 1fr; }
+}

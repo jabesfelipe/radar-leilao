@@ -10,6 +10,8 @@ import { FinancialSection } from './FinancialSection'
 import { MarketSection } from './MarketSection'
 import { OccupancySection } from './OccupancySection'
 import { ChecklistSection } from './ChecklistSection'
+import { RiskSection } from './RiskSection'
+import { VerdictSection } from './VerdictSection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -128,6 +130,10 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             <OccupancySection propertyId={property.id} />
           ) : activeSection === 'checklist' ? (
             <ChecklistSection propertyId={property.id} />
+          ) : activeSection === 'riscos' ? (
+            <RiskSection propertyId={property.id} />
+          ) : activeSection === 'veredito' ? (
+            <VerdictSection propertyId={property.id} />
           ) : (
             <Card padding="lg" className="detail-placeholder">
               <p className="eyebrow">MÓDULO EM PREPARAÇÃO</p>

@@ -161,6 +161,21 @@ describe('PropertyDetailPage', () => {
     expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/checklist')
   })
 
+  it('abre as seções Riscos e Veredito reais dentro do imóvel', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response({ imovel: { id: 7 }, riscos: [], veredito: null }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Riscos' }))
+    expect(await screen.findByText('Nenhum risco identificado')).toBeInTheDocument()
+
+    vi.mocked(fetch).mockReturnValueOnce(response({ imovel: { id: 7 }, riscos: [], veredito: null }))
+    fireEvent.click(screen.getByRole('button', { name: 'Veredito' }))
+    expect(await screen.findByText('Veredito não disponível')).toBeInTheDocument()
+  })
+
   it('apresenta todas as seções futuras do dossiê', async () => {
     vi.mocked(fetch).mockReturnValueOnce(response({ imovel: property }))
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
