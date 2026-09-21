@@ -105,6 +105,15 @@ describe('PropertiesPage', () => {
     await waitFor(() => expect(screen.getByText('Apartamento Centro')).toBeInTheDocument())
   })
 
+  it('não mostra estado vazio de sucesso quando o carregamento falha sem dados', async () => {
+    vi.mocked(fetch).mockReturnValueOnce(response({ detail: 'Erro interno' }, false, 500))
+    render(<PropertiesPage />)
+
+    expect(await screen.findByText('Erro interno')).toBeInTheDocument()
+    expect(screen.queryByText('Nenhum imóvel cadastrado')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument()
+  })
+
   it('exibe erro da API ao salvar', async () => {
     vi.mocked(fetch)
       .mockReturnValueOnce(response([]))

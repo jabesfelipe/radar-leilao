@@ -115,8 +115,29 @@ describe('ChecklistSection', () => {
     expect(patchCall[0]).toContain('/api/imoveis/5/checklist/30')
     expect((patchCall[1] as RequestInit).method).toBe('PATCH')
     const body = JSON.parse(String((patchCall[1] as RequestInit).body))
-    expect(body).toEqual({ state: 'CONFIRMADO', answer: 'Confirmado em cartório' })
+    expect(body.state).toBe('CONFIRMADO')
+    expect(body.answer).toBe('Confirmado em cartório')
+    // confiança ausente no item permanece ausente (não vira MEDIA artificial)
     expect(body).not.toHaveProperty('confidence')
+  })
+
+  it('preserva interpretação e risco ao atualizar (não sobrescreve com null)', async () => {
+    const enriched = { ...result, interpretation: 'Interpretação do agente', risk: 'Risco relevante', confidence: 'ALTA' }
+    mockLoad([enriched])
+    vi.mocked(fetch).mockReturnValueOnce(response({ ...enriched, state: 'CONFIRMADO' }))
+    render(<ChecklistSection propertyId={5} />)
+    await screen.findByText('Intimação para purgar mora foi pessoal?')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar item' }))
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'CONFIRMADO' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+
+    expect(await screen.findByText('Item do checklist atualizado com sucesso.')).toBeInTheDocument()
+    const body = JSON.parse(String((vi.mocked(fetch).mock.calls[2][1] as RequestInit).body))
+    expect(body.interpretation).toBe('Interpretação do agente')
+    expect(body.risk).toBe('Risco relevante')
+    // confiança existente é preservada mesmo sem o usuário reabrir o seletor
+    expect(body.confidence).toBe('ALTA')
   })
 
   it('envia confiança apenas quando o usuário a seleciona', async () => {

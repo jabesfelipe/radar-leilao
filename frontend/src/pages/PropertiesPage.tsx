@@ -111,7 +111,7 @@ export function PropertiesPage({ onOpenProperty }: PropertiesPageProps = {}) {
       </div>
 
       {successMessage && <Alert tone="success" title="Cadastro concluído" className="properties-feedback">{successMessage}</Alert>}
-      {error && <Alert tone="danger" title="Não foi possível carregar" className="properties-feedback" onDismiss={() => setError('')}>{error}</Alert>}
+      {error && properties.length > 0 && <Alert tone="danger" title="Não foi possível carregar" className="properties-feedback" onDismiss={() => setError('')}>{error}</Alert>}
 
       {formOpen && (
         <Card variant="elevated" padding="lg" className="property-form-card">
@@ -132,7 +132,14 @@ export function PropertiesPage({ onOpenProperty }: PropertiesPageProps = {}) {
       )}
 
       <Section title="Imóveis cadastrados" className="properties-list-section">
-        {loading ? <LoadingState label="Carregando imóveis…" /> : properties.length === 0 ? (
+        {loading ? (
+          <LoadingState label="Carregando imóveis…" />
+        ) : error && properties.length === 0 ? (
+          <Card padding="lg" className="properties-error">
+            <Alert tone="danger" title="Não foi possível carregar">{error}</Alert>
+            <Button variant="secondary" onClick={() => void loadProperties()}><RefreshCw size={16} /> Tentar novamente</Button>
+          </Card>
+        ) : properties.length === 0 ? (
           <Card padding="none"><EmptyState title="Nenhum imóvel cadastrado" description="Comece adicionando o primeiro imóvel ao seu radar." icon={<Building2 size={24} />} action={<Button onClick={openForm}><Plus size={17} /> Novo imóvel</Button>} /></Card>
         ) : (
           <div className="property-grid">
@@ -140,7 +147,6 @@ export function PropertiesPage({ onOpenProperty }: PropertiesPageProps = {}) {
           </div>
         )}
       </Section>
-      {!loading && error && properties.length === 0 && <Button variant="secondary" onClick={() => void loadProperties()}><RefreshCw size={16} /> Tentar novamente</Button>}
     </Section>
   )
 }

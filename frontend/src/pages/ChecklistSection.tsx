@@ -91,10 +91,14 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
     setRowError('')
     setSuccessMessage('')
     try {
+      const currentConfidence = normalizeDraftConfidence(item.confidence)
+      const confidence = draft.confidence || currentConfidence
       const updated = await updateChecklistItem(propertyId, item.id, {
         state: draft.state,
         answer: draft.answer,
-        ...(draft.confidence ? { confidence: draft.confidence } : {}),
+        ...(confidence ? { confidence } : {}),
+        interpretation: item.interpretation ?? null,
+        risk: item.risk ?? null,
       })
       setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, ...updated, question: entry.question } : entry)))
       setEditingId(null)

@@ -266,6 +266,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .properties-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
 .properties-count { margin: 0 0 .3rem; color: var(--color-text); font-size: var(--font-size-md); font-weight: 800; }
 .properties-feedback { margin: 0; }
+.properties-error { display: grid; gap: 1rem; justify-items: start; }
 .property-form-card { width: 100%; }
 .property-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1.25rem; }
 .property-form-actions { display: flex; align-items: flex-end; justify-content: flex-end; gap: .75rem; grid-column: 1 / -1; }
