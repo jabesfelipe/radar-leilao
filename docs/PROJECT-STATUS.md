@@ -47,12 +47,14 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `1e50f30e09f314e058eaa396a49b0a769209f6c2`  
-**Mensagem:** `test: adiciona testes de integracao do radar`
+**Último commit implementado:** `ea7db957b6ef6e739bfa19d086b4a508d462acc6`  
+**Mensagem:** `test: executa primeiro e2e com imovel real da caixa`
 
 **Última TASK aprovada:** TASK 50
 
-**Próxima TASK:** TASK 51 — Primeiro teste E2E com imóvel real da Caixa
+**TASK 51:** execução diagnóstica realizada, **não aprovada como concluída**
+
+**Próxima TASK:** TASK 51B — Reexecução controlada do E2E após preparar runtime
 
 **Status global:** 🟡 MVP em construção
 
@@ -242,7 +244,19 @@ Uma TASK só é considerada concluída quando:
 - Adicionados testes de integração HTTP contra FastAPI + PostgreSQL/pgvector, cobrindo cadastro, documentos, matrícula/edital, processos, financeiro, mercado/ocupação, checklist, análise, riscos/veredito, histórico e nova versão de análise.
 
 ## TASK 51 — Primeiro teste E2E com imóvel real da Caixa
-- [ ] PENDENTE
+- [~] **EXECUÇÃO DIAGNÓSTICA REALIZADA — NÃO CONCLUÍDA**
+- Commit: `ea7db957b6ef6e739bfa19d086b4a508d462acc6`
+- Auditoria: 🟡 não aprovada como E2E completo.
+- O imóvel real e os dois PDFs oficiais da Caixa foram baixados e o `DocumentNormalizer` real foi exercitado.
+- Primeiro GAP real confirmado: processamento de PDF do MarkItDown bloqueado pela ausência da dependência PDF (`pdfminer`).
+- PostgreSQL/pgvector e LLM também estavam indisponíveis no ambiente, portanto RAG, Agents, LangGraph, Checklist, Risk, Verdict, Dossiê, Histórico e reanálise não foram executados com dados reais.
+- Relatório: `docs/E2E-DIAGNOSTICO-TASK-51.md`
+
+## TASK 51B — Reexecução controlada do E2E após preparar runtime
+- [ ] **PENDENTE**
+- Objetivo: preparar somente as dependências/runtime necessários e repetir o E2E com o mesmo imóvel e os mesmos documentos reais.
+- Não corrigir regras de negócio, contratos, arquitetura ou componentes além do mínimo necessário para o ambiente/document pipeline funcionar.
+- Não avançar para TASK 52 até a execução real chegar ao próximo breakpoint funcional.
 
 ## TASK 52 — Correções do teste real
 - [ ] PENDENTE
