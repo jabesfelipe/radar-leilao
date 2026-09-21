@@ -91,7 +91,7 @@ def test_operacoes_sao_deterministicas_e_nao_dependem_de_ia():
     import inspect
     from backend.app import knowledge_memory
     source = inspect.getsource(knowledge_memory)
-    assert "LLMGateway" not in source
+    assert "OpenAIProvider" not in source
     assert "RAGService" not in source
     assert "embedding=" in source
 
@@ -150,3 +150,63 @@ def test_search_cases_isola_state_e_ordena_deterministicamente():
     assert items
     assert "SP" in str(db.statement.compile().params.values())
     assert "created_at" in str(db.statement)
+
+
+class EmbeddingProvider:
+    def __init__(self, vectors=None, error=None):
+        self.vectors = vectors
+        self.error = error
+        self.texts = []
+    def embed(self, texts):
+        self.texts.extend(texts)
+        if self.error:
+            raise self.error
+        return self.vectors
+
+
+def vector(size=None):
+    from backend.app.config import settings
+    return [0.25] * (size or settings.embedding_dimensions)
+
+
+def test_embed_case_gera_persiste_e_usa_title_content():
+    db = Db()
+    service = KnowledgeMemoryService(db)
+    item = service.add_case("CASE_ANALYSIS", "Título", "Conteúdo do caso")
+    provider = EmbeddingProvider([vector()])
+    updated = service.embed_case(item, provider)
+    assert updated is item
+    assert item.embedding == vector()
+    assert provider.texts == ["Título\n\nConteúdo do caso"]
+
+
+def test_embed_case_rejeita_dimensao_incorreta_sem_limpar_item():
+    db = Db()
+    service = KnowledgeMemoryService(db)
+    item = service.add_case("CASE_ANALYSIS", "Título", "Conteúdo")
+    with pytest.raises(ValueError):
+        service.embed_case(item, EmbeddingProvider([vector(3)]))
+    assert item in db.items
+    assert item.embedding is None
+
+
+def test_embed_case_preserva_embedding_anterior_se_provider_falhar():
+    db = Db()
+    service = KnowledgeMemoryService(db)
+    item = service.add_case("CASE_ANALYSIS", "Título", "Conteúdo")
+    previous = vector()
+    item.embedding = previous
+    with pytest.raises(RuntimeError):
+        service.embed_case(item, EmbeddingProvider(error=RuntimeError("falha provider")))
+    assert item.embedding == previous
+
+
+def test_embed_case_inexistente_retorna_none():
+    assert KnowledgeMemoryService(Db()).embed_case(999, EmbeddingProvider([vector()])) is None
+
+
+def test_embed_case_provider_retorna_quantidade_invalida():
+    db = Db()
+    item = KnowledgeMemoryService(db).add_case("CASE_OUTCOME", "Título", "Conteúdo")
+    with pytest.raises(ValueError):
+        KnowledgeMemoryService(db).embed_case(item, EmbeddingProvider([]))

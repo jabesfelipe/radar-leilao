@@ -6,13 +6,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from . import models
+from .ai.gateway import LLMGateway
+from .rag.embeddings import generate_embedding
 
 
 KNOWLEDGE_CASE_KINDS = ("CASE_ANALYSIS", "CASE_OUTCOME", "RULE_LEARNING")
 
 
 class KnowledgeMemoryService:
-    """Persistência estruturada de casos, sem embeddings ou recuperação semântica."""
+    """Persistência estruturada de casos, sem busca ou recuperação semântica."""
 
     def __init__(self, db: Session):
         self.db = db
@@ -92,3 +94,17 @@ class KnowledgeMemoryService:
             statement = statement.where(text_vector.op("@@")(text_query))
         statement = statement.order_by(models.KnowledgeItem.created_at.desc(), models.KnowledgeItem.id.desc()).limit(limit)
         return list(self.db.scalars(statement).all())
+
+    def embed_case(
+        self,
+        case: int | models.KnowledgeItem,
+        gateway: LLMGateway | None = None,
+    ) -> models.KnowledgeItem | None:
+        item = self.get_case(case) if isinstance(case, int) else case
+        if item is None:
+            return None
+        text = f"{item.title}\n\n{item.content}"
+        embedding = generate_embedding(text, gateway=gateway)
+        item.embedding = embedding
+        self.db.flush()
+        return item
