@@ -210,3 +210,110 @@ def test_embed_case_provider_retorna_quantidade_invalida():
     item = KnowledgeMemoryService(db).add_case("CASE_OUTCOME", "Título", "Conteúdo")
     with pytest.raises(ValueError):
         KnowledgeMemoryService(db).embed_case(item, EmbeddingProvider([]))
+
+
+class SimilarDb:
+    def __init__(self, rows):
+        self.rows = rows
+        self.statement = None
+
+    def execute(self, statement):
+        self.statement = statement
+        limit = getattr(getattr(statement, "_limit_clause", None), "value", None)
+        rows = self.rows[:limit] if limit is not None else self.rows
+
+        class Result:
+            def all(self):
+                return rows
+
+        return Result()
+
+
+def test_search_similar_gera_embedding_retorna_distancia_e_ordena():
+    items = [
+        models.KnowledgeItem(id=2, kind="CASE_ANALYSIS", title="Mais distante", content="caso", metadata_json={}, embedding=vector()),
+        models.KnowledgeItem(id=1, kind="CASE_OUTCOME", title="Mais similar", content="caso", metadata_json={}, embedding=vector()),
+    ]
+    db = SimilarDb([(items[1], 0.05), (items[0], 0.80)])
+    provider = EmbeddingProvider([vector()])
+
+    results = KnowledgeMemoryService(db).search_similar("imóvel ocupado em Curitiba", gateway=provider)
+
+    assert [item.title for item, _ in results] == ["Mais similar", "Mais distante"]
+    assert [distance for _, distance in results] == [0.05, 0.80]
+    assert provider.texts == ["imóvel ocupado em Curitiba"]
+    sql = str(db.statement)
+    assert "<=>" in sql
+    assert "embedding IS NOT NULL" in sql
+    assert "distance" in sql
+
+
+def test_search_similar_aplica_filtro_state_no_banco_e_ignora_embedding_null():
+    item = models.KnowledgeItem(id=1, kind="CASE_ANALYSIS", title="Curitiba", content="caso", metadata_json={"state": "PR"}, embedding=vector())
+    db = SimilarDb([(item, 0.1)])
+    service = KnowledgeMemoryService(db)
+
+    results = service.search_similar("imóvel ocupado", state="PR", gateway=EmbeddingProvider([vector()]))
+
+    assert results == [(item, 0.1)]
+    sql = str(db.statement)
+    assert "metadata_json" in sql
+    assert "embedding IS NOT NULL" in sql
+    assert "PR" in str(db.statement.compile().params.values())
+
+
+def test_search_similar_combina_filtros_estruturados_e_limita():
+    item = models.KnowledgeItem(id=1, kind="CASE_ANALYSIS", title="Apartamento Curitiba", content="caso", metadata_json={"property_type": "Apartamento", "city": "Curitiba", "state": "PR", "auction_stage": "2º leilão", "verdict": "ATENCAO"}, embedding=vector())
+    db = SimilarDb([(item, 0.1), (item, 0.2)])
+
+    results = KnowledgeMemoryService(db).search_similar(
+        "imóvel ocupado",
+        limit=1,
+        kind="CASE_ANALYSIS",
+        property_type="Apartamento",
+        city="Curitiba",
+        state="PR",
+        auction_stage="2º leilão",
+        verdict="ATENCAO",
+        gateway=EmbeddingProvider([vector()]),
+    )
+
+    assert len(results) == 1
+    compiled = db.statement.compile()
+    params = str(compiled.params.values())
+    assert all(value in params for value in ["CASE_ANALYSIS", "Apartamento", "Curitiba", "PR", "2º leilão", "ATENCAO"])
+    assert "ORDER BY" in str(db.statement)
+    assert "distance" in str(db.statement)
+
+
+def test_search_similar_valida_limit_e_dimensao_do_embedding():
+    service = KnowledgeMemoryService(SimilarDb([]))
+    provider = EmbeddingProvider([vector()])
+    with pytest.raises(ValueError):
+        service.search_similar("consulta", limit=0, gateway=provider)
+    with pytest.raises(ValueError):
+        service.search_similar("consulta", limit=101, gateway=provider)
+    with pytest.raises(ValueError):
+        service.search_similar("consulta", gateway=EmbeddingProvider([vector(3)]))
+
+
+def test_search_similar_propagates_falha_do_provider_sem_resultados_falsos():
+    db = SimilarDb([])
+    with pytest.raises(RuntimeError, match="falha provider"):
+        KnowledgeMemoryService(db).search_similar(
+            "consulta",
+            gateway=EmbeddingProvider(error=RuntimeError("falha provider")),
+        )
+    assert db.statement is None
+
+
+def test_search_similar_nao_adiciona_rag_llm_de_interpretacao_ou_reranking():
+    import inspect
+    from backend.app import knowledge_memory
+
+    source = inspect.getsource(knowledge_memory.KnowledgeMemoryService.search_similar)
+    assert "RAG" not in source
+    assert "LangGraph" not in source
+    assert "rerank" not in source.lower()
+    assert "plainto_tsquery" not in source
+    assert "cosine_distance" in source

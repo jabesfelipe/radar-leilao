@@ -95,6 +95,43 @@ class KnowledgeMemoryService:
         statement = statement.order_by(models.KnowledgeItem.created_at.desc(), models.KnowledgeItem.id.desc()).limit(limit)
         return list(self.db.scalars(statement).all())
 
+    def search_similar(
+        self,
+        query: str,
+        limit: int = 20,
+        kind: str | None = None,
+        property_type: str | None = None,
+        city: str | None = None,
+        state: str | None = None,
+        auction_stage: str | None = None,
+        verdict: str | None = None,
+        gateway: LLMGateway | None = None,
+    ) -> list[tuple[models.KnowledgeItem, float]]:
+        if limit < 1:
+            raise ValueError("Limit deve ser maior que zero")
+        if limit > 100:
+            raise ValueError("Limit máximo é 100")
+        query_embedding = generate_embedding(query, gateway=gateway)
+        distance = models.KnowledgeItem.embedding.cosine_distance(query_embedding).label("distance")
+        statement = select(models.KnowledgeItem, distance).where(models.KnowledgeItem.embedding.is_not(None))
+        if kind is not None:
+            normalized_kind = str(kind).strip()
+            if normalized_kind not in KNOWLEDGE_CASE_KINDS:
+                raise ValueError(f"Tipo de memória inválido: {normalized_kind}")
+            statement = statement.where(models.KnowledgeItem.kind == normalized_kind)
+        filters = {
+            "property_type": property_type,
+            "city": city,
+            "state": state,
+            "auction_stage": auction_stage,
+            "verdict": verdict,
+        }
+        for key, value in filters.items():
+            if value is not None:
+                statement = statement.where(models.KnowledgeItem.metadata_json[key].as_string() == str(value))
+        statement = statement.order_by(distance.asc(), models.KnowledgeItem.id.asc()).limit(limit)
+        return [(item, float(item_distance)) for item, item_distance in self.db.execute(statement).all()]
+
     def embed_case(
         self,
         case: int | models.KnowledgeItem,
