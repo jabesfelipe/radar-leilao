@@ -8,6 +8,7 @@ from .. import models
 from ..rag.retriever import RetrieverFilters
 from ..rag.service import RAGService
 from .gateway import LLMGateway, build_gateway
+from ..consolidation import consolidate_agent_results
 
 
 class AnalysisState(TypedDict, total=False):
@@ -109,18 +110,21 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
         }
 
     def consolidate(state: AnalysisState) -> dict[str, Any]:
-        consolidated = {
-            "agent_results": list(state.get("agent_results", [])),
-            "evidence_ids": list(state.get("evidence_ids", [])),
-            "retrieved_chunk_ids": list(state.get("retrieved_chunk_ids", [])),
-            "llm_runs": list(state.get("llm_runs", [])),
-            "pending": list(state.get("pending", [])),
-            "interpretations": list(state.get("interpretations", [])),
-            "errors": list(state.get("errors", [])),
-            "llm_used": state.get("llm_used", False),
-            "model": state.get("model"),
-        }
-        return {"consolidated": consolidated}
+        consolidated = consolidate_agent_results(
+            property_id=state.get("property_id"),
+            analysis_id=state.get("analysis_id"),
+            domains=state.get("domains", []),
+            agent_results=state.get("agent_results", []),
+            evidence_ids=state.get("evidence_ids", []),
+            retrieved_chunk_ids=state.get("retrieved_chunk_ids", []),
+            pending=state.get("pending", []),
+            interpretations=state.get("interpretations", []),
+            errors=state.get("errors", []),
+            llm_used=state.get("llm_used", False),
+            model=state.get("model"),
+            llm_runs=state.get("llm_runs", []),
+        )
+        return {"consolidated": consolidated.to_dict()}
 
     graph.add_node("LOAD_CONTEXT", load_context)
     graph.add_node("RETRIEVE_RAG", retrieve_rag)
