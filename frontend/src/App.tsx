@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, BarChart3, CheckCircle2, ClipboardCheck, FileText, ShieldCheck } from 'lucide-react'
+import { ArrowRight, BarChart3, ClipboardCheck, FileText, ShieldCheck } from 'lucide-react'
 import { Layout } from './components/Layout'
 import { PageContainer } from './components/PageContainer'
 import { navigationItems } from './components/Sidebar'

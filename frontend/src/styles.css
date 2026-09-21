@@ -87,3 +87,25 @@ button { font: inherit; }
   .module-placeholder { align-items: flex-start; padding: 22px; }
   .placeholder-arrow { display: none; }
 }
+
+/* Regras compartilhadas de responsividade e toque */
+html, #root { min-height: 100%; }
+html, body { overflow-x: hidden; }
+.app-shell, .app-content { width: 100%; max-width: 100vw; }
+.app-content { overflow-x: hidden; }
+.topbar > div { min-width: 0; }
+.navigation-item, .icon-button, .mobile-menu, .close-menu { min-height: 44px; }
+.icon-button, .mobile-menu { width: 44px; }
+.close-menu { width: 44px; min-width: 44px; }
+.navigation-item { line-height: 1.35; }
+.page-description, .module-placeholder p, .welcome-card p { overflow-wrap: anywhere; }
+
+@media (max-width: 680px) {
+  .topbar > div:nth-child(2) { overflow: hidden; }
+  .topbar h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .page-container { width: 100%; }
+  .page-heading h2 { overflow-wrap: anywhere; }
+  .welcome-card { flex-direction: column; }
+  .module-placeholder { width: 100%; }
+  .form-grid { display: grid; grid-template-columns: 1fr; }
+}
