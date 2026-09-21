@@ -173,3 +173,21 @@ A partir de agora, alterações de andamento devem ser registradas principalment
 - PostgreSQL/pgvector e LLM também estavam indisponíveis, impedindo a execução das etapas posteriores.
 - Nenhuma falha foi mascarada e nenhum dado/resultado foi inventado.
 - Próximo passo operacional: TASK 51B, reexecução controlada após preparar o runtime.
+
+
+## TASK 52 — Cadeia de migrations validada
+
+- `b676a889fdfb79c4609b72107a345f9b5ed3a080` — `fix: corrige cadeia de migrations do radar`
+- Validação em banco limpo no ambiente oficial WSL2 → Docker → PostgreSQL + pgvector.
+- Migrations 0001 → 0008 concluídas; pgvector/pg_trgm e campos específicos validados.
+- Suíte: 211 passed, 10 failed. As falhas foram identificadas como problemas de aplicação fora do escopo da migration.
+
+## TASK 53 — Snapshot anterior do Checklist
+
+- `f36cecebb490112945d2f6a91ae96bf2e9492157` — `fix: corrige snapshot anterior do checklist`
+- Auditoria: 🟢 aprovado.
+- `create_execution` passou a vincular `previous_result_id` ao resultado correspondente da execução anterior, preservando o snapshot sem copiar resposta/estado.
+
+## Próxima etapa
+
+- TASK 54 — Reexecutar a suíte e corrigir somente a próxima falha real, uma por vez.
