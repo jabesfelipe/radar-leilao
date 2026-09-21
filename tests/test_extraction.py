@@ -69,7 +69,7 @@ def test_isolamento_document_version():
 
 def test_persistencia_cria_registro_e_evidencia_rastreavel(monkeypatch):
     version=version_for(); db=FakeDb(version); prop=models.Property(id=1,title="x",address="a",city="c",state="SP")
-    result=type("Result",(),{"document_type":"MATRICULA","document_version_id":3,"output":RegistrationExtraction(registration_number="123",references=[{"field":"registration_number","value":"123","chunk_id":None,"page":2}])})()
+    result=type("Result",(),{"success":True,"document_type":"MATRICULA","document_version_id":3,"output":RegistrationExtraction(registration_number="123",references=[{"field":"registration_number","value":"123","chunk_id":None,"page":2}])})()
     item,evidence_ids=persist_extraction(db,prop,result)
     assert item.registration_number=="123" and len(evidence_ids)==1
     assert any(isinstance(value,models.EvidenceLink) for value in db.added)
