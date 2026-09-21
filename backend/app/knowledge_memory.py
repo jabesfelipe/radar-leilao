@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, TypedDict
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -13,8 +13,15 @@ from .rag.embeddings import generate_embedding
 KNOWLEDGE_CASE_KINDS = ("CASE_ANALYSIS", "CASE_OUTCOME", "RULE_LEARNING")
 
 
+class HybridSearchResult(TypedDict):
+    item: models.KnowledgeItem
+    distance: float | None
+    text_match: bool
+    origin: Literal["textual", "semantic", "both"]
+
+
 class KnowledgeMemoryService:
-    """Persistência estruturada de casos, sem busca ou recuperação semântica."""
+    """Persistência estruturada e buscas textual, semântica e híbrida de casos."""
 
     def __init__(self, db: Session):
         self.db = db
@@ -131,6 +138,72 @@ class KnowledgeMemoryService:
                 statement = statement.where(models.KnowledgeItem.metadata_json[key].as_string() == str(value))
         statement = statement.order_by(distance.asc(), models.KnowledgeItem.id.asc()).limit(limit)
         return [(item, float(item_distance)) for item, item_distance in self.db.execute(statement).all()]
+
+    def search_hybrid(
+        self,
+        query: str,
+        limit: int = 20,
+        kind: str | None = None,
+        property_type: str | None = None,
+        city: str | None = None,
+        state: str | None = None,
+        auction_stage: str | None = None,
+        verdict: str | None = None,
+        gateway: LLMGateway | None = None,
+    ) -> list[HybridSearchResult]:
+        if limit < 1:
+            raise ValueError("Limit deve ser maior que zero")
+        if limit > 100:
+            raise ValueError("Limit máximo é 100")
+
+        textual_items = self.search_cases(
+            query=query,
+            kind=kind,
+            property_type=property_type,
+            city=city,
+            state=state,
+            auction_stage=auction_stage,
+            verdict=verdict,
+            limit=limit,
+        )
+        semantic_items = self.search_similar(
+            query=query,
+            limit=limit,
+            kind=kind,
+            property_type=property_type,
+            city=city,
+            state=state,
+            auction_stage=auction_stage,
+            verdict=verdict,
+            gateway=gateway,
+        )
+
+        consolidated: dict[int, HybridSearchResult] = {}
+        ordered_ids: list[int] = []
+        for item in textual_items:
+            consolidated[item.id] = {
+                "item": item,
+                "distance": None,
+                "text_match": True,
+                "origin": "textual",
+            }
+            ordered_ids.append(item.id)
+        for item, distance in semantic_items:
+            existing = consolidated.get(item.id)
+            if existing is None:
+                consolidated[item.id] = {
+                    "item": item,
+                    "distance": distance,
+                    "text_match": False,
+                    "origin": "semantic",
+                }
+                ordered_ids.append(item.id)
+            else:
+                existing["distance"] = distance
+                existing["text_match"] = True
+                existing["origin"] = "both"
+
+        return [consolidated[item_id] for item_id in ordered_ids[:limit]]
 
     def embed_case(
         self,

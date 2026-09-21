@@ -317,3 +317,120 @@ def test_search_similar_nao_adiciona_rag_llm_de_interpretacao_ou_reranking():
     assert "rerank" not in source.lower()
     assert "plainto_tsquery" not in source
     assert "cosine_distance" in source
+
+
+class HybridDb:
+    def __init__(self, textual_items, semantic_rows):
+        self.textual_items = textual_items
+        self.semantic_rows = semantic_rows
+        self.text_statement = None
+        self.semantic_statement = None
+
+    def scalars(self, statement):
+        self.text_statement = statement
+        limit = getattr(getattr(statement, "_limit_clause", None), "value", None)
+        items = self.textual_items[:limit] if limit is not None else self.textual_items
+
+        class Result:
+            def all(self):
+                return items
+
+        return Result()
+
+    def execute(self, statement):
+        self.semantic_statement = statement
+        limit = getattr(getattr(statement, "_limit_clause", None), "value", None)
+        rows = self.semantic_rows[:limit] if limit is not None else self.semantic_rows
+
+        class Result:
+            def all(self):
+                return rows
+
+        return Result()
+
+
+def hybrid_items():
+    return [
+        models.KnowledgeItem(id=1, kind="CASE_ANALYSIS", title="Somente textual", content="caso textual", metadata_json={"state": "PR"}),
+        models.KnowledgeItem(id=2, kind="CASE_OUTCOME", title="Textual e semântico", content="caso combinado", metadata_json={"state": "PR"}),
+        models.KnowledgeItem(id=3, kind="CASE_ANALYSIS", title="Somente semântico", content="caso vetorial", metadata_json={"state": "PR"}, embedding=vector()),
+    ]
+
+
+def test_search_hybrid_consolida_origens_e_preserva_distancia():
+    items = hybrid_items()
+    db = HybridDb(items[:2], [(items[2], 0.10), (items[1], 0.25)])
+
+    results = KnowledgeMemoryService(db).search_hybrid(
+        "imóvel ocupado em Curitiba",
+        gateway=EmbeddingProvider([vector()]),
+    )
+
+    assert [result["item"].id for result in results] == [1, 2, 3]
+    assert results[0]["origin"] == "textual"
+    assert results[0]["text_match"] is True
+    assert results[0]["distance"] is None
+    assert results[1]["origin"] == "both"
+    assert results[1]["text_match"] is True
+    assert results[1]["distance"] == 0.25
+    assert results[2]["origin"] == "semantic"
+    assert results[2]["text_match"] is False
+    assert results[2]["distance"] == 0.10
+
+
+def test_search_hybrid_aplica_filtros_nas_duas_buscas():
+    items = hybrid_items()
+    db = HybridDb(items[:1], [(items[2], 0.2)])
+
+    KnowledgeMemoryService(db).search_hybrid(
+        "imóvel ocupado",
+        kind="CASE_ANALYSIS",
+        property_type="Apartamento",
+        city="Curitiba",
+        state="PR",
+        auction_stage="2º leilão",
+        verdict="ATENCAO",
+        gateway=EmbeddingProvider([vector()]),
+    )
+
+    text_params = str(db.text_statement.compile().params.values())
+    semantic_params = str(db.semantic_statement.compile().params.values())
+    expected = ["CASE_ANALYSIS", "Apartamento", "Curitiba", "PR", "2º leilão", "ATENCAO"]
+    assert all(value in text_params for value in expected)
+    assert all(value in semantic_params for value in expected)
+
+
+def test_search_hybrid_valida_limit_e_limita_resultado_consolidado():
+    items = hybrid_items()
+    db = HybridDb(items, [(items[2], 0.1)])
+    service = KnowledgeMemoryService(db)
+
+    assert len(service.search_hybrid("consulta", limit=2, gateway=EmbeddingProvider([vector()]))) == 2
+    with pytest.raises(ValueError):
+        service.search_hybrid("consulta", limit=0, gateway=EmbeddingProvider([vector()]))
+    with pytest.raises(ValueError):
+        service.search_hybrid("consulta", limit=101, gateway=EmbeddingProvider([vector()]))
+
+
+def test_search_hybrid_propagates_erro_de_embedding():
+    items = hybrid_items()
+    db = HybridDb(items[:1], [])
+
+    with pytest.raises(RuntimeError, match="falha provider"):
+        KnowledgeMemoryService(db).search_hybrid(
+            "consulta",
+            gateway=EmbeddingProvider(error=RuntimeError("falha provider")),
+        )
+
+
+def test_search_hybrid_nao_implementa_rag_score_ou_reranking():
+    import inspect
+    from backend.app import knowledge_memory
+
+    source = inspect.getsource(knowledge_memory.KnowledgeMemoryService.search_hybrid)
+    assert "RAG" not in source
+    assert "LangGraph" not in source
+    assert "score" not in source.lower()
+    assert "rerank" not in source.lower()
+    assert "search_cases" in source
+    assert "search_similar" in source
