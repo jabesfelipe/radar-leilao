@@ -26,8 +26,24 @@ export type AnalysisRecord = {
   created_at?: string
 }
 
+export type EntityChange = {
+  id: number
+  property_id?: number | null
+  entity_type: string
+  entity_id: number
+  action: string
+  before_data?: Record<string, unknown> | null
+  after_data?: Record<string, unknown> | null
+  cause_event_id?: number | null
+  evidence_id?: number | null
+  actor?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
 export type PropertyHistory = {
   events: DomainEvent[]
+  changes: EntityChange[]
   analyses: AnalysisRecord[]
 }
 
@@ -50,6 +66,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getHistory(propertyId: number): Promise<PropertyHistory> {
-  const payload = await request<{ eventos?: DomainEvent[]; analises?: AnalysisRecord[] }>(`/api/imoveis/${propertyId}`)
-  return { events: payload.eventos ?? [], analyses: payload.analises ?? [] }
+  const payload = await request<{ eventos?: DomainEvent[]; alteracoes?: EntityChange[]; analises?: AnalysisRecord[] }>(
+    `/api/imoveis/${propertyId}/historico`,
+  )
+  return {
+    events: payload.eventos ?? [],
+    changes: payload.alteracoes ?? [],
+    analyses: payload.analises ?? [],
+  }
 }

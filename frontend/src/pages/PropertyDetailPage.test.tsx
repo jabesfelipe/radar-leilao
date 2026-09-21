@@ -179,7 +179,7 @@ describe('PropertyDetailPage', () => {
   it('abre a seção Histórico real dentro do imóvel', async () => {
     vi.mocked(fetch)
       .mockReturnValueOnce(response({ imovel: property }))
-      .mockReturnValueOnce(response({ imovel: { id: 7 }, eventos: [], analises: [] }))
+      .mockReturnValueOnce(response({ eventos: [], alteracoes: [], analises: [] }))
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
     await screen.findByRole('heading', { name: 'Apartamento Centro' })
 

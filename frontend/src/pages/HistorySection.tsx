@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Activity, History, RefreshCw } from 'lucide-react'
+import { Activity, History, PencilLine, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section } from '../components/ui'
-import { getHistory, type AnalysisRecord, type DomainEvent } from '../services/history'
+import { getHistory, type AnalysisRecord, type DomainEvent, type EntityChange } from '../services/history'
 
 type HistorySectionProps = {
   propertyId: number
@@ -13,8 +13,13 @@ function formatDateTime(value?: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR')
 }
 
+function formatAction(value: string) {
+  return value.split('_').join(' ')
+}
+
 export function HistorySection({ propertyId }: HistorySectionProps) {
   const [events, setEvents] = useState<DomainEvent[]>([])
+  const [changes, setChanges] = useState<EntityChange[]>([])
   const [analyses, setAnalyses] = useState<AnalysisRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -25,6 +30,7 @@ export function HistorySection({ propertyId }: HistorySectionProps) {
     try {
       const history = await getHistory(propertyId)
       setEvents(history.events)
+      setChanges(history.changes)
       setAnalyses(history.analyses)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar o histórico.')
@@ -35,10 +41,10 @@ export function HistorySection({ propertyId }: HistorySectionProps) {
 
   useEffect(() => { void loadHistory() }, [loadHistory])
 
-  const isEmpty = events.length === 0 && analyses.length === 0
+  const isEmpty = events.length === 0 && changes.length === 0 && analyses.length === 0
 
   return (
-    <Section title="Histórico" description="Eventos e versões de análise registrados para este imóvel." className="dossier-section">
+    <Section title="Histórico" description="Eventos, alterações e versões de análise registrados para este imóvel." className="dossier-section">
       {loading ? (
         <LoadingState label="Carregando histórico…" />
       ) : error ? (
@@ -54,7 +60,7 @@ export function HistorySection({ propertyId }: HistorySectionProps) {
             <div className="history-group">
               <p className="history-group-title"><Activity size={15} /> Versões de análise</p>
               <div className="history-timeline">
-                {analyses.slice().reverse().map((analysis) => (
+                {analyses.map((analysis) => (
                   <div key={analysis.id} className="history-timeline-item">
                     <span className="history-timeline-dot" />
                     <Card padding="md" className="history-card">
@@ -74,11 +80,34 @@ export function HistorySection({ propertyId }: HistorySectionProps) {
             </div>
           )}
 
+          {changes.length > 0 && (
+            <div className="history-group">
+              <p className="history-group-title"><PencilLine size={15} /> Alterações</p>
+              <div className="history-timeline">
+                {changes.map((change) => (
+                  <div key={change.id} className="history-timeline-item">
+                    <span className="history-timeline-dot" />
+                    <Card padding="md" className="history-card">
+                      <div className="history-card-head">
+                        <strong>{change.entity_type} #{change.entity_id}</strong>
+                        <span className="history-time">{formatDateTime(change.created_at)}</span>
+                      </div>
+                      <div className="history-card-meta">
+                        <Badge tone="info" size="sm">{formatAction(change.action)}</Badge>
+                        {change.actor && <span>por {change.actor}</span>}
+                      </div>
+                    </Card>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {events.length > 0 && (
             <div className="history-group">
               <p className="history-group-title"><History size={15} /> Eventos</p>
               <div className="history-timeline">
-                {events.slice().reverse().map((event) => (
+                {events.map((event) => (
                   <div key={event.id} className="history-timeline-item">
                     <span className="history-timeline-dot" />
                     <Card padding="md" className="history-card">
