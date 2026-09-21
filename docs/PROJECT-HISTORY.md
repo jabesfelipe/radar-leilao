@@ -155,3 +155,10 @@ A partir de agora, alterações de andamento devem ser registradas principalment
 - `2a549c8e9b90e6fc07e50b1f915f109fdc31ca02` — `fix: revisa integracao frontend backend`
 - Auditoria: 🟢 aprovado.
 - Revisão focada nos contratos de integração e cobertura dos fluxos existentes, sem criação de regras de negócio.
+
+
+## TASK 50 — Testes de integração
+
+- `1e50f30e09f314e058eaa396a49b0a769209f6c2` — `test: adiciona testes de integracao do radar`
+- Auditoria: 🟢 aprovado.
+- Cobertura de integração HTTP com FastAPI e PostgreSQL/pgvector para os principais fluxos do Radar, incluindo persistência, contratos, análise, riscos/veredito e histórico.
