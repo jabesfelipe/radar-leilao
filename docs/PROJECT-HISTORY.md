@@ -33,7 +33,7 @@ Este documento registra a trajetória técnica do projeto e os commits que repre
 - `080cdd8d1059ccfde1f70d9b23086c05c71c7635` — feat: consolida evidencias e vinculos
 - `ad55db96b817e5858077d09eb675a492fc29105e` — feat: consolida pipeline documental para RAG
 - `5672cbc08436b1365820723ed261ab2584266f0e` — feat: adiciona extracao documental estruturada
-- `4f54f07a92ff58dd30db9c79a5cf96c8d5fe30` — fix: exige rastreabilidade na extracao documental
+- `4f54f07a92ff58ddde214038504609b2e686c817` — fix: exige rastreabilidade na extracao documental
 
 ## Agents e orquestração
 
