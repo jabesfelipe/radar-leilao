@@ -36,7 +36,7 @@ def fake_rag(monkeypatch):
     monkeypatch.setattr("backend.app.extraction.RAGService", FakeRag)
 
 def test_extrai_matricula_estruturada(monkeypatch):
-    fake_rag(monkeypatch); output=RegistrationExtraction(registration_number="123",registry_office="RI",references=[{"field":"registration_number","value":"123","chunk_id":9,"page":2}])
+    fake_rag(monkeypatch); output=RegistrationExtraction(registration_number="123",registry_office="RI",references=[{"field":"registration_number","value":"123","chunk_id":9,"page":2},{"field":"registry_office","value":"RI","chunk_id":9,"page":2}])
     result=extract_document(FakeDb(version_for()),1,3,"MATRICULA",LLMGateway(FakeProvider(output),"fake","modelo"))
     assert result.success and result.output.registration_number=="123" and result.call.input_tokens==10
 
