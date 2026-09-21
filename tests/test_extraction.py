@@ -41,7 +41,7 @@ def test_extrai_matricula_estruturada(monkeypatch):
     assert result.success and result.output.registration_number=="123" and result.call.input_tokens==10
 
 def test_extrai_edital_com_decimais_e_datas():
-    output=NoticeExtraction(identifier="E-1",appraisal_value=Decimal("300.50"),notice_date=date(2026,1,1),references=[])
+    output=NoticeExtraction(identifier="E-1",appraisal_value=Decimal("300.50"),notice_date=date(2026,1,1),references=[{"field":"identifier","value":"E-1"},{"field":"appraisal_value","value":"300.50"},{"field":"notice_date","value":"2026-01-01"}])
     class Retrieval:
         context="edital"; chunks=[]
     class FakeRag:
