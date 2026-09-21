@@ -41,8 +41,14 @@ function normalizeState(state: string): ChecklistState {
   return (CHECKLIST_STATES as readonly string[]).includes(state) ? (state as ChecklistState) : 'PENDENTE'
 }
 
-function normalizeConfidence(confidence?: string | null): ChecklistConfidence {
-  return confidence && (CHECKLIST_CONFIDENCES as readonly string[]).includes(confidence) ? (confidence as ChecklistConfidence) : 'MEDIA'
+function applicabilityLabel(applicable?: boolean | null) {
+  if (applicable === true) return 'Aplicável'
+  if (applicable === false) return 'Não aplicável'
+  return 'Não informado'
+}
+
+function normalizeDraftConfidence(confidence?: string | null): ChecklistConfidence | '' {
+  return confidence && (CHECKLIST_CONFIDENCES as readonly string[]).includes(confidence) ? (confidence as ChecklistConfidence) : ''
 }
 
 export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
@@ -53,7 +59,7 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
   const [savingId, setSavingId] = useState<number | null>(null)
   const [rowError, setRowError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
-  const [draft, setDraft] = useState<{ state: ChecklistState; confidence: ChecklistConfidence; answer: string }>({ state: 'PENDENTE', confidence: 'MEDIA', answer: '' })
+  const [draft, setDraft] = useState<{ state: ChecklistState; confidence: ChecklistConfidence | ''; answer: string }>({ state: 'PENDENTE', confidence: '', answer: '' })
   const submittingRef = useRef(false)
 
   const loadChecklist = useCallback(async () => {
@@ -74,7 +80,7 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
     setEditingId(item.id)
     setRowError('')
     setSuccessMessage('')
-    setDraft({ state: normalizeState(item.state), confidence: normalizeConfidence(item.confidence), answer: item.answer ?? '' })
+    setDraft({ state: normalizeState(item.state), confidence: normalizeDraftConfidence(item.confidence), answer: item.answer ?? '' })
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>, item: ChecklistItem) => {
@@ -88,7 +94,7 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
       const updated = await updateChecklistItem(propertyId, item.id, {
         state: draft.state,
         answer: draft.answer,
-        confidence: draft.confidence,
+        ...(draft.confidence ? { confidence: draft.confidence } : {}),
       })
       setItems((current) => current.map((entry) => (entry.id === item.id ? { ...entry, ...updated, question: entry.question } : entry)))
       setEditingId(null)
@@ -133,8 +139,8 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
                   {item.category && <Fact label="Categoria" value={item.category} />}
                   {item.domain && item.domain.length > 0 && <Fact label="Domínio" value={item.domain.join(', ')} />}
                   {item.origin && <Fact label="Origem" value={item.origin} />}
-                  <Fact label="Aplicabilidade" value={item.applicable === false ? 'Não aplicável' : 'Aplicável'} />
-                  {item.confidence && <Fact label="Confiança" value={confidenceLabels[item.confidence] ?? item.confidence} />}
+                  <Fact label="Aplicabilidade" value={applicabilityLabel(item.applicable)} />
+                  <Fact label="Confiança" value={item.confidence ? (confidenceLabels[item.confidence] ?? item.confidence) : 'Não informado'} />
                   {item.answer && <Fact label="Resposta" value={item.answer} />}
                   {item.interpretation && <Fact label="Interpretação" value={item.interpretation} />}
                   {item.risk && <Fact label="Risco" value={item.risk} />}
@@ -145,7 +151,8 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
                     <Select label="Estado" value={draft.state} onChange={(event) => setDraft((d) => ({ ...d, state: event.target.value as ChecklistState }))}>
                       {CHECKLIST_STATES.map((state) => <option key={state} value={state}>{stateLabel(state)}</option>)}
                     </Select>
-                    <Select label="Confiança" value={draft.confidence} onChange={(event) => setDraft((d) => ({ ...d, confidence: event.target.value as ChecklistConfidence }))}>
+                    <Select label="Confiança" value={draft.confidence} onChange={(event) => setDraft((d) => ({ ...d, confidence: event.target.value as ChecklistConfidence | '' }))}>
+                      <option value="">Não informar</option>
                       {CHECKLIST_CONFIDENCES.map((confidence) => <option key={confidence} value={confidence}>{confidenceLabels[confidence]}</option>)}
                     </Select>
                     <Textarea label="Resposta" value={draft.answer} onChange={(event) => setDraft((d) => ({ ...d, answer: event.target.value }))} className="checklist-form-full" />

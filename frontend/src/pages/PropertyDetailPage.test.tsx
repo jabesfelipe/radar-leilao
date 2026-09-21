@@ -152,12 +152,13 @@ describe('PropertyDetailPage', () => {
   it('abre a seção Checklist real dentro do imóvel', async () => {
     vi.mocked(fetch)
       .mockReturnValueOnce(response({ imovel: property }))
-      .mockReturnValueOnce(response({ imovel: { id: 7 }, checklist: [] }))
+      .mockReturnValueOnce(response([{ id: 1, created_at: '2026-01-01T00:00:00Z', results: [] }]))
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
     await screen.findByRole('heading', { name: 'Apartamento Centro' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Checklist' }))
     expect(await screen.findByText('Checklist não disponível')).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls[1][0]).toContain('/api/imoveis/7/checklist')
   })
 
   it('apresenta todas as seções futuras do dossiê', async () => {

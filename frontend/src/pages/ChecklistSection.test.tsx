@@ -2,31 +2,37 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ChecklistSection } from './ChecklistSection'
 
-const item = {
+const master = [
+  { canonical_key: 'INTIMACAO_PESSOAL', question: 'Intimação para purgar mora foi pessoal?', category: 'Jurídico', domain: ['juridico'], origin: 'referência', priority: 1 },
+  { canonical_key: 'ITEM_NAO_APLICAVEL', question: 'Item não aplicável', category: 'Jurídico', domain: ['juridico'], origin: 'referência', priority: 2 },
+]
+
+const result = {
   id: 30,
-  item_number: 1,
+  checklist_item_id: 5,
   canonical_key: 'INTIMACAO_PESSOAL',
-  question: 'Intimação para purgar mora foi pessoal?',
-  category: 'Jurídico',
-  domain: ['juridico'],
-  origin: 'referência',
-  active: true,
+  item_version: 1,
   applicable: true,
   state: 'PENDENTE',
   answer: '',
-  confidence: 'MEDIA',
+  confidence: null,
   interpretation: null,
   risk: null,
+  previous_result_id: null,
 }
-
-const naoAplicavel = { ...item, id: 31, item_number: 2, question: 'Item não aplicável', state: 'NAO_APLICAVEL', applicable: false }
 
 function response(body: unknown, ok = true, status = 200) {
   return Promise.resolve({ ok, status, json: () => Promise.resolve(body) }) as Promise<Response>
 }
 
-function detail(checklist: unknown[]) {
-  return response({ imovel: { id: 5 }, checklist })
+function executions(results: unknown[]) {
+  return response([{ id: 1, created_at: '2026-01-01T00:00:00Z', results }])
+}
+
+function mockLoad(results: unknown[]) {
+  vi.mocked(fetch)
+    .mockReturnValueOnce(executions(results))
+    .mockReturnValueOnce(response(master))
 }
 
 describe('ChecklistSection', () => {
@@ -35,29 +41,56 @@ describe('ChecklistSection', () => {
     globalThis.fetch = vi.fn()
   })
 
+  it('usa o endpoint específico do checklist do imóvel', async () => {
+    mockLoad([])
+    render(<ChecklistSection propertyId={5} />)
+    await screen.findByText('Checklist não disponível')
+
+    expect(vi.mocked(fetch).mock.calls[0][0]).toContain('/api/imoveis/5/checklist')
+  })
+
   it('exibe carregamento e depois estado vazio', async () => {
-    vi.mocked(fetch).mockReturnValueOnce(detail([]))
+    mockLoad([])
     render(<ChecklistSection propertyId={5} />)
 
     expect(screen.getByRole('status')).toHaveTextContent('Carregando checklist')
     expect(await screen.findByText('Checklist não disponível')).toBeInTheDocument()
   })
 
-  it('lista itens com pergunta, categoria, domínio, origem, estado e diferencia não aplicável', async () => {
-    vi.mocked(fetch).mockReturnValueOnce(detail([item, naoAplicavel]))
+  it('lista itens enriquecidos e diferencia aplicabilidade em três estados', async () => {
+    mockLoad([
+      result,
+      { ...result, id: 31, canonical_key: 'ITEM_NAO_APLICAVEL', applicable: false },
+      { ...result, id: 32, canonical_key: 'SEM_META', applicable: null },
+    ])
     render(<ChecklistSection propertyId={5} />)
 
     expect(await screen.findByText('Intimação para purgar mora foi pessoal?')).toBeInTheDocument()
     expect(screen.getAllByText('Jurídico').length).toBeGreaterThan(0)
     expect(screen.getAllByText('juridico').length).toBeGreaterThan(0)
     expect(screen.getAllByText('referência').length).toBeGreaterThan(0)
-    expect(screen.getByText('Pendente')).toBeInTheDocument()
-    expect(screen.getAllByText('Não aplicável').length).toBeGreaterThan(0)
+    expect(screen.getByText('Aplicável')).toBeInTheDocument()
+    expect(screen.getByText('Não aplicável')).toBeInTheDocument()
+    // item sem meta usa canonical_key como pergunta e applicable null vira "Não informado"
+    expect(screen.getByText('SEM_META')).toBeInTheDocument()
+    expect(screen.getAllByText('Não informado').length).toBeGreaterThan(0)
+  })
+
+  it('não transforma confidence ausente em MEDIA', async () => {
+    mockLoad([result])
+    render(<ChecklistSection propertyId={5} />)
+    await screen.findByText('Intimação para purgar mora foi pessoal?')
+
+    expect(screen.queryByText('Média')).not.toBeInTheDocument()
+    expect(screen.getByText('Não informado')).toBeInTheDocument()
   })
 
   it('mapeia rótulos em português para os sete estados oficiais', async () => {
     const states = ['PENDENTE', 'EM_ANALISE', 'CONFIRMADO', 'RISCO_IDENTIFICADO', 'ATENCAO', 'NAO_IDENTIFICADO', 'NAO_APLICAVEL']
-    vi.mocked(fetch).mockReturnValueOnce(detail(states.map((state, index) => ({ ...item, id: 100 + index, item_number: index + 1, question: `Item ${state}`, state }))))
+    const masterMany = states.map((state) => ({ canonical_key: `KEY_${state}`, question: `Item ${state}`, category: 'Jurídico', domain: ['juridico'], origin: 'referência', priority: 1 }))
+    vi.mocked(fetch)
+      .mockReturnValueOnce(executions(states.map((state, index) => ({ ...result, id: 100 + index, canonical_key: `KEY_${state}`, state }))))
+      .mockReturnValueOnce(response(masterMany))
     render(<ChecklistSection propertyId={5} />)
     await screen.findByText('Item PENDENTE')
 
@@ -66,32 +99,45 @@ describe('ChecklistSection', () => {
     }
   })
 
-  it('atualiza um item usando o contrato do PATCH', async () => {
-    vi.mocked(fetch)
-      .mockReturnValueOnce(detail([item]))
-      .mockReturnValueOnce(response({ ...item, state: 'CONFIRMADO', answer: 'Confirmado em cartório', confidence: 'ALTA' }))
+  it('não envia confiança artificial quando o usuário não a define', async () => {
+    mockLoad([result])
+    vi.mocked(fetch).mockReturnValueOnce(response({ ...result, state: 'CONFIRMADO', answer: 'Confirmado em cartório' }))
+    render(<ChecklistSection propertyId={5} />)
+    await screen.findByText('Intimação para purgar mora foi pessoal?')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Atualizar item' }))
+    fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'CONFIRMADO' } })
+    fireEvent.change(screen.getByLabelText('Resposta'), { target: { value: 'Confirmado em cartório' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
+
+    expect(await screen.findByText('Item do checklist atualizado com sucesso.')).toBeInTheDocument()
+    const patchCall = vi.mocked(fetch).mock.calls[2]
+    expect(patchCall[0]).toContain('/api/imoveis/5/checklist/30')
+    expect((patchCall[1] as RequestInit).method).toBe('PATCH')
+    const body = JSON.parse(String((patchCall[1] as RequestInit).body))
+    expect(body).toEqual({ state: 'CONFIRMADO', answer: 'Confirmado em cartório' })
+    expect(body).not.toHaveProperty('confidence')
+  })
+
+  it('envia confiança apenas quando o usuário a seleciona', async () => {
+    mockLoad([result])
+    vi.mocked(fetch).mockReturnValueOnce(response({ ...result, state: 'CONFIRMADO', confidence: 'ALTA' }))
     render(<ChecklistSection propertyId={5} />)
     await screen.findByText('Intimação para purgar mora foi pessoal?')
 
     fireEvent.click(screen.getByRole('button', { name: 'Atualizar item' }))
     fireEvent.change(screen.getByLabelText('Estado'), { target: { value: 'CONFIRMADO' } })
     fireEvent.change(screen.getByLabelText('Confiança'), { target: { value: 'ALTA' } })
-    fireEvent.change(screen.getByLabelText('Resposta'), { target: { value: 'Confirmado em cartório' } })
     fireEvent.click(screen.getByRole('button', { name: 'Salvar' }))
 
     expect(await screen.findByText('Item do checklist atualizado com sucesso.')).toBeInTheDocument()
-    const patchCall = vi.mocked(fetch).mock.calls[1]
-    expect(patchCall[0]).toContain('/api/imoveis/5/checklist/30')
-    expect((patchCall[1] as RequestInit).method).toBe('PATCH')
-    const body = JSON.parse(String((patchCall[1] as RequestInit).body))
-    expect(body).toEqual({ state: 'CONFIRMADO', answer: 'Confirmado em cartório', confidence: 'ALTA' })
-    expect(screen.getByText('Confirmado')).toBeInTheDocument()
+    const body = JSON.parse(String((vi.mocked(fetch).mock.calls[2][1] as RequestInit).body))
+    expect(body.confidence).toBe('ALTA')
   })
 
   it('preserva dados e permite nova tentativa ao falhar o PATCH', async () => {
-    vi.mocked(fetch)
-      .mockReturnValueOnce(detail([item]))
-      .mockReturnValueOnce(response({ detail: 'Estado inválido' }, false, 422))
+    mockLoad([result])
+    vi.mocked(fetch).mockReturnValueOnce(response({ detail: 'Estado inválido' }, false, 422))
     render(<ChecklistSection propertyId={5} />)
     await screen.findByText('Intimação para purgar mora foi pessoal?')
 
@@ -104,32 +150,30 @@ describe('ChecklistSection', () => {
   })
 
   it('trata erro de carregamento e permite retry', async () => {
-    vi.mocked(fetch)
-      .mockReturnValueOnce(response({ detail: 'Falha' }, false, 500))
-      .mockReturnValueOnce(detail([item]))
+    vi.mocked(fetch).mockReturnValueOnce(response({ detail: 'Falha' }, false, 500))
     render(<ChecklistSection propertyId={5} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Tentar novamente' }))
+    expect(await screen.findByText('Falha')).toBeInTheDocument()
+    mockLoad([result])
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
     await waitFor(() => expect(screen.getByText('Intimação para purgar mora foi pessoal?')).toBeInTheDocument())
   })
 
   it('desabilita o salvamento e não dispara múltiplos PATCH', async () => {
     let resolvePatch: ((value: Response) => void) | undefined
     const patch = new Promise<Response>((resolve) => { resolvePatch = resolve })
-    vi.mocked(fetch)
-      .mockReturnValueOnce(detail([item]))
-      .mockReturnValueOnce(patch)
+    mockLoad([result])
+    vi.mocked(fetch).mockReturnValueOnce(patch)
     render(<ChecklistSection propertyId={5} />)
     await screen.findByText('Intimação para purgar mora foi pessoal?')
 
     fireEvent.click(screen.getByRole('button', { name: 'Atualizar item' }))
     const form = screen.getByRole('button', { name: 'Salvar' }).closest('form') as HTMLFormElement
     fireEvent.submit(form)
-    const loadingButton = within(form).getByRole('button', { name: 'Carregando…' })
-    expect(loadingButton).toBeDisabled()
+    expect(within(form).getByRole('button', { name: 'Carregando…' })).toBeDisabled()
     fireEvent.submit(form)
-    resolvePatch?.(await response({ ...item, state: 'CONFIRMADO' }))
+    resolvePatch?.(await response({ ...result, state: 'CONFIRMADO' }))
     await screen.findByText('Item do checklist atualizado com sucesso.')
-    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2)
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(3)
   })
 })
