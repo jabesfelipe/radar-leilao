@@ -1,219 +1,221 @@
-# TASK 51 — Primeiro E2E com imóvel real da Caixa (relatório diagnóstico)
+# TASK 51 — Primeiro E2E REAL com imóvel da Caixa (relatório diagnóstico)
 
-> Task **diagnóstica**. Objetivo: descobrir onde o fluxo real quebra, o que não é
-> processado, quais contratos estão incompletos e o que precisa ser corrigido nas
-> próximas tasks. Não corrigir tudo, não refatorar, não criar integração/infra.
+> Task **diagnóstica**. Objetivo: executar o fluxo real com **imóvel e documentos
+> reais da Caixa** e registrar exatamente **onde funciona e onde quebra**.
+> **Não corrigir** nada nesta task (as correções ficam para a TASK 52).
 >
-> Data da execução: 20/09/2026
-> Ambiente: Windows / PowerShell. Backend FastAPI + PostgreSQL/pgvector. LLM via OpenAI.
+> Data da execução: 20/09/2026 · Ambiente: Windows / PowerShell · Python 3.13.9
+> Backend: FastAPI + PostgreSQL/pgvector · LLM: provider OpenAI · Normalizador: MarkItDown
+
+As observações estão classificadas em categorias que **não se misturam**:
+**CONFIRMADO POR EXECUÇÃO REAL**, **CONFIRMADO POR CÓDIGO/TESTE**, **NÃO TESTADO**,
+**BLOQUEADO**, **GAP REAL**, **HIPÓTESE**.
 
 ---
 
 ## Resumo executivo (não mascarado)
 
-O E2E **não pôde ser executado de ponta a ponta** porque as entradas reais exigidas
-pela própria task **não existem no repositório** e o runtime necessário **não está
-disponível** neste ambiente. Nada foi inventado para simular sucesso.
+Com os dados/documentos reais fornecidos, o E2E avançou além da TASK 51 anterior:
+os **PDFs reais foram baixados e passaram pelo pipeline documental real** (normalizer).
+O fluxo **quebrou de forma real na etapa de normalização** por falta de dependência
+de PDF, e os passos seguintes (persistência, extração, RAG, Agents, LangGraph,
+Checklist, Risk, Verdict, Dossiê, Histórico, reanálise) **não puderam ser executados**
+porque dependem de PostgreSQL (indisponível) e/ou do markdown normalizado (não gerado)
+e/ou de LLM (sem chave). Nada foi simulado.
 
-Bloqueios reais, verificados (não presumidos):
+Situação por bloqueio:
 
-1. **Não há imóvel real da Caixa mapeado no projeto.** Busca no repositório não
-   encontrou nenhum dataset, seed, fixture ou documento de um imóvel real
-   (`file_search` por `.pdf` → nenhum arquivo; por `imovel` → nenhum arquivo de dados;
-   não existe diretório `storage/`, `data/`, `samples/` ou `fixtures/`).
-2. **Não há documentos reais** (edital, matrícula em PDF, complementares). Zero PDFs
-   no repositório.
-3. **PostgreSQL/pgvector indisponível.** Sonda direta de conexão retornou
-   `DB_CONNECT=fail: OperationalError` em `127.0.0.1:5432`. Docker/compose não estão
-   instalados no ambiente (`docker`, `docker-compose`, `podman` ausentes do PATH).
-   Sem banco, nenhuma persistência do fluxo roda.
-4. **Sem credencial de LLM.** Não há `.env`; `OPENAI_API_KEY` e `LLM_API_KEY` não
-   estão definidos no ambiente. O provider OpenAI é o único suportado por
-   `build_gateway()`. A task proíbe criar novo provider/integração/infra, então o
-   caminho de LLM real permanece bloqueado por definição.
-
-Consequência: o "primeiro E2E real" fica **bloqueado na etapa 0 (entrada de dados
-reais)**, antes mesmo do pipeline documental. As observações abaixo sobre pipeline,
-extração, RAG, Agents, LangGraph, Checklist, Risk e Verdict derivam de **leitura do
-código real** (contratos e caminhos de execução), não de uma execução com dados
-reais — e estão marcadas como tal para não transformar hipótese em fato.
+- **DB (PostgreSQL/pgvector): BLOQUEADO.** `DB_CONNECT=fail: OperationalError`; nada
+  escutando em `127.0.0.1:5432`; sem Docker/docker-compose e sem Postgres nativo
+  (`pg_ctl`/`psql`/`initdb` ausentes). Subir o banco exigiria instalar infraestrutura,
+  o que a task proíbe.
+- **LLM: BLOQUEADO — `LLM_BLOCKED = true`.** Sem `.env`; `OPENAI_API_KEY` e
+  `LLM_API_KEY` não definidos. Não foi criado provider nem mock (proibido).
+- **Pipeline documental: GAP REAL** confirmado por execução (ver §7).
 
 ---
 
 ## 1. Imóvel utilizado
 
-**Nenhum.** Não existe imóvel real da Caixa mapeado no projeto. A task pressupõe "1
-imóvel REAL da Caixa já mapeado pelo projeto"; esse insumo não está presente no
-repositório. Nenhum imóvel foi inventado (a instrução explícita é não inventar dados
-do imóvel).
+**COND PARQUE ARVOREDO RESIDENCIAL CLUBE** — dados reais fornecidos pela task
+(usados exatamente como recebidos; nada inventado):
 
-## 2. Documentos utilizados
+| Campo | Valor |
+|---|---|
+| Tipo | Apartamento · 3 quartos · 2 vagas |
+| Nº do imóvel (Caixa) | 155552876506-4 |
+| Matrícula | 25278 · Comarca CURITIBA-PR · Ofício 07 |
+| Inscrição imobiliária | 57000970088001 |
+| Área total / privativa | 102,71 m² / 109,08 m² |
+| Endereço | RUA FRANCISCO DEROSSO, 375, APTO 53, TORRE 05B, PAV. 5, XAXIM, CEP 81710-000, CURITIBA-PR |
+| Leilão | SFI · Edital 0044/0226 - CPA/RE · Item 258 · Leiloeiro WERNO KLÖCKNER JÚNIOR |
+| Avaliação | R$ 370.000,00 |
+| Mínimo 1º leilão / 2º leilão | R$ 370.000,00 / R$ 222.000,00 |
+| Datas | 1º: 28/09/2026 10h00 · 2º: 02/10/2026 10h00 |
+| Averbação de leilões negativos | Não se aplica |
+| Despesas | Condomínio e tributos por conta do comprador |
+| Pagamento | Recursos próprios; permite FGTS conforme condições da Caixa |
 
-**Nenhum.** Não há edital, matrícula em PDF nem documentos complementares reais no
-repositório (0 PDFs). O layout esperado em `storage/property-{id}/original|normalized|metadata`
-(descrito na SPEC) não existe fisicamente.
+## 2. Documentos utilizados — **CONFIRMADO POR EXECUÇÃO REAL**
 
-## 3. Fluxo executado
+Ambos baixados dos endpoints oficiais da Caixa (não sintéticos):
 
-Sequência esperada: Imóvel → Dados do leilão → Edital → Matrícula (PDF) → Demais
-documentos → Pipeline documental → Extração → RAG → Agents → LangGraph → Checklist
-Mestre → Risk Engine → Verdict Engine → Dossiê final.
+| Documento | URL | Tamanho | Tipo | Páginas (aprox.) | SHA-256 |
+|---|---|---|---|---|---|
+| Matrícula | `venda-imoveis.caixa.gov.br/editais/matricula/PR/1555528765064.pdf` | 538.507 bytes | PDF válido (`%PDF`) | ~3 | `e0b83814500229aa2ccbd32eb68d9836c76fdfe11acd64e9f3be3ab8db58a273` |
+| Edital | `venda-imoveis.caixa.gov.br/editais/EL00440226CPARE.PDF` | 1.126.227 bytes | PDF válido (`%PDF`) | ~142 | `4e5926d9c35c4356e9f7569212564d5eeafd2b168937e3b7c466c396e835d93b` |
 
-**Executado de fato:** apenas o diagnóstico de pré-condições (existência de imóvel,
-documentos, banco e LLM). O pipeline não foi iniciado por ausência de entradas reais
-e de banco.
+> A contagem ~142 páginas do edital confere com a informação da task. Os arquivos
+> permaneceram **apenas no ambiente local** (`_e2e_local/`), **não versionados**.
 
-## 4. Etapas que funcionaram
+## 3. Fluxo executado (real)
 
-- **Diagnóstico de ambiente** (esta task): verificação objetiva de que faltam
-  imóvel, documentos, banco e LLM.
-- **Coleta e importação da suíte de testes** continua saudável (contexto da Task 50):
-  a aplicação FastAPI importa sem erro; os testes de integração coletam e pulam
-  corretamente sem banco.
+Download dos PDFs → Pipeline documental real (`DocumentNormalizer` → `chunk_markdown`).
+A partir daí, **bloqueio na normalização** (§7). Etapas posteriores não executadas
+por dependência de DB/markdown/LLM.
 
-Nenhuma etapa do fluxo E2E de negócio (documental → veredito) foi confirmada
-funcionando com dados reais, porque não houve execução real.
+## 4. Etapas que funcionaram — **CONFIRMADO POR EXECUÇÃO REAL**
 
-## 5. Etapas que falharam / ficaram bloqueadas
+- **Download dos documentos reais** (matrícula e edital), com verificação de que são
+  PDFs válidos, tamanho e hash.
+- **Invocação real do `DocumentNormalizer`** do projeto sobre os PDFs reais (sem
+  pipeline paralelo, sem alterar o normalizer) — a chamada aconteceu e retornou erro
+  real e observável (ver §7). Ou seja: o ponto de quebra foi **exercitado de verdade**.
 
-- **Etapa 0 — Entrada de dados reais:** bloqueada. Sem imóvel/documentos reais.
-- **Persistência (todas as etapas):** bloqueada. PostgreSQL indisponível
-  (`OperationalError`).
-- **Extração / Agents / RAG (embeddings) / consolidação com LLM:** bloqueadas. Sem
-  `OPENAI_API_KEY`; provider OpenAI indisponível; criar provider é proibido nesta task.
+## 5. Etapas BLOQUEADAS / NÃO TESTADAS
 
-## 6. Campos ausentes (observado por leitura de contrato — a validar com dado real)
+| Etapa | Status | Motivo |
+|---|---|---|
+| Cadastro do imóvel/leilão/matrícula/edital (persistência) | **BLOQUEADO** | PostgreSQL indisponível |
+| Normalização PDF→markdown | **GAP REAL** | dependência de PDF ausente (§7) |
+| Chunks / embeddings | **NÃO TESTADO** | sem markdown normalizado; embeddings exigem LLM |
+| RAG (textual/vetorial/híbrido) | **NÃO TESTADO** | sem chunks persistidos; sem DB |
+| Extração (matrícula/edital) | **NÃO TESTADO** | exige DB + RAG + LLM |
+| Agents (Document/Jurídico/Financeiro/Mercado/Checklist) | **BLOQUEADO** | exigem LLM (`LLM_BLOCKED`) + DB |
+| LangGraph (LOAD→RETRIEVE→RUN→CONSOLIDATE→Risk→Verdict) | **NÃO TESTADO (real)** | depende de DB e agents; topologia já validada por teste (§11) |
+| Checklist Mestre (alimentado por findings) | **NÃO TESTADO** | sem findings de agents |
+| Risk Engine / Verdict Engine | **NÃO TESTADO (neste E2E)** | exigem DB; já validados por teste (§13) |
+| Dossiê final / Hub | **BLOQUEADO** | sem DB |
+| Histórico | **BLOQUEADO** | sem DB |
+| Reanálise incremental (v1→v2) | **NÃO TESTADO** | exige DB + análise base |
 
-Pontos onde o contrato atual pode não capturar o que um imóvel real da Caixa costuma
-trazer. **Hipóteses de leitura de código, não confirmadas com documento real:**
+## 6. Cadastro do imóvel — GAPs DE CONTRATO (HIPÓTESE, por leitura de contrato)
 
-- **Dados do leilão (`AuctionCreate`/`AuctionNotice`):** não há campo para o
-  **número do leilão / lote / identificador do site da Caixa**, nem **modalidade**
-  (venda direta, 1º/2º leilão online), nem **datas de 1º e 2º leilão simultâneas**
-  (o modelo tem `auction_date` único). A SPEC menciona "dois leilões do art. 27";
-  o contrato atual guarda um estágio/uma data por registro.
-- **Matrícula (`RegistrationExtraction`/`PropertyRegistration`):** não há campo
-  estruturado para **averbações/AV-n** individuais nem para **ônus/consolidação**
-  como itens discretos — hoje cabem em `observations` (texto livre), o que dificulta
-  rastreabilidade fina exigida pelo Checklist (ex.: "leilões negativos averbados").
-- **Edital (`NoticeExtraction`/`AuctionNotice`):** não há campos para
-  **responsabilidade por débitos (IPTU/condomínio)**, **cláusula de evicção** ou
-  **desocupação**, que são justamente perguntas do Checklist Mestre.
+Não foi possível cadastrar de fato (DB bloqueado). Comparando os dados reais com os
+contratos atuais (`schemas.py`), os seguintes dados reais **não têm campo
+correspondente** e ficam registrados como **GAP DE CONTRATO** (a confirmar na TASK 52;
+**não** alterados aqui):
 
-> Estes itens precisam ser confirmados contra um edital/matrícula reais antes de
-> virar requisito. Não são, aqui, afirmações definitivas.
+- **Número do imóvel Caixa** (`155552876506-4`): sem campo no modelo `Property`.
+- **Inscrição imobiliária** (`57000970088001`): sem campo.
+- **Duas datas de leilão simultâneas** (1º 28/09 e 2º 02/10): `AuctionCreate`/
+  `AuctionNotice` guardam um `auction_date`/`auction_stage` por registro, não o par.
+- **Nº do item do edital** (`258`) e **identificador do edital** (`0044/0226 - CPA/RE`):
+  `AuctionNoticeCreate` tem `identifier` (texto livre) mas não `item`/lote dedicado.
+- **Área total vs. área privativa**: `Property.area_m2` é único; os dois valores reais
+  (102,71 e 109,08) não cabem separadamente.
+- **Responsabilidade por condomínio/tributos** e **FGTS/forma de pagamento**: sem
+  campos estruturados (poderiam ir para `observations` em texto livre).
 
-## 7. Problemas de extração (observado por leitura de código)
+> Estes GAPs são **hipóteses de leitura de contrato**, não confirmados por execução de
+> cadastro (bloqueada pelo DB). Não representam extração real do edital.
 
-- `extract_document` depende de LLM estruturado (`structured_chat`) e de RAG
-  (`RAGService.retrieve_context`). **Sem LLM, a extração não produz saída válida**
-  (o teste unitário `test_extraction` já falha na ausência do provider — ver Task 50).
-- `DocumentNormalizer` é o componente que transforma PDF em markdown; seu
-  comportamento com **PDF real da Caixa** (layout, OCR, tabelas) **não foi validado**
-  — nenhum PDF real foi processado. É o primeiro ponto a exercitar quando houver
-  documento real.
-- Extração só suporta `MATRICULA` e `EDITAL` (`DocumentType`). Documentos
-  complementares reais (ex.: laudo, certidões) **não têm caminho de extração
-  estruturada** — entram apenas como documento/versão + chunks para RAG.
+## 7. Problemas de extração / pipeline documental — **GAP REAL (execução)**
 
-## 8. Problemas de rastreabilidade (observado por leitura de código)
+**PROBLEMA:** `DocumentNormalizer.normalize()` **falha nos dois PDFs reais**.
 
-- A rastreabilidade referência→evidência exige `references` com `chunk_id`/`page`
-  válidos (`validate_extraction_references`). Isso depende diretamente da qualidade
-  da extração/normalização do PDF real — **não verificável sem documento real**.
-- Como averbações e cláusulas do edital hoje caem em texto livre (`observations`),
-  a ligação evidência→item do Checklist para perguntas específicas
-  (ex.: "consolidação registrada", "leilões negativos averbados") pode ficar frágil.
-  **A confirmar com dado real.**
+- **EVIDÊNCIA (saída real):** `RuntimeError: Não foi possível normalizar o documento
+  com MarkItDown: ... PdfConverter threw MissingDependencyException ... the
+  dependencies needed to read .pdf files have not been installed.` — para
+  `matricula.pdf` e `edital.pdf`.
+- **CAUSA PROVÁVEL (confirmada por sonda):** `markitdown` está instalado, mas o backend
+  de PDF **`pdfminer` está ausente** (`pdfminer = False`). O MarkItDown precisa do
+  extra de PDF (ex.: `markitdown[pdf]` / `pdfminer.six`) para ler PDFs.
+- **AGRAVANTE (leitura de código):** o *fallback* do `DocumentNormalizer` só trata
+  `.txt/.md/.csv`; para `.pdf` ele **re-levanta `RuntimeError`**. Ou seja, sem a
+  dependência de PDF o pipeline **não tem caminho alternativo** para documentos reais
+  (que são sempre PDF na Caixa).
+- **IMPACTO:** sem normalização não há markdown → não há chunks → não há embeddings →
+  não há RAG → extração/Agents/Checklist/Risk/Verdict ficam sem insumo documental.
+  É o **primeiro ponto de quebra do E2E real**.
+- **PRÓXIMA AÇÃO SUGERIDA (TASK 52):** instalar/depender explicitamente do backend de
+  PDF do MarkItDown (ex.: `markitdown[pdf]`/`pdfminer.six`) no `requirements` do
+  backend; reexecutar o pipeline sobre estes mesmos PDFs; observar OCR/tabelas do
+  edital (~142 páginas) e a extração estruturada de matrícula.
 
-## 9. Problemas de RAG (observado por leitura de código)
+## 8. Problemas de rastreabilidade — **NÃO TESTADO**
 
-- `RAGService` usa embeddings via `gateway.embed(...)` (OpenAI). **Sem
-  `OPENAI_API_KEY`, os chunks de um documento novo não recebem embedding** no
-  ingest (o pipeline grava chunk com `embedding=None`), e a recuperação semântica
-  fica degradada/indisponível. A busca textual (portuguese) ainda existiria, mas o
-  ranking híbrido perde o componente vetorial.
-- Não foi possível medir recall/precisão de recuperação — sem banco e sem documento
-  real, não há o que recuperar.
+Rastreabilidade (finding→evidence→document→version→page/chunk) não pôde ser
+observada: depende de chunks/RAG/Agents, todos bloqueados a montante. Não há dado real
+para afirmar sucesso ou falha aqui.
 
-## 10. Problemas dos Agents (observado por leitura de código)
+## 9. Problemas de RAG — **NÃO TESTADO**
 
-- Todos os Agents (`Document/Legal/Financial/Market/Checklist`) chamam
-  `build_gateway()` e `structured_chat`. **Sem LLM**, cada um retorna `LLMCall` com
-  status `SEM_CHAVE`/`ERRO`; o fluxo persiste a tentativa (rastreável) mas **não
-  produz findings** reais. Ou seja: sem LLM, os Agents "rodam" mas entregam vazio —
-  isso **não deve ser lido como sucesso**.
+Nenhuma consulta RAG executada (sem chunks persistidos, sem DB, embeddings exigiriam
+LLM). As perguntas propostas na task (valor do 2º leilão, matrícula, responsáveis por
+condomínio/tributos, data do 2º leilão, item, endereço) **não foram respondidas** por
+não haver índice.
 
-## 11. Problemas do LangGraph (observado por leitura de código)
+## 10. Problemas dos Agents — **BLOQUEADO (LLM)**
 
-- O grafo `LOAD_CONTEXT → RETRIEVE_RAG → RUN_AGENTS → CONSOLIDATE` está íntegro
-  (validado por testes unitários existentes, Task 26/27). Ele **executa** mesmo com
-  Agents sem LLM, apenas consolidando resultados vazios. Nenhum problema estrutural
-  observado; a limitação é de **conteúdo** (agents vazios), não de topologia.
+Nenhum Agent executado: todos dependem de LLM (`LLM_BLOCKED = true`) e de DB. Não há
+findings/evidências reais para reportar. **Não** foram criados findings falsos.
 
-## 12. Problemas do Checklist (observado por leitura de código)
+## 11. Problemas do LangGraph — **CONFIRMADO POR CÓDIGO/TESTE (não neste E2E)**
 
-- O Checklist Mestre é semeado no cadastro do imóvel e recebe resultados via
-  `persist_agent_findings`/`persist_checklist_agent_findings`. Sem findings dos
-  Agents (bloqueio de LLM), os itens permanecem em `PENDENTE` — **não é possível
-  confirmar, com dados reais, se as evidências chegam corretamente ao Checklist**.
-  Este é um dos objetivos centrais da task que fica **não verificado**.
+Topologia `LOAD_CONTEXT → RETRIEVE_RAG → RUN_AGENTS → CONSOLIDATE` validada por testes
+unitários existentes (TASK 26/27). **Não foi exercitada neste E2E real** (depende de DB
+e Agents). Nenhum problema novo observado — apenas não testado com dado real.
 
-## 13. Problemas de Risk/Verdict (observado por leitura de código)
+## 12. Problemas do Checklist — **NÃO TESTADO**
 
-- `RiskEngine` e `VerdictEngine` são determinísticos e independem de LLM; foram
-  validados por testes unitários (Tasks 31/32) e pelos testes de integração da
-  Task 50 (que rodam contra banco). Com um checklist vazio (sem findings), o
-  veredito tende a `PENDENTE` com itens em aberto — comportamento esperado, **mas
-  não exercitado aqui com dado real**.
+O Checklist Mestre é semeado no cadastro e alimentado por findings dos Agents. Sem
+cadastro (DB) e sem Agents (LLM), não foi possível verificar se as evidências chegam
+aos itens. Objetivo central da task que permanece **não verificado com dado real**.
+
+## 13. Problemas de Risk/Verdict — **CONFIRMADO POR CÓDIGO/TESTE (não neste E2E)**
+
+`RiskEngine`/`VerdictEngine` são determinísticos e já validados por testes unitários
+(TASK 31/32) e pelos testes de integração da TASK 50 (contra DB). **Não exercitados
+neste E2E** (DB bloqueado).
 
 ## 14. Bloqueios por LLM / API / configuração
 
-- **LLM:** sem `OPENAI_API_KEY`/`LLM_API_KEY`; sem `.env`. Provider OpenAI é o único
-  suportado. **Bloqueio registrado; não mascarado.** Não foi criado provider/mocked
-  para fingir execução de LLM.
-- **Banco:** PostgreSQL/pgvector indisponível (`OperationalError` na porta 5432;
-  Docker ausente). Sem banco, o fluxo não persiste.
-- **Dados:** sem imóvel real e sem documentos reais no projeto.
+- **LLM_BLOCKED = true.** Sem `.env`, sem `OPENAI_API_KEY`/`LLM_API_KEY`. Provider
+  OpenAI é o único suportado. Não simulado.
+- **DB BLOQUEADO.** PostgreSQL/pgvector indisponível; sem Docker e sem Postgres nativo.
+- **Dependência de PDF ausente** para o MarkItDown (§7).
 
-## 15. Lista objetiva de correções necessárias para as próximas tasks
+## 15. Lista objetiva de correções necessárias para a TASK 52
 
-Ordenada por dependência (o primeiro item é pré-requisito de tudo):
+Ordenada por dependência:
 
-1. **Prover as entradas reais do E2E** (fora do escopo desta task diagnóstica):
-   - definir e versionar **1 imóvel real da Caixa** (dados do anúncio/leilão);
-   - disponibilizar **edital real (PDF)**, **matrícula real (PDF)** e demais
-     documentos, em local acessível ao pipeline (`storage/` ou fixture de teste).
-2. **Disponibilizar runtime de execução do E2E:**
-   - subir PostgreSQL/pgvector (docker-compose já existe no repo) e aplicar migrations;
-   - fornecer `OPENAI_API_KEY` (ou definir explicitamente um modo de execução
-     sem-LLM que seja honesto, sem inventar findings).
-3. **Validar `DocumentNormalizer` com PDF real da Caixa** (layout/tabelas/averbações)
-   — provável primeiro ponto de quebra do pipeline documental real.
-4. **Revisar o contrato de dados do leilão** para suportar identificador/lote da
-   Caixa, modalidade e **datas dos dois leilões** (art. 27) — confirmar contra edital
-   real antes de alterar.
-5. **Revisar o contrato de matrícula/edital** para estruturar averbações,
-   consolidação, ônus e responsabilidades por débitos/evicção/desocupação, que hoje
-   caem em texto livre e enfraquecem a rastreabilidade evidência→Checklist —
-   confirmar contra documentos reais antes de alterar.
-6. **Definir tratamento de documentos complementares** além de MATRICULA/EDITAL no
-   caminho de extração estruturada (hoje só entram como chunks para RAG).
-7. **Medir RAG com documento real** (recall/ranking híbrido) uma vez que embeddings
-   estejam disponíveis.
+1. **Instalar o backend de PDF do MarkItDown** (`markitdown[pdf]` / `pdfminer.six`) e
+   fixá-lo no `requirements` do backend. Reexecutar a normalização sobre a
+   matrícula/edital reais já baixados.
+2. **Rever o *fallback* do `DocumentNormalizer`** para PDFs (hoje só há fallback para
+   texto), decidindo comportamento quando o backend de PDF falha (ex.: erro claro vs.
+   OCR). — decisão de design da TASK 52.
+3. **Prover runtime de execução do E2E:** subir PostgreSQL/pgvector (docker-compose já
+   existe) + migrations, e fornecer `OPENAI_API_KEY` — sem o que Agents/RAG/extração
+   não rodam.
+4. **Rever contratos** para os GAPs do §6 (nº do imóvel Caixa, inscrição imobiliária,
+   duas datas de leilão, item/lote do edital, área total × privativa, responsabilidades
+   e FGTS) — **somente após** confirmar contra o edital/matrícula reais já normalizados.
+5. **Reexecutar o E2E completo** (cadastro → extração → RAG → Agents → LangGraph →
+   Checklist → Risk → Verdict → Dossiê → Histórico → reanálise) e converter os itens
+   "NÃO TESTADO" acima em confirmações reais.
 
-> Nenhuma das correções acima foi implementada nesta task (task diagnóstica). Cada
-> alteração de contrato deve ser confirmada contra um documento real antes de virar
-> requisito, para não introduzir campos inventados.
+> Nenhuma dessas correções foi implementada nesta task (diagnóstica). Nenhum contrato,
+> modelo, Agent, LangGraph, RAG, Risk, Verdict ou infraestrutura foi alterado.
 
 ---
 
-## Notas de método (o que foi e o que não foi feito)
+## Notas de método
 
-- Não foi criado imóvel, documento, provider de LLM, endpoint, Agent, regra de
-  negócio ou infraestrutura.
-- Não se alterou LangGraph, Risk Engine, Verdict Engine, RAG ou motores financeiros.
-- Não se mascarou a ausência de LLM/banco/dados como execução bem-sucedida.
-- Observações sobre etapas internas (extração/RAG/Agents/checklist) foram derivadas
-  de leitura do código e marcadas como **a confirmar com dado real**, sem transformar
-  hipótese em fato.
+- Documentos reais baixados e passados pelo pipeline real; **nada sintético**.
+- **Nenhuma** falha foi mascarada como sucesso; **nenhum** finding/resposta/evidência
+  foi inventado; **nenhum** mock de LLM foi usado.
+- Itens sobre etapas não executadas estão marcados como **NÃO TESTADO/BLOQUEADO**, e
+  os GAPs de contrato como **HIPÓTESE** até confirmação com documento real normalizado.
+- Arquivos locais de teste (PDFs e scripts de sonda) **não** foram adicionados ao Git.
