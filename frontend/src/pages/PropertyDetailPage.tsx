@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowLeft, Building2, MapPin, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Building2, MapPin, PlayCircle, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, LoadingState, Section } from '../components/ui'
-import { getProperty, type Property } from '../services/properties'
+import { analyzeProperty, getProperty, type AnalysisResult, type Property } from '../services/properties'
 import { DocumentsSection } from './DocumentsSection'
 import { RegistrationSection } from './RegistrationSection'
 import { AuctionNoticeSection } from './AuctionNoticeSection'
@@ -48,6 +48,10 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeSection, setActiveSection] = useState(initialSection)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analysisError, setAnalysisError] = useState('')
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const loadProperty = useCallback(async () => {
     setLoading(true)
@@ -59,6 +63,21 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar o imóvel.')
     } finally {
       setLoading(false)
+    }
+  }, [propertyId])
+
+  const runAnalysis = useCallback(async () => {
+    setAnalyzing(true)
+    setAnalysisError('')
+    try {
+      const result = await analyzeProperty(propertyId)
+      setAnalysisResult(result)
+      setProperty(await getProperty(propertyId))
+      setRefreshKey((value) => value + 1)
+    } catch (cause) {
+      setAnalysisError(cause instanceof Error ? cause.message : 'Não foi possível concluir a análise.')
+    } finally {
+      setAnalyzing(false)
     }
   }, [propertyId])
 
@@ -85,8 +104,33 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
               <p className="detail-address"><MapPin size={15} /> {property.address}</p>
               <p className="detail-location">{property.city} · {property.state}</p>
             </div>
-            <Badge tone={property.status === 'EM_ANALISE' ? 'warning' : 'neutral'} size="md" className="detail-status">{property.status.split('_').join(' ')}</Badge>
+            <div className="detail-hero-side">
+              <Badge tone={property.status === 'EM_ANALISE' ? 'warning' : 'neutral'} size="md" className="detail-status">{property.status.split('_').join(' ')}</Badge>
+              <Button onClick={() => void runAnalysis()} disabled={analyzing}>
+                {analyzing ? <><RefreshCw size={16} className="spin" /> Analisando…</> : <><PlayCircle size={16} /> Executar análise completa</>}
+              </Button>
+            </div>
           </Card>
+
+          {analyzing && (
+            <Alert tone="info" title="Análise em processamento">
+              Executando o fluxo completo de análise deste imóvel. Isso pode levar alguns instantes.
+            </Alert>
+          )}
+
+          {analysisError && !analyzing && (
+            <Card padding="md" className="detail-analysis-error">
+              <Alert tone="danger" title="Não foi possível concluir a análise">{analysisError}</Alert>
+              <Button variant="secondary" onClick={() => void runAnalysis()}><RefreshCw size={16} /> Tentar novamente</Button>
+            </Card>
+          )}
+
+          {analysisResult && !analyzing && !analysisError && (
+            <Alert tone="success" title="Análise concluída">
+              Versão {analysisResult.versao} gerada com {analysisResult.agentes.length} agente(s).
+              {analysisResult.veredito ? ` Veredito: ${analysisResult.veredito}.` : ''} Os dados do dossiê foram atualizados.
+            </Alert>
+          )}
 
           <nav className="detail-nav" aria-label="Seções do imóvel">
             {detailSections.map((section) => (
@@ -116,27 +160,27 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
               </div>
             </Section>
           ) : activeSection === 'documentos' ? (
-            <DocumentsSection propertyId={property.id} />
+            <DocumentsSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'matricula' ? (
-            <RegistrationSection propertyId={property.id} />
+            <RegistrationSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'edital' ? (
-            <AuctionNoticeSection propertyId={property.id} />
+            <AuctionNoticeSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'juridico' ? (
-            <ProcessSection propertyId={property.id} />
+            <ProcessSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'financeiro' ? (
-            <FinancialSection propertyId={property.id} />
+            <FinancialSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'mercado' ? (
-            <MarketSection propertyId={property.id} />
+            <MarketSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'ocupacao' ? (
-            <OccupancySection propertyId={property.id} />
+            <OccupancySection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'checklist' ? (
-            <ChecklistSection propertyId={property.id} />
+            <ChecklistSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'riscos' ? (
-            <RiskSection propertyId={property.id} />
+            <RiskSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'veredito' ? (
-            <VerdictSection propertyId={property.id} />
+            <VerdictSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'historico' ? (
-            <HistorySection propertyId={property.id} />
+            <HistorySection key={refreshKey} propertyId={property.id} />
           ) : (
             <Card padding="lg" className="detail-placeholder">
               <p className="eyebrow">MÓDULO EM PREPARAÇÃO</p>

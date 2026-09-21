@@ -207,3 +207,74 @@ describe('PropertyDetailPage', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Apartamento Centro' })).toBeInTheDocument())
   })
 })
+
+const analysisSuccess = {
+  versao: 3,
+  agentes: ['documental', 'juridico', 'financeiro', 'mercado', 'checklist'],
+  llm_usada: false,
+  modelo: 'radar-analysis',
+  chunks_recuperados: [1, 2],
+  evidencias: [10, 11],
+  veredito: 'PROSSEGUIR_COM_CAUTELA',
+  status: 'concluida',
+}
+
+describe('PropertyDetailPage — fluxo completo de análise', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    globalThis.fetch = vi.fn()
+  })
+
+  it('inicia a análise chamando o endpoint real e exibe processamento', async () => {
+    let resolveAnalyze: (value: Response) => void = () => {}
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => { resolveAnalyze = resolve }))
+      .mockReturnValueOnce(response({ imovel: { ...property, status: 'ANALISADO' } }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: /Executar análise completa/ }))
+
+    expect(await screen.findByText('Análise em processamento')).toBeInTheDocument()
+    const analyzeCall = vi.mocked(fetch).mock.calls[1]
+    expect(analyzeCall[0]).toContain('/api/imoveis/7/analisar')
+    expect((analyzeCall[1] as RequestInit).method).toBe('POST')
+
+    resolveAnalyze({ ok: true, status: 200, json: () => Promise.resolve(analysisSuccess) } as Response)
+    await waitFor(() => expect(screen.getByText('Análise concluída')).toBeInTheDocument())
+  })
+
+  it('após sucesso atualiza o dossiê e mostra o veredito', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response(analysisSuccess))
+      .mockReturnValueOnce(response({ imovel: { ...property, status: 'ANALISADO' } }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: /Executar análise completa/ }))
+
+    expect(await screen.findByText('Análise concluída')).toBeInTheDocument()
+    expect(screen.getByText(/Versão 3/)).toBeInTheDocument()
+    expect(screen.getByText(/PROSSEGUIR_COM_CAUTELA/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByText('ANALISADO').length).toBeGreaterThan(0))
+    expect(vi.mocked(fetch).mock.calls[2][0]).toContain('/api/imoveis/7')
+  })
+
+  it('trata erro da análise e permite tentar novamente', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response({ detail: 'Falha na orquestração da análise' }, false, 502))
+      .mockReturnValueOnce(response(analysisSuccess))
+      .mockReturnValueOnce(response({ imovel: { ...property, status: 'ANALISADO' } }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+
+    fireEvent.click(screen.getByRole('button', { name: /Executar análise completa/ }))
+    expect(await screen.findByText('Falha na orquestração da análise')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
+    await waitFor(() => expect(screen.getByText('Análise concluída')).toBeInTheDocument())
+  })
+})

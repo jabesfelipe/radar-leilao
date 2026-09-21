@@ -63,3 +63,22 @@ export async function getProperty(id: number): Promise<Property> {
   const detail = await request<{ imovel: Property }>(`/api/imoveis/${id}`)
   return detail.imovel
 }
+
+export type AnalysisResult = {
+  versao: number
+  agentes: string[]
+  llm_usada: boolean
+  modelo?: string | null
+  chunks_recuperados: number[]
+  evidencias: number[]
+  veredito?: string | null
+  status: string
+}
+
+export function analyzeProperty(id: number): Promise<AnalysisResult> {
+  return request<AnalysisResult>(`/api/imoveis/${id}/analisar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+}
