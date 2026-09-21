@@ -46,11 +46,14 @@ class IncrementalAnalysisService:
         domains = list(impact.affected_domains)
         changes = json.dumps({"cause_event_id": event.id, "event_type": event.event_type, "entity_type": event.aggregate_type, "entity_id": event.aggregate_id, "affected_domains": domains, "reason": impact.reason}, ensure_ascii=False, default=str)
         analysis = create_analysis(db=self.db, prop=prop, scope=f"Incremental:{event.event_type}", domains=domains, evidence_ids=[], changes=changes, agents=[])
-        previous_execution = latest_execution(prop)
-        execution = create_execution(self.db, prop, f"EVENT:{event.event_type}:{event.id}"[:80], analysis.version)
-        self.db.flush()
+        previous_execution = None
+        execution = None
+        if "checklist" in domains:
+            previous_execution = latest_execution(prop)
+            execution = create_execution(self.db, prop, f"EVENT:{event.event_type}:{event.id}"[:80], analysis.version)
+            self.db.flush()
+            record_history(self.db, prop, "ChecklistExecution", execution.id, "CREATE", None, {"analysis_version": analysis.version, "cause_event_id": event.id, "previous_execution_id": previous_execution.id if previous_execution else None}, event.id)
         record_history(self.db, prop, "Analysis", analysis.id, "CREATE", None, {"version": analysis.version, "cause_event_id": event.id, "event_type": event.event_type, "affected_domains": domains}, event.id)
-        record_history(self.db, prop, "ChecklistExecution", execution.id, "CREATE", None, {"analysis_version": analysis.version, "cause_event_id": event.id, "previous_execution_id": previous_execution.id if previous_execution else None}, event.id)
         try:
             orchestration = self.orchestrator.run(prop.id, domains, query or event.event_type, analysis_id=analysis.id)
             agents = [item["agent"] for item in orchestration.get("agent_results", [])]
@@ -58,7 +61,8 @@ class IncrementalAnalysisService:
             analysis.model = orchestration.get("model")
             analysis.prompt_version = "radar-analysis-v1"
             analysis.token_usage = {"llm_used": orchestration.get("llm_used", False), "chunks_retrieved": len(orchestration.get("retrieved_chunk_ids", []))}
-            execution.analysis_version = analysis.version
+            if execution:
+                execution.analysis_version = analysis.version
             evidence_ids = persist_agent_findings(self.db, prop, analysis, execution, orchestration.get("agent_results", []))
             llm_runs = persist_llm_runs(self.db, prop, analysis, orchestration.get("llm_runs", []))
             analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
@@ -71,4 +75,4 @@ class IncrementalAnalysisService:
         except Exception:
             self.db.rollback()
             raise
-        return {"status": "CONCLUIDO", "evento_id": event.id, "impacto": impact.to_dict(), "analise_executada": True, "analysis_id": analysis.id, "versao": analysis.version, "execution_id": execution.id, "agentes": agents, "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "veredito": verdict.overall, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", [])}
+        return {"status": "CONCLUIDO", "evento_id": event.id, "impacto": impact.to_dict(), "analise_executada": True, "analysis_id": analysis.id, "versao": analysis.version, "execution_id": execution.id if execution else None, "agentes": agents, "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "veredito": verdict.overall, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", [])}

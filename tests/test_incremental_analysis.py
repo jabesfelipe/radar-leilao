@@ -111,3 +111,22 @@ def test_evento_de_outro_imovel_nao_consulta_imovel_diferente():
     with pytest.raises(ValueError):
         IncrementalAnalysisService(db).run_for_event(event("DIVIDA_ADICIONADA", property_id=2))
     assert db.prop.id == 1
+
+
+def test_comparavel_nao_cria_checklist_execution(monkeypatch):
+    db = Db(prop())
+    analysis = models.Analysis(id=24, property_id=1, version=5, evidence_ids=[], agents_executed=[])
+    orchestrator = Orchestrator({"agent_results": [{"agent": "mercado"}, {"agent": "financeiro"}], "llm_runs": [], "evidence_ids": [], "retrieved_chunk_ids": [8], "llm_used": False})
+    monkeypatch.setattr("backend.app.incremental.create_analysis", lambda **kwargs: analysis)
+    monkeypatch.setattr("backend.app.incremental.create_execution", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("não deve criar ChecklistExecution")))
+    monkeypatch.setattr("backend.app.incremental.record_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr("backend.app.incremental.persist_agent_findings", lambda *args: [8])
+    monkeypatch.setattr("backend.app.incremental.persist_llm_runs", lambda *args: [])
+    monkeypatch.setattr("backend.app.incremental.aggregate_llm_usage", lambda runs: {"runs": 0})
+    monkeypatch.setattr("backend.app.incremental.build_finance", lambda prop: {})
+    monkeypatch.setattr("backend.app.incremental.recalculate_risks", lambda *args: [])
+    monkeypatch.setattr("backend.app.incremental.create_verdict", lambda *args: type("Verdict", (), {"overall": "FAVORÁVEL"})())
+    result = IncrementalAnalysisService(db, orchestrator=orchestrator).run_for_event(event("COMPARAVEL_ADICIONADO"))
+    assert orchestrator.calls == [(1, ["mercado", "financeiro"], "COMPARAVEL_ADICIONADO", 24)]
+    assert result["agentes"] == ["mercado", "financeiro"]
+    assert result["execution_id"] is None
