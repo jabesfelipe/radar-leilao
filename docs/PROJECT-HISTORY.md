@@ -122,3 +122,14 @@ A partir de agora, alterações de andamento devem ser registradas principalment
 - Mercado e Ocupação foram integrados ao Hub usando os contratos/endpoints existentes.
 - Ocupação respeita o modelo histórico existente via POST; não foi inventado PUT/PATCH.
 - Não foram adicionadas regras de valuation, liquidez, yield, risco ou veredito.
+
+
+## TASK 45 — Checklist no Hub
+
+- `a8fe36ac643090ff4c74008dfe4bb3c2f9aaf0d2` — `feat: implementa checklist no hub do imovel`
+- `14da0329cb7c03fd59291d6b0fc585943fc83abc` — `fix: corrige contrato e valores ausentes do checklist`
+- Auditoria: 🟢 aprovado.
+- O frontend passou a consumir o endpoint específico do Checklist do imóvel e os metadados do Checklist Mestre existentes.
+- Ausência de aplicabilidade/confiança não é convertida em valor inferido.
+- Estados oficiais foram preservados.
+- Não foram criadas novas regras, score, ranking, LLM, RAG, Agents ou alterações de backend.
