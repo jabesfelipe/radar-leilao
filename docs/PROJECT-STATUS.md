@@ -47,12 +47,12 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `2a549c8e9b90e6fc07e50b1f915f109fdc31ca02`  
-**Mensagem:** `fix: revisa integracao frontend backend`
+**Último commit implementado:** `1e50f30e09f314e058eaa396a49b0a769209f6c2`  
+**Mensagem:** `test: adiciona testes de integracao do radar`
 
-**Última TASK aprovada:** TASK 49
+**Última TASK aprovada:** TASK 50
 
-**Próxima TASK:** TASK 50 — Testes de integração
+**Próxima TASK:** TASK 51 — Primeiro teste E2E com imóvel real da Caixa
 
 **Status global:** 🟡 MVP em construção
 
@@ -236,7 +236,10 @@ Uma TASK só é considerada concluída quando:
 - Revisados contratos, payloads, estados e testes das integrações alteradas; não foram identificadas novas regras de negócio.
 
 ## TASK 50 — Testes de integração
-- [ ] PENDENTE
+- [x] CONCLUÍDA
+- Commit: `1e50f30e09f314e058eaa396a49b0a769209f6c2`
+- Auditoria: 🟢 aprovada.
+- Adicionados testes de integração HTTP contra FastAPI + PostgreSQL/pgvector, cobrindo cadastro, documentos, matrícula/edital, processos, financeiro, mercado/ocupação, checklist, análise, riscos/veredito, histórico e nova versão de análise.
 
 ## TASK 51 — Primeiro teste E2E com imóvel real da Caixa
 - [ ] PENDENTE
