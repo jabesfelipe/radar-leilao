@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from . import models
 from .checklist import CHECKLIST_CONFIDENCES, CHECKLIST_STATES, master_items
 from .finance import calculate_financial
+from .risk_engine import RiskEngine
 
 
 def serialize(value):
@@ -78,14 +79,32 @@ def create_analysis(db: Session, prop: models.Property, scope: str, domains: lis
 
 
 def recalculate_risks(db: Session, prop: models.Property, analysis_version: int):
-    pending = len([r for r in (latest_execution(prop).results if latest_execution(prop) else []) if r.state == "PENDENTE"])
+    execution = latest_execution(prop)
     finance = build_finance(prop)
-    risks = []
-    if pending: risks.append(("Documental", f"{pending} item(ns) do Checklist Mestre ainda pendente(s).", "MEDIA"))
-    if finance["valor_mercado"] is not None and finance["custo_total"] > finance["valor_mercado"]: risks.append(("Financeiro", "O custo total estimado supera o valor de mercado informado.", "ALTA"))
-    if not prop.documents: risks.append(("Documental", "Nenhum documento foi anexado ao dossiê.", "ALTA"))
-    for category, description, severity in risks: db.add(models.Risk(property_id=prop.id, category=category, description=description, severity=severity, analysis_version=analysis_version))
-    db.flush(); return risks
+    candidates = RiskEngine().evaluate(
+        property_id=prop.id,
+        checklist_results=execution.results if execution else [],
+        finance=finance,
+        documents_present=bool(prop.documents),
+    )
+    persisted: list[models.Risk] = []
+    for candidate in candidates:
+        risk = models.Risk(
+            property_id=prop.id,
+            category=candidate.domain,
+            description=f"[{candidate.risk_key}] {candidate.title}: {candidate.description}",
+            severity=candidate.severity,
+            status=candidate.status,
+            impact=candidate.impact,
+            confidence=candidate.confidence,
+            origin=f"{candidate.origin}:{candidate.risk_key}",
+            evidence_id=candidate.evidence_ids[0] if candidate.evidence_ids else None,
+            analysis_version=analysis_version,
+        )
+        db.add(risk)
+        persisted.append(risk)
+    db.flush()
+    return persisted
 
 
 def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None):
