@@ -423,7 +423,7 @@ def list_processes(property_id: int, db: Session = Depends(get_db)):
 def update_checklist(property_id: int, item_id: int, data: schemas.ChecklistUpdate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id); execution = latest_execution(prop); result = db.get(models.ChecklistResult, item_id)
     if not result or not execution or result.execution_id != execution.id: raise HTTPException(404, "Resultado do Checklist Mestre não encontrado")
-    before = {"state": result.state, "answer": result.answer, "confidence": result.confidence}; result.state, result.answer, result.confidence, result.interpretation, result.risk = data.state, data.answer, data.confidence, data.interpretation, data.risk; db.flush(); event = record_event(db, prop, "CHECKLIST_ATUALIZADO", "ChecklistResult", result.id, data.model_dump(), ["checklist", "financeiro", "juridico"]); record_history(db, prop, "ChecklistResult", result.id, "UPDATE", before, data.model_dump(), event.id); db.commit(); return result
+    before = {"state": result.state, "answer": result.answer, "confidence": result.confidence}; result.state, result.answer, result.confidence, result.interpretation, result.risk = data.state, data.answer, data.confidence, data.interpretation, data.risk; db.flush(); event = record_event(db, prop, "CHECKLIST_ATUALIZADO", "ChecklistResult", result.id, data.model_dump(), ["checklist", "financeiro", "juridico"]); record_history(db, prop, "ChecklistResult", result.id, "UPDATE", before, data.model_dump(), event.id); db.commit(); db.refresh(result); return result
 
 def document_or_404(db: Session, document_id: int) -> models.Document:
     document = db.get(models.Document, document_id)
