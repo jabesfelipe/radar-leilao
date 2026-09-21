@@ -47,14 +47,20 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `ea7db957b6ef6e739bfa19d086b4a508d462acc6`  
-**Mensagem:** `test: executa primeiro e2e com imovel real da caixa`
+**Último commit implementado:** `f36cecebb490112945d2f6a91ae96bf2e9492157`  
+**Mensagem:** `fix: corrige snapshot anterior do checklist`
 
-**Última TASK aprovada:** TASK 50
+**Última TASK aprovada:** TASK 53
 
-**TASK 51:** execução diagnóstica realizada, **não aprovada como concluída**
+**TASK 51:** execução diagnóstica realizada, não aprovada como E2E completo
 
-**Próxima TASK:** TASK 51B — Reexecução controlada do E2E após preparar runtime
+**TASK 51B:** runtime WSL + Docker + PostgreSQL/pgvector preparado; migrations corrigidas e validadas
+
+**TASK 52:** cadeia de migrations validada em banco limpo; 211 testes passaram e 10 falharam por problemas de aplicação fora do escopo da migration
+
+**TASK 53:** correção do snapshot anterior do Checklist aprovada
+
+**Próxima TASK:** TASK 54 — Reexecutar suíte e corrigir a próxima falha
 
 **Status global:** 🟡 MVP em construção
 
@@ -253,19 +259,35 @@ Uma TASK só é considerada concluída quando:
 - Relatório: `docs/E2E-DIAGNOSTICO-TASK-51.md`
 
 ## TASK 51B — Reexecução controlada do E2E após preparar runtime
+- [x] **CONCLUÍDA**
+- Runtime oficial WSL2 → Docker → PostgreSQL + pgvector validado.
+- Dependência PDF do MarkItDown preparada.
+- Migrations executadas e validadas em banco limpo.
+
+## TASK 52 — Correção e validação da cadeia de migrations
+- [x] **CONCLUÍDA**
+- Commit de implementação: `b676a889fdfb79c4609b72107a345f9b5ed3a080`
+- Validação realizada em banco recém-migrado: migrations 0001 → 0008, pgvector/pg_trgm e campos específicos passaram.
+- Resultado da suíte: 211 passed, 10 failed.
+- As falhas restantes são de lógica/aplicação e não da cadeia de migrations; nenhuma correção dessas falhas foi incluída na TASK 52.
+
+## TASK 53 — Corrigir snapshot anterior do Checklist
+- [x] **CONCLUÍDA**
+- Commit: `f36cecebb490112945d2f6a91ae96bf2e9492157`
+- Auditoria: 🟢 aprovada.
+- Corrigido `create_execution` para preencher `previous_result_id` apontando para o resultado correspondente da execução anterior, sem copiar resposta/estado.
+
+## TASK 54 — Reexecutar suíte e corrigir a próxima falha
 - [ ] **PENDENTE**
-- Objetivo: preparar somente as dependências/runtime necessários e repetir o E2E com o mesmo imóvel e os mesmos documentos reais.
-- Não corrigir regras de negócio, contratos, arquitetura ou componentes além do mínimo necessário para o ambiente/document pipeline funcionar.
-- Não avançar para TASK 52 até a execução real chegar ao próximo breakpoint funcional.
+- Rodar primeiro `tests/test_checklist.py` completo.
+- Se estiver verde, rodar a suíte geral e atacar somente a primeira falha restante.
+- Não corrigir múltiplas falhas na mesma task e não alterar migrations, schema, RAG, LLM, LangGraph, Risk ou Verdict sem necessidade comprovada.
 
-## TASK 52 — Correções do teste real
+## TASK 55 — Hardening do MVP
 - [ ] PENDENTE
 
-## TASK 53 — Hardening do MVP
+## TASK 56 — Revisão final contra a SPEC
 - [ ] PENDENTE
 
-## TASK 54 — Revisão final contra a SPEC
-- [ ] PENDENTE
-
-## TASK 55 — Preparação / release do MVP
+## TASK 57 — Preparação / release do MVP
 - [ ] PENDENTE
