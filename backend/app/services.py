@@ -28,7 +28,14 @@ def ensure_checklist_master(db: Session) -> None:
 
 def create_execution(db: Session, prop: models.Property, triggered_by: str = "MANUAL", analysis_version: int | None = None):
     ensure_checklist_master(db)
-    previous = latest_execution(prop)
+    # Busca a execução anterior direto no banco (a coleção do relacionamento
+    # pode estar desatualizada quando execuções são inseridas por FK), garantindo
+    # o vínculo previous_result_id do snapshot.
+    previous = db.scalars(
+        select(models.ChecklistExecution)
+        .where(models.ChecklistExecution.property_id == prop.id)
+        .order_by(models.ChecklistExecution.id.desc())
+    ).first()
     execution = models.ChecklistExecution(property_id=prop.id, triggered_by=triggered_by, analysis_version=analysis_version)
     db.add(execution); db.flush()
     previous_by_item = {r.checklist_item_id: r for r in previous.results} if previous else {}
