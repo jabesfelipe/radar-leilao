@@ -113,3 +113,12 @@ Documentos centrais atuais:
 - `docs/PROJECT-HISTORY.md`
 
 A partir de agora, alterações de andamento devem ser registradas principalmente em `PROJECT-STATUS.md`, enquanto `PROJECT-HISTORY.md` funciona como histórico de commits/marcos.
+
+
+## TASK 44 — Mercado + Ocupação
+
+- `13b6c9325978908b7960e17edb65700fd94c0aa2` — `feat: implementa mercado e ocupacao no hub do imovel`
+- Auditoria: 🟢 aprovado.
+- Mercado e Ocupação foram integrados ao Hub usando os contratos/endpoints existentes.
+- Ocupação respeita o modelo histórico existente via POST; não foi inventado PUT/PATCH.
+- Não foram adicionadas regras de valuation, liquidez, yield, risco ou veredito.
