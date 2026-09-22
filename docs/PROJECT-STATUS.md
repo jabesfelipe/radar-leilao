@@ -52,6 +52,8 @@ Uma TASK só é considerada concluída quando:
 
 **Última TASK aprovada:** TASK 58
 
+**TASK 59:** 🔵 EM EXECUÇÃO — correção da próxima falha real do fluxo de análise. Kiro está trabalhando nesta task.
+
 **TASK 51:** execução diagnóstica realizada, não aprovada como E2E completo.
 
 **TASK 51B:** runtime WSL + Docker + PostgreSQL/pgvector preparado; migrations corrigidas e validadas.
@@ -139,7 +141,7 @@ As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na document
 # 5. PRÓXIMA TASK — PENDENTE
 
 ## TASK 59 — Corrigir a próxima falha real do fluxo de análise
-- [ ] **PENDENTE**
+- [~] **EM EXECUÇÃO**
 - Arquivo-alvo: `tests/test_integration_flows.py`
 - Próxima falha:
   `test_execucao_analise_completa_atualiza_dossie`
