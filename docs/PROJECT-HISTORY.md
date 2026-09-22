@@ -97,3 +97,17 @@ Os marcos de implementação anteriores permanecem registrados neste histórico.
 - Regra: reproduzir e confirmar a causa exata antes de alterar código.
 - Corrigir somente a primeira falha; após o alvo passar, executar `test_integration_flows.py` e parar.
 - Não corrigir as outras três falhas na mesma TASK.
+
+
+## TASK 59 — Correção da primeira falha do fluxo de análise
+- `92c3e44aa314fc38c402a895d64b9add17381d85` — fix: corrige primeira falha do fluxo de analise
+- Auditoria: 🟢 aprovado.
+- Correção: serialização do resultado financeiro antes da criação do veredito.
+
+## TASK 60 — Correção das 3 falhas restantes da integração
+- `1262637fa681d056f4191a8e15cbb72aefcc4038` — fix: corrige 3 falhas restantes da integracao
+- Auditoria: 🟢 aprovado por inspeção do diff.
+- `get_property` passou a ordenar as análises por versão.
+- `create_analysis` passou a consultar a maior versão persistida diretamente no banco, evitando duplicidade na reanálise incremental.
+- Sem migration/schema, alteração de testes ou nova regra de negócio.
+- CI/workflow não publicou execução para este commit; não há contagem independente de testes.
