@@ -75,7 +75,7 @@ Uma TASK só é considerada concluída quando:
 
 **TASK 58:** concluída — corrigido `db.refresh(result)` no endpoint `update_checklist`; 217 passed, 4 failed.
 
-**Próxima falha:** fluxo de análise/persistência em `tests/test_integration_flows.py`.
+**Última validação:** suíte completa verde — 221 passed.
 
 **Status global:** 🟡 MVP em construção.
 
