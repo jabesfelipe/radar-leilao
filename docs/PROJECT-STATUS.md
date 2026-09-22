@@ -11,7 +11,7 @@ O Radar Leilão é um MVP local-first para análise rastreável de imóveis em *
 
 A especificação arquitetural oficial permanece em:
 
-- `SPEC-VIBE-CODING-RADAR-LEILAO.md`
+- `docs/SPEC-VIBE-CODING-RADAR-LEILAO.md`
 
 Este documento controla o **andamento de implementação**, registra o que já foi validado e aponta a próxima tarefa.
 
@@ -48,6 +48,7 @@ Uma TASK só é considerada concluída quando:
 ## 3. Estado atual
 
 **Último commit de implementação:** `1262637fa681d056f4191a8e15cbb72aefcc4038`  
+**Último commit de documentação:** `e59d8613a994ad4834b94fe96321346aff6ebb20`  
 **Mensagem:** `fix: corrige 3 falhas restantes da integracao`
 
 **Última TASK aprovada:** TASK 60
@@ -157,4 +158,59 @@ As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na document
 - Sem migration/schema, alteração de testes, nova regra de negócio ou refatoração ampla.
 - CI/workflow: nenhuma execução publicada no GitHub para este commit; portanto não há contagem independente de testes a registrar.
 
-**Status global:** 🟡 MVP em construção — as 4 correções do fluxo de integração estão implementadas e auditadas; ainda não declarar E2E completo até validação do runtime/suíte.
+**Status global:** 🟢 suíte automatizada verde; 🟡 E2E real com documentos/OCR/LLM ainda pendente.
+
+
+---
+
+# 6. Consolidação de validação — 21/09/2026
+
+## Suíte de integração
+
+```text
+pytest -q tests/test_integration_flows.py
+16 passed, 2110 warnings in 3.29s
+```
+
+## Suíte completa
+
+```text
+pytest -q
+221 passed, 2744 warnings in 9.41s
+```
+
+### Interpretação
+
+- 221/221 testes passaram.
+- 16/16 testes de integração passaram.
+- 3/3 testes direcionados da Task 60 passaram.
+- Não há falha automatizada conhecida neste estado.
+- Os warnings foram registrados, mas não são tratados como falhas nesta etapa.
+
+## Documentação consolidada
+
+A especificação mestre foi movida para:
+
+`docs/SPEC-VIBE-CODING-RADAR-LEILAO.md`
+
+A especificação foi atualizada para refletir a stack efetivamente adotada pelo projeto, removendo a referência residual a Java/Spring e mantendo **Python + FastAPI** como backend oficial.
+
+## Próximo marco
+
+A próxima etapa não é criar uma nova TASK de correção preventiva.
+
+O próximo marco é validar o fluxo real com imóveis e documentos reais, especialmente:
+
+- edital;
+- matrícula;
+- normalização;
+- OCR quando necessário;
+- evidências;
+- RAG;
+- análise;
+- checklist;
+- riscos;
+- Veredito;
+- histórico/reanálise.
+
+A ausência de chave de LLM e as limitações observadas no processamento do documento escaneado da matrícula da Caixa devem continuar registradas como limitações do E2E real, e não como falhas da suíte automatizada.
