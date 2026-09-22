@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeft, Building2, MapPin, PlayCircle, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, LoadingState, Section } from '../components/ui'
-import { analyzeProperty, getProperty, type AnalysisResult, type Property } from '../services/properties'
+import { analyzeProperty, getPropertyDetail, type AnalysisResult, type PropertyDetail } from '../services/properties'
 import { DocumentsSection } from './DocumentsSection'
 import { RegistrationSection } from './RegistrationSection'
 import { AuctionNoticeSection } from './AuctionNoticeSection'
@@ -37,14 +37,33 @@ const detailSections = [
 
 const initialSection = detailSections[0].id
 
-function formatArea(value: Property['area_m2']) {
+function formatArea(value: number | string | null | undefined) {
   if (value === undefined || value === null || value === '') return 'Não informado'
   const numeric = Number(value)
   return Number.isNaN(numeric) ? String(value) : `${numeric} m²`
 }
 
+function formatMoney(value: number | string | null | undefined) {
+  if (value === undefined || value === null || value === '') return 'Não informado'
+  const numeric = Number(value)
+  if (Number.isNaN(numeric)) return String(value)
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(numeric)
+}
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) return 'Não informado'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR')
+}
+
+function orNotInformed(value: string | number | null | undefined) {
+  if (value === undefined || value === null || value === '') return 'Não informado'
+  return String(value)
+}
+
 export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPageProps) {
-  const [property, setProperty] = useState<Property | null>(null)
+  const [detail, setDetail] = useState<PropertyDetail | null>(null)
+  const property = detail?.imovel ?? null
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeSection, setActiveSection] = useState(initialSection)
@@ -57,9 +76,9 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
     setLoading(true)
     setError('')
     try {
-      setProperty(await getProperty(propertyId))
+      setDetail(await getPropertyDetail(propertyId))
     } catch (cause) {
-      setProperty(null)
+      setDetail(null)
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar o imóvel.')
     } finally {
       setLoading(false)
@@ -72,7 +91,7 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
     try {
       const result = await analyzeProperty(propertyId)
       setAnalysisResult(result)
-      setProperty(await getProperty(propertyId))
+      setDetail(await getPropertyDetail(propertyId))
       setRefreshKey((value) => value + 1)
     } catch (cause) {
       setAnalysisError(cause instanceof Error ? cause.message : 'Não foi possível concluir a análise.')
@@ -147,16 +166,56 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
           </nav>
 
           {activeSection === 'visao-geral' ? (
-            <Section title="Visão geral" description="Informações básicas cadastradas para este imóvel." className="detail-section">
+            <Section title="Visão geral" description="Informações cadastradas para este imóvel." className="detail-section">
               <div className="detail-facts">
-                <DetailFact label="Título" value={property.title} />
-                <DetailFact label="Endereço" value={property.address} />
-                <DetailFact label="Cidade" value={property.city} />
-                <DetailFact label="Estado" value={property.state} />
+                <DetailFact label="Identificação" value={property.title} />
+                <DetailFact label="Localização" value={[property.city, property.state].filter(Boolean).join(' - ') || 'Não informado'} />
+                <DetailFact label="Bairro" value={orNotInformed(property.neighborhood)} />
+                <DetailFact label="Endereço" value={orNotInformed(property.address)} />
                 <DetailFact label="Tipo do imóvel" value={property.property_type} />
-                <DetailFact label="Área" value={formatArea(property.area_m2)} />
+                <DetailFact label="Área total" value={formatArea(property.area_m2)} />
+                <DetailFact label="Área privativa" value={formatArea(property.private_area_m2)} />
                 <DetailFact label="Quartos" value={property.bedrooms === undefined ? 'Não informado' : String(property.bedrooms)} />
+                <DetailFact label="Vagas" value={orNotInformed(property.parking_spots)} />
+                <DetailFact label="Avaliação" value={formatMoney(detail?.leilao?.appraisal_value)} />
+                <DetailFact label="2º leilão" value={formatMoney(detail?.leilao?.second_auction_value)} />
+                <DetailFact label="Matrícula" value={orNotInformed(detail?.matricula?.registration_number)} />
+                <DetailFact label="Edital" value={orNotInformed(detail?.edital?.identifier)} />
+                <DetailFact label="Origem" value={orNotInformed(property.origin)} />
+                <DetailFact label="Nº imóvel na origem" value={orNotInformed(property.origin_property_code)} />
                 <DetailFact label="Status" value={property.status.split('_').join(' ')} />
+              </div>
+              {property.description && (
+                <div className="detail-description">
+                  <p className="eyebrow">DESCRIÇÃO ORIGINAL</p>
+                  <p>{property.description}</p>
+                </div>
+              )}
+            </Section>
+          ) : activeSection === 'leilao' ? (
+            <Section title="Leilão" description="Dados do leilão e fontes oficiais cadastradas." className="detail-section">
+              <div className="detail-facts">
+                <DetailFact label="Modalidade" value={orNotInformed(property.modality)} />
+                <DetailFact label="Sistema" value={orNotInformed(property.system)} />
+                <DetailFact label="Avaliação" value={formatMoney(detail?.leilao?.appraisal_value)} />
+                <DetailFact label="Leiloeiro" value={orNotInformed(detail?.leilao?.auctioneer)} />
+                <DetailFact label="1º leilão" value={`${formatDateTime(detail?.leilao?.first_auction_date)} · ${formatMoney(detail?.leilao?.first_auction_value)}`} />
+                <DetailFact label="2º leilão" value={`${formatDateTime(detail?.leilao?.second_auction_date)} · ${formatMoney(detail?.leilao?.second_auction_value)}`} />
+                <DetailFact label="Edital" value={orNotInformed(detail?.edital?.identifier)} />
+                <DetailFact label="Item do edital" value={orNotInformed(detail?.edital?.item)} />
+              </div>
+              <div className="detail-description">
+                <p className="eyebrow">FONTES OFICIAIS</p>
+                {detail?.fontes && detail.fontes.length > 0 ? (
+                  <ul className="detail-sources">
+                    {detail.fontes.map((source) => (
+                      <li key={source.id}>
+                        <strong>{source.source_type.split('_').join(' ')}</strong>
+                        {source.url ? <> · <a href={source.url} target="_blank" rel="noreferrer">{source.url}</a></> : source.description ? <> · {source.description}</> : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="wizard-muted">Nenhuma fonte cadastrada.</p>}
               </div>
             </Section>
           ) : activeSection === 'documentos' ? (

@@ -20,11 +20,22 @@ class Property(TimestampMixin, Base):
     address: Mapped[str] = mapped_column(String(240))
     city: Mapped[str] = mapped_column(String(100))
     state: Mapped[str] = mapped_column(String(2))
+    neighborhood: Mapped[str | None] = mapped_column(String(120))
     property_type: Mapped[str] = mapped_column(String(80), default="Apartamento")
     area_m2: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    private_area_m2: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     bedrooms: Mapped[int] = mapped_column(Integer, default=0)
+    parking_spots: Mapped[int | None] = mapped_column(Integer)
+    description: Mapped[str | None] = mapped_column(Text)
+    # Identificação na origem (ex.: Caixa Econômica Federal). Extensível: sem enum rígido.
+    origin: Mapped[str | None] = mapped_column(String(120))
+    origin_property_code: Mapped[str | None] = mapped_column(String(80))
+    inscription: Mapped[str | None] = mapped_column(String(80))
+    modality: Mapped[str | None] = mapped_column(String(80))
+    system: Mapped[str | None] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(40), default="EM_ANALISE")
     auctions: Mapped[list["Auction"]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    sources: Mapped[list["PropertySource"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     documents: Mapped[list["Document"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     registrations: Mapped[list["PropertyRegistration"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     notices: Mapped[list["AuctionNotice"]] = relationship(back_populates="property", cascade="all, delete-orphan")
@@ -50,12 +61,28 @@ class Auction(TimestampMixin, Base):
     auction_stage: Mapped[str] = mapped_column(String(30), default="2º leilão")
     appraisal_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     bid_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    # 1º e 2º leilão preservados separadamente (não sobrescrevem avaliação/lance atual).
+    first_auction_date: Mapped[date | None] = mapped_column(Date)
+    first_auction_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    second_auction_date: Mapped[date | None] = mapped_column(Date)
+    second_auction_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     acquisition_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     commission_percent: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     commission_fixed: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     auctioneer: Mapped[str] = mapped_column(String(160), default="")
     notice_url: Mapped[str] = mapped_column(String(500), default="")
     property: Mapped[Property] = relationship(back_populates="auctions")
+
+
+class PropertySource(TimestampMixin, Base):
+    __tablename__ = "property_sources"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    source_type: Mapped[str] = mapped_column(String(40), default="OUTRA")
+    url: Mapped[str | None] = mapped_column(String(600))
+    description: Mapped[str | None] = mapped_column(String(240))
+    origin: Mapped[str | None] = mapped_column(String(120))
+    property: Mapped[Property] = relationship(back_populates="sources")
 
 
 class Document(TimestampMixin, Base):
@@ -107,6 +134,7 @@ class AuctionNotice(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
     identifier: Mapped[str | None] = mapped_column(String(160))
+    item: Mapped[str | None] = mapped_column(String(40))
     notice_date: Mapped[date | None] = mapped_column(Date)
     auction_stage: Mapped[str | None] = mapped_column(String(80))
     appraisal_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))

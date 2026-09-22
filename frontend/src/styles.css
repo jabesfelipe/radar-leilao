@@ -515,3 +515,33 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 @media (max-width: 680px) {
   .history-card-head { flex-direction: column; gap: .25rem; }
 }
+
+/* Wizard de cadastro de imóvel */
+.wizard-card { width: 100%; }
+.wizard-steps { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.25rem 0; }
+.wizard-step { display: inline-flex; align-items: center; gap: .5rem; min-height: 40px; padding: .5rem .85rem; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); color: var(--color-text-muted); font-size: var(--font-size-sm); font-weight: 700; cursor: default; }
+.wizard-step-done { cursor: pointer; color: var(--color-brand-primary); border-color: var(--color-accent); }
+.wizard-step-active { color: var(--color-brand-primary); border-color: var(--color-accent); background: #fff7e8; }
+.wizard-step-index { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 999px; background: var(--color-border); color: var(--color-text); font-size: .75rem; }
+.wizard-step-active .wizard-step-index, .wizard-step-done .wizard-step-index { background: var(--color-accent); color: #3a2a00; }
+.wizard-form { margin-top: .5rem; }
+.wizard-subtitle { grid-column: 1 / -1; margin: .5rem 0 0; font-weight: 700; color: var(--color-text); text-transform: uppercase; font-size: var(--font-size-sm); letter-spacing: .03em; }
+.wizard-actions { margin-top: 1.5rem; }
+.wizard-hint { color: var(--color-text-muted); margin: 0 0 1rem; }
+.wizard-sources, .wizard-docs { display: grid; gap: 1rem; }
+.wizard-source-row { display: grid; grid-template-columns: 1fr 2fr 2fr auto; gap: 1rem; align-items: end; }
+.wizard-doc-name { font-weight: 600; word-break: break-all; }
+.wizard-dropzone { display: inline-flex; align-items: center; gap: .5rem; padding: 1.25rem 1.5rem; border: 2px dashed var(--color-border); border-radius: var(--radius-md); color: var(--color-text-muted); cursor: pointer; font-weight: 700; justify-self: start; }
+.wizard-dropzone:hover { border-color: var(--color-accent); color: var(--color-brand-primary); }
+.wizard-review { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: .5rem; }
+.wizard-review-block { border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 1rem; background: var(--color-surface); }
+.wizard-review-block p { margin: .15rem 0; }
+.wizard-muted { color: var(--color-text-muted); }
+.detail-description { margin-top: 1.25rem; }
+.detail-description p { margin: .25rem 0; }
+.detail-sources { margin: .35rem 0 0; padding-left: 1.1rem; display: grid; gap: .35rem; }
+.detail-sources a { color: var(--color-brand-primary); word-break: break-all; }
+@media (max-width: 680px) {
+  .wizard-review { grid-template-columns: 1fr; }
+  .wizard-source-row { grid-template-columns: 1fr; }
+}

@@ -172,3 +172,71 @@ O projeto entra na fase de validação operacional com imóveis reais. A suíte 
   - Primeiro `setup.sh`/build é demorado (instala dependências pesadas do backend e faz build do frontend).
   - Backup cobre banco (pg_dump) + storage de documentos; não cobre `.env`, imagens Docker nem código-fonte.
   - `reset.sh` é destrutivo (remove volumes) e exige confirmação; não faz parte do fluxo normal.
+
+
+## TASK 62 — Cadastro completo do imóvel de leilão (entrada no fluxo do Radar)
+- Objetivo: transformar o cadastro (antes só 5 campos) em um fluxo guiado compatível com o domínio, conectando a entrada do imóvel ao fluxo de análise já existente. Sem recriar IA, RAG, LangGraph, agentes, Risk/Verdict/Checklist/Finance Engine ou criar fluxo paralelo de análise.
+
+### Novo fluxo de cadastro
+```
+Novo imóvel
+   → 1. Dados básicos (identificação, físicos, identificação na origem)
+   → 2. Dados do leilão (avaliação, 1º/2º leilão, leiloeiro, edital, matrícula)
+   → 3. Fontes oficiais (página do imóvel, edital, matrícula, outras)
+   → 4. Documentos (upload; não bloqueia o cadastro)
+   → 5. Revisão
+   → Cadastrar imóvel (transacional)
+   → Dossiê do imóvel (abre automaticamente)
+   → Executar análise completa (fluxo existente)
+   → Documento → Jurídico → Financeiro → Mercado → Checklist → Consolidação
+   → Risk Engine → Verdict Engine → Histórico
+```
+
+### Backend (reutiliza os modelos existentes; nenhum modelo duplicado)
+- `backend/app/models.py`:
+  - `Property` ganhou: `neighborhood`, `private_area_m2`, `parking_spots`, `description` (descrição original preservada), e identificação na origem `origin`, `origin_property_code`, `inscription`, `modality`, `system` (extensíveis, sem enum rígido).
+  - `Auction` ganhou 1º/2º leilão preservados separadamente: `first_auction_date/value`, `second_auction_date/value` (não sobrescrevem `appraisal_value`/`bid_value`).
+  - `AuctionNotice` ganhou `item` (item do edital).
+  - Novo modelo `PropertySource` (tabela `property_sources`): `source_type`, `url`, `description`, `origin` — múltiplas fontes por imóvel, rastreáveis.
+- `backend/migrations/versions/0009_cadastro_completo_imovel.py` (down_revision `0008_extracao_documental`): adiciona as colunas acima e cria `property_sources`. Migrations antigas não foram alteradas.
+- `backend/app/schemas.py`: `PropertyCreate`/`PropertyOut` estendidos; `AuctionCreate`/`AuctionNoticeCreate` estendidos; novos `PropertySourceCreate/Out`, `AuctionFull`, `AuctionNoticeFull`, `RegistrationFull` e o schema composto `PropertyFullCreate`.
+- `backend/app/main.py`:
+  - Novo `POST /api/imoveis/completo` — cadastro **transacional** (um único commit): Property + Auction + AuctionNotice + PropertyRegistration + PropertySource, com eventos e histórico. Se qualquer etapa falhar, nada é persistido. Documentos e análise LLM ficam de fora (etapas próprias).
+  - Novos `GET`/`POST /api/imoveis/{id}/fontes`.
+  - `get_property` agora também retorna `edital`, `matricula` e `fontes`.
+  - `POST /api/imoveis` (cadastro simples) mantido intacto para não quebrar contratos existentes.
+
+### Frontend (reutiliza o design system; sem react-router — navegação manual existente)
+- `frontend/src/pages/PropertyWizard.tsx` (novo): wizard de 5 etapas com stepper, reutilizando `Card`/`Section`/`Input`/`Select`/`Textarea`/`Button` e as classes `.dossier-form`. Valida obrigatórios (nome, cidade, UF, tipo), números e URLs. Envia `POST /api/imoveis/completo`, faz upload dos documentos (best-effort, não bloqueia) e navega direto ao Dossiê.
+- `frontend/src/pages/PropertiesPage.tsx`: passa a usar o wizard; após salvar, abre o Dossiê do imóvel criado.
+- `frontend/src/services/properties.ts`: novos tipos e `createPropertyFull`, `getPropertyDetail`, `listSources`.
+- `frontend/src/pages/PropertyDetailPage.tsx`: Visão geral enriquecida (avaliação, 2º leilão, matrícula, edital, origem, descrição original) e seção **Leilão** agora real (dados do leilão + edital + item + fontes com links) — antes era placeholder.
+- `frontend/src/styles.css`: classes `wizard-*` e `detail-sources`/`detail-description`.
+
+### Mapeamento Tela → API → Tabela (principais dados)
+| Tela (wizard) | API | Tabela.coluna |
+| --- | --- | --- |
+| Nome, cidade, UF, tipo, bairro, áreas, quartos, vagas, descrição | POST /api/imoveis/completo (`imovel`) | `properties.*` |
+| Origem, nº imóvel, inscrição, modalidade, sistema | idem (`imovel`) | `properties.origin/origin_property_code/inscription/modality/system` |
+| Avaliação, 1º/2º leilão, leiloeiro | idem (`leilao`) | `auctions.appraisal_value/first_*/second_*/auctioneer` |
+| Nº do edital, item | idem (`edital`) | `auction_notices.identifier/item` |
+| Matrícula, ofício, comarca | idem (`matricula`) | `property_registrations.*` |
+| Fontes (tipo/URL/descrição) | idem (`fontes`) / POST /api/imoveis/{id}/fontes | `property_sources.*` |
+| Documentos | POST /api/imoveis/{id}/documentos (multipart) | `documents`/`document_versions` |
+
+### Atomicidade e dados ausentes
+- Cadastro é transacional; processamento de documentos e análise de IA são etapas distintas (não entram na transação do cadastro).
+- Só nome, cidade, UF e tipo são obrigatórios. Campos desconhecidos ficam ausentes (nunca inventados).
+
+### Testes
+- `tests/test_cadastro_completo.py` (novo): cadastro completo persiste todas as entidades; aparece na lista; cadastro mínimo; validação de título; fontes por endpoint dedicado; integração cadastro → dossiê → análise (gera versão + histórico + financeiro).
+- Fixture de referência: **COND PARQUE ARVOREDO RESIDENCIAL CLUBE** (dados reais usados apenas como caso de validação; não hardcoded no produto).
+- Frontend: `PropertyWizard.test.tsx` (novo) + ajustes em `PropertiesPage.test.tsx` e `PropertyDetailPage.test.tsx`.
+- Resultado: **`pytest -q` = 227 passed** (era 221; +6 novos). **Vitest = 88 passed** (16 arquivos). `alembic upgrade head` aplica 0009 em banco limpo.
+
+### Caso de validação do primeiro E2E real
+- O imóvel COND PARQUE ARVOREDO foi preparado como caso de validação do primeiro fluxo E2E real. **O E2E real da Caixa NÃO é declarado concluído** nesta Task — apenas o cadastro foi preparado para esse caso.
+
+### Limitações conhecidas
+- A análise continua funcionando sem LLM configurada (comportamento atual preservado); as etapas de IA ficam limitadas sem chave.
+- Upload de documentos por URL externa não é baixado automaticamente: a URL é preservada como fonte e o usuário pode fazer upload do arquivo.

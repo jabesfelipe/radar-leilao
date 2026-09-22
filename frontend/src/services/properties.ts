@@ -5,8 +5,17 @@ export type Property = {
   city: string
   state: string
   property_type: string
+  neighborhood?: string | null
   area_m2?: number | string
+  private_area_m2?: number | string | null
   bedrooms?: number
+  parking_spots?: number | null
+  description?: string | null
+  origin?: string | null
+  origin_property_code?: string | null
+  inscription?: string | null
+  modality?: string | null
+  system?: string | null
   status: string
   created_at?: string
 }
@@ -17,6 +26,91 @@ export type PropertyCreate = {
   city: string
   state: string
   property_type: string
+}
+
+// Cadastro completo (wizard). Reutiliza o endpoint transacional POST /api/imoveis/completo.
+export type PropertyBasics = {
+  title: string
+  address?: string
+  city: string
+  state: string
+  property_type: string
+  neighborhood?: string
+  area_m2?: number
+  private_area_m2?: number
+  bedrooms?: number
+  parking_spots?: number
+  description?: string
+  origin?: string
+  origin_property_code?: string
+  inscription?: string
+  modality?: string
+  system?: string
+}
+
+export type AuctionInput = {
+  auction_stage?: string
+  appraisal_value?: number
+  bid_value?: number
+  first_auction_date?: string
+  first_auction_value?: number
+  second_auction_date?: string
+  second_auction_value?: number
+  auctioneer?: string
+  notice_url?: string
+}
+
+export type AuctionNoticeInput = {
+  identifier?: string
+  item?: string
+  notice_date?: string
+  auction_stage?: string
+  appraisal_value?: number
+  minimum_value?: number
+  auction_date?: string
+  auctioneer?: string
+  observations?: string
+}
+
+export type RegistrationInput = {
+  registration_number?: string
+  registry_office?: string
+  comarca?: string
+  consultation_date?: string
+  holder?: string
+  observations?: string
+}
+
+export type SourceType = 'PAGINA_IMOVEL' | 'EDITAL' | 'MATRICULA' | 'OUTRA'
+
+export type PropertySourceInput = {
+  source_type: SourceType
+  url?: string
+  description?: string
+  origin?: string
+}
+
+export type PropertyFullCreate = {
+  imovel: PropertyBasics
+  leilao?: AuctionInput
+  edital?: AuctionNoticeInput
+  matricula?: RegistrationInput
+  fontes?: PropertySourceInput[]
+}
+
+export type PropertyFullResult = {
+  id: number
+  status: string
+}
+
+export type PropertySource = {
+  id: number
+  property_id: number
+  source_type: SourceType
+  url?: string | null
+  description?: string | null
+  origin?: string | null
+  created_at?: string
 }
 
 export class PropertiesServiceError extends Error {
@@ -59,9 +153,58 @@ export function createProperty(payload: PropertyCreate): Promise<Property> {
   })
 }
 
+export function createPropertyFull(payload: PropertyFullCreate): Promise<PropertyFullResult> {
+  return request<PropertyFullResult>('/api/imoveis/completo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function listSources(id: number): Promise<PropertySource[]> {
+  return request<PropertySource[]>(`/api/imoveis/${id}/fontes`)
+}
+
+export type AuctionSummary = {
+  id: number
+  auction_stage?: string | null
+  appraisal_value?: number | string | null
+  bid_value?: number | string | null
+  first_auction_date?: string | null
+  first_auction_value?: number | string | null
+  second_auction_date?: string | null
+  second_auction_value?: number | string | null
+  auctioneer?: string | null
+}
+
+export type NoticeSummary = {
+  id: number
+  identifier?: string | null
+  item?: string | null
+}
+
+export type RegistrationSummary = {
+  id: number
+  registration_number?: string | null
+  registry_office?: string | null
+  comarca?: string | null
+}
+
+export type PropertyDetail = {
+  imovel: Property
+  leilao: AuctionSummary | null
+  edital: NoticeSummary | null
+  matricula: RegistrationSummary | null
+  fontes: PropertySource[]
+}
+
 export async function getProperty(id: number): Promise<Property> {
   const detail = await request<{ imovel: Property }>(`/api/imoveis/${id}`)
   return detail.imovel
+}
+
+export function getPropertyDetail(id: number): Promise<PropertyDetail> {
+  return request<PropertyDetail>(`/api/imoveis/${id}`)
 }
 
 export type AnalysisResult = {

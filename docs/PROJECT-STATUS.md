@@ -158,6 +158,20 @@ As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na document
 - Sem migration/schema, alteração de testes, nova regra de negócio ou refatoração ampla.
 - CI/workflow: nenhuma execução publicada no GitHub para este commit; portanto não há contagem independente de testes a registrar.
 
+## TASK 61 — Setup local automatizado (WSL2 + Docker)
+- [x] CONCLUÍDA
+- Commit: `f7a0e25a38d3a037a2513c87a4290b2ea3687291`
+- `docker-compose.yml` (postgres + backend + frontend), Dockerfiles, entrypoint com `alembic upgrade head`, scripts em `scripts/`, `docs/LOCAL-SETUP.md`.
+- Stack validada ao vivo: 3 serviços saudáveis, migrations automáticas, `pytest -q` = 221 passed.
+
+## TASK 62 — Cadastro completo do imóvel de leilão
+- [x] CONCLUÍDA
+- Cadastro guiado (wizard 5 etapas) conectado ao fluxo de análise existente; nenhum fluxo de IA recriado.
+- Backend: migration `0009_cadastro_completo_imovel` (colunas físicas/origem em `properties`, 1º/2º leilão em `auctions`, `item` em `auction_notices`, nova tabela `property_sources`); endpoint transacional `POST /api/imoveis/completo`; `GET/POST /api/imoveis/{id}/fontes`; `get_property` expõe edital/matrícula/fontes.
+- Frontend: `PropertyWizard`, `PropertiesPage` reescrito, dossiê enriquecido (Visão geral + seção Leilão real).
+- Fixture de validação: COND PARQUE ARVOREDO RESIDENCIAL CLUBE (E2E real da Caixa NÃO declarado concluído).
+- Resultado: `pytest -q` = **227 passed** (+6); Vitest = 88 passed; `alembic upgrade head` aplica 0009 em banco limpo.
+
 **Status global:** 🟢 suíte automatizada verde; 🟡 E2E real com documentos/OCR/LLM ainda pendente.
 
 

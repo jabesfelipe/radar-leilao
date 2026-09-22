@@ -44,7 +44,8 @@ describe('PropertyDetailPage', () => {
     expect(screen.getByRole('button', { name: 'Visão geral' })).toHaveAttribute('aria-current', 'page')
     fireEvent.click(screen.getByRole('button', { name: 'Leilão' }))
     expect(screen.getByRole('button', { name: 'Leilão' })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByText('MÓDULO EM PREPARAÇÃO')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Leilão' })).toBeInTheDocument()
+    expect(screen.getByText('FONTES OFICIAIS')).toBeInTheDocument()
   })
 
   it('trata imóvel inexistente ou erro da API', async () => {

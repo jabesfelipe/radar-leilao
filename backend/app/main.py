@@ -41,6 +41,63 @@ def list_properties(db: Session = Depends(get_db)):
 def create_property(data: schemas.PropertyCreate, db: Session = Depends(get_db)):
     prop = models.Property(**data.model_dump()); db.add(prop); db.flush(); ensure_checklist_master(db); create_execution(db, prop, "CADASTRO"); record_event(db, prop, "IMOVEL_CADASTRADO", "Property", prop.id, data.model_dump(mode="json"), ["documental", "financeiro", "juridico", "mercado", "checklist"]); db.commit(); db.refresh(prop); return prop
 
+@app.post("/api/imoveis/completo", status_code=201)
+def create_property_full(data: schemas.PropertyFullCreate, db: Session = Depends(get_db)):
+    """Cadastro completo e transacional: imóvel + leilão + edital + matrícula + fontes.
+
+    Reutiliza os modelos existentes. Tudo grava numa única transação (um único
+    commit ao final); se qualquer etapa falhar, nada é persistido. Documentos e
+    análise LLM NÃO fazem parte deste fluxo (upload e análise são etapas próprias).
+    """
+    prop = models.Property(**data.imovel.model_dump()); db.add(prop); db.flush()
+    ensure_checklist_master(db); create_execution(db, prop, "CADASTRO")
+    record_event(db, prop, "IMOVEL_CADASTRADO", "Property", prop.id, data.imovel.model_dump(mode="json"), ["documental", "financeiro", "juridico", "mercado", "checklist"])
+
+    if data.leilao is not None:
+        leilao = data.leilao.model_dump()
+        # Colunas NOT NULL com default 0: nunca gravar None. Se não vier o lance,
+        # usa o valor do 2º leilão (lance efetivo); se não vier a avaliação, usa
+        # o valor do 1º leilão (avaliação = 1ª praça na prática da Caixa).
+        if leilao.get("bid_value") is None:
+            leilao["bid_value"] = leilao.get("second_auction_value") or 0
+        if leilao.get("appraisal_value") is None:
+            leilao["appraisal_value"] = leilao.get("first_auction_value") or 0
+        auction = models.Auction(property_id=prop.id, **leilao); db.add(auction); db.flush()
+        event = record_event(db, prop, "LEILAO_ATUALIZADO", "Auction", auction.id, data.leilao.model_dump(mode="json"), ["financeiro", "checklist"])
+        record_history(db, prop, "Auction", auction.id, "CREATE", None, data.leilao.model_dump(mode="json"), event.id)
+
+    if data.edital is not None:
+        notice = models.AuctionNotice(property_id=prop.id, **data.edital.model_dump()); db.add(notice); db.flush()
+        event = record_event(db, prop, "EDITAL_CADASTRADO", "AuctionNotice", notice.id, data.edital.model_dump(mode="json"), ["documental", "juridico", "financeiro", "checklist"])
+        record_history(db, prop, "AuctionNotice", notice.id, "CREATE", None, data.edital.model_dump(mode="json"), event.id)
+
+    if data.matricula is not None:
+        registration = models.PropertyRegistration(property_id=prop.id, **data.matricula.model_dump()); db.add(registration); db.flush()
+        event = record_event(db, prop, "MATRICULA_CADASTRADA", "PropertyRegistration", registration.id, data.matricula.model_dump(mode="json"), ["juridico", "checklist"])
+        record_history(db, prop, "PropertyRegistration", registration.id, "CREATE", None, data.matricula.model_dump(mode="json"), event.id)
+
+    for source_data in data.fontes:
+        source = models.PropertySource(property_id=prop.id, **source_data.model_dump()); db.add(source); db.flush()
+        event = record_event(db, prop, "FONTE_CADASTRADA", "PropertySource", source.id, source_data.model_dump(mode="json"), ["documental"])
+        record_history(db, prop, "PropertySource", source.id, "CREATE", None, source_data.model_dump(mode="json"), event.id)
+
+    db.commit(); db.refresh(prop)
+    return {"id": prop.id, "status": prop.status}
+
+@app.get("/api/imoveis/{property_id}/fontes", response_model=list[schemas.PropertySourceOut])
+def list_sources(property_id: int, db: Session = Depends(get_db)):
+    property_or_404(db, property_id)
+    return db.scalars(select(models.PropertySource).where(models.PropertySource.property_id == property_id).order_by(models.PropertySource.created_at)).all()
+
+@app.post("/api/imoveis/{property_id}/fontes", response_model=schemas.PropertySourceOut, status_code=201)
+def add_source(property_id: int, data: schemas.PropertySourceCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    source = models.PropertySource(property_id=property_id, **data.model_dump()); db.add(source); db.flush()
+    event = record_event(db, prop, "FONTE_CADASTRADA", "PropertySource", source.id, data.model_dump(mode="json"), ["documental"])
+    record_history(db, prop, "PropertySource", source.id, "CREATE", None, data.model_dump(mode="json"), event.id)
+    db.commit(); db.refresh(source)
+    return source
+
 @app.get("/api/checklist")
 def list_checklist(active: bool | None = None, origin: str | None = None, domain: str | None = None, category: str | None = None, priority: int | None = None, required: bool | None = None, db: Session = Depends(get_db)):
     ensure_checklist_master(db)
@@ -355,7 +412,7 @@ def run_checklist_agent(property_id: int, analysis_id: int, db: Session = Depend
 def get_property(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id); execution = latest_execution(prop); latest = prop.verdicts[-1] if prop.verdicts else None
     checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
-    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "financeiro": serialize(build_finance(prop))}
+    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "financeiro": serialize(build_finance(prop))}
 
 @app.post("/api/imoveis/{property_id}/leilao")
 def add_auction(property_id: int, data: schemas.AuctionCreate, db: Session = Depends(get_db)):

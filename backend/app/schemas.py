@@ -4,11 +4,26 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 class PropertyCreate(BaseModel):
-    title: str = Field(min_length=2); address: str; city: str; state: str = Field(min_length=2, max_length=2); property_type: str = "Apartamento"; area_m2: Decimal = 0; bedrooms: int = 0
+    title: str = Field(min_length=2)
+    address: str = ""
+    city: str = Field(min_length=1)
+    state: str = Field(min_length=2, max_length=2)
+    property_type: str = "Apartamento"
+    neighborhood: str | None = None
+    area_m2: Decimal = 0
+    private_area_m2: Decimal | None = None
+    bedrooms: int = 0
+    parking_spots: int | None = None
+    description: str | None = None
+    origin: str | None = None
+    origin_property_code: str | None = None
+    inscription: str | None = None
+    modality: str | None = None
+    system: str | None = None
 class PropertyOut(PropertyCreate):
     id: int; status: str; created_at: datetime; model_config = ConfigDict(from_attributes=True)
 class AuctionCreate(BaseModel):
-    auction_date: date | None = None; auction_stage: str = "2º leilão"; appraisal_value: Decimal = 0; bid_value: Decimal = 0; acquisition_value: Decimal | None = None; commission_percent: Decimal | None = None; commission_fixed: Decimal | None = None; auctioneer: str = ""; notice_url: str = ""
+    auction_date: date | None = None; auction_stage: str = "2º leilão"; appraisal_value: Decimal = 0; bid_value: Decimal = 0; first_auction_date: date | None = None; first_auction_value: Decimal | None = None; second_auction_date: date | None = None; second_auction_value: Decimal | None = None; acquisition_value: Decimal | None = None; commission_percent: Decimal | None = None; commission_fixed: Decimal | None = None; auctioneer: str = ""; notice_url: str = ""
 class CostCreate(BaseModel):
     category: str; description: str; amount: Decimal = 0; recurring: bool = False
 class DebtCreate(BaseModel):
@@ -48,6 +63,7 @@ class RegistrationCreate(BaseModel):
 
 class AuctionNoticeCreate(BaseModel):
     identifier: str
+    item: str | None = None
     notice_date: date | None = None
     auction_stage: str | None = None
     appraisal_value: Decimal | None = None
@@ -119,3 +135,71 @@ class EvidenceCreate(BaseModel):
     page: int | None = None
     section: str | None = None
     source_excerpt: str | None = None
+
+
+class PropertySourceCreate(BaseModel):
+    source_type: Literal["PAGINA_IMOVEL", "EDITAL", "MATRICULA", "OUTRA"] = "OUTRA"
+    url: str | None = None
+    description: str | None = None
+    origin: str | None = None
+
+
+class PropertySourceOut(PropertySourceCreate):
+    id: int
+    property_id: int
+    created_at: datetime
+    updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+# Sub-blocos opcionais do cadastro completo. Sem campos obrigatórios além do
+# essencial, para não impedir cadastro com dados ainda desconhecidos.
+class AuctionFull(BaseModel):
+    auction_date: date | None = None
+    auction_stage: str = "2º leilão"
+    appraisal_value: Decimal | None = None
+    bid_value: Decimal | None = None
+    first_auction_date: date | None = None
+    first_auction_value: Decimal | None = None
+    second_auction_date: date | None = None
+    second_auction_value: Decimal | None = None
+    acquisition_value: Decimal | None = None
+    commission_percent: Decimal | None = None
+    commission_fixed: Decimal | None = None
+    auctioneer: str = ""
+    notice_url: str = ""
+
+
+class AuctionNoticeFull(BaseModel):
+    identifier: str | None = None
+    item: str | None = None
+    notice_date: date | None = None
+    auction_stage: str | None = None
+    appraisal_value: Decimal | None = None
+    minimum_value: Decimal | None = None
+    auction_date: date | None = None
+    auctioneer: str | None = None
+    observations: str | None = None
+
+
+class RegistrationFull(BaseModel):
+    registration_number: str | None = None
+    registry_office: str | None = None
+    comarca: str | None = None
+    consultation_date: date | None = None
+    holder: str | None = None
+    observations: str | None = None
+
+
+class PropertyFullCreate(BaseModel):
+    """Cadastro completo transacional de um imóvel de leilão.
+
+    Reutiliza os modelos existentes (Property, Auction, AuctionNotice,
+    PropertyRegistration, PropertySource). Documentos NÃO entram aqui: são
+    enviados por upload separado para não bloquear o cadastro.
+    """
+    imovel: PropertyCreate
+    leilao: AuctionFull | None = None
+    edital: AuctionNoticeFull | None = None
+    matricula: RegistrationFull | None = None
+    fontes: list[PropertySourceCreate] = Field(default_factory=list)

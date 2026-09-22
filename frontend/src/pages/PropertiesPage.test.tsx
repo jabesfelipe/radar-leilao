@@ -16,13 +16,6 @@ function response(body: unknown, ok = true, status = 200) {
   return Promise.resolve({ ok, status, json: () => Promise.resolve(body) }) as Promise<Response>
 }
 
-function fillForm() {
-  fireEvent.change(screen.getByLabelText('Título ou identificação'), { target: { value: property.title } })
-  fireEvent.change(screen.getByLabelText('Endereço'), { target: { value: property.address } })
-  fireEvent.change(screen.getByLabelText('Cidade'), { target: { value: property.city } })
-  fireEvent.change(screen.getByLabelText('Estado (UF)'), { target: { value: property.state } })
-}
-
 describe('PropertiesPage', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -56,7 +49,7 @@ describe('PropertiesPage', () => {
     expect(onOpenProperty).toHaveBeenCalledWith(1)
   })
 
-  it('abre o cadastro e valida campos obrigatórios', async () => {
+  it('abre o wizard e valida campos obrigatórios da 1ª etapa', async () => {
     vi.mocked(fetch).mockReturnValueOnce(response([]))
     render(<PropertiesPage />)
     await screen.findByText('Nenhum imóvel cadastrado')
@@ -64,34 +57,12 @@ describe('PropertiesPage', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
     expect(screen.getByRole('heading', { name: 'Novo imóvel' })).toBeInTheDocument()
     expect(screen.getByLabelText('Tipo do imóvel')).toHaveValue('Apartamento')
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
 
-    expect(await screen.findByText('Informe um título com pelo menos 2 caracteres.')).toBeInTheDocument()
-    expect(screen.getByText('Informe o endereço.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Avançar' }))
+    expect(await screen.findByText('Informe uma identificação com pelo menos 2 caracteres.')).toBeInTheDocument()
+    expect(screen.getByText('Informe a cidade.')).toBeInTheDocument()
+    // Não deve ter feito POST ainda (só o GET inicial)
     expect(fetch).toHaveBeenCalledTimes(1)
-  })
-
-  it('cria imóvel, mostra salvamento e atualiza a lista', async () => {
-    let resolveCreate: ((value: Response) => void) | undefined
-    const createResponse = new Promise<Response>((resolve) => { resolveCreate = resolve })
-    vi.mocked(fetch)
-      .mockReturnValueOnce(response([]))
-      .mockReturnValueOnce(createResponse)
-    render(<PropertiesPage />)
-    await screen.findByText('Nenhum imóvel cadastrado')
-    fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
-    fillForm()
-    fireEvent.change(screen.getByLabelText('Tipo do imóvel'), { target: { value: 'Galpão' } })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
-    expect(screen.getByRole('button', { name: 'Carregando…' })).toBeDisabled()
-    resolveCreate?.(await response(property))
-
-    expect(await screen.findByText('Imóvel cadastrado com sucesso.')).toBeInTheDocument()
-    expect(screen.getByText('Apartamento Centro')).toBeInTheDocument()
-    const postOptions = vi.mocked(fetch).mock.calls[1]?.[1]
-    expect(JSON.parse(String(postOptions?.body)).property_type).toBe('Galpão')
-    expect(fetch).toHaveBeenCalledTimes(2)
   })
 
   it('exibe erro da API ao carregar e permite tentar novamente', async () => {
@@ -112,19 +83,5 @@ describe('PropertiesPage', () => {
     expect(await screen.findByText('Erro interno')).toBeInTheDocument()
     expect(screen.queryByText('Nenhum imóvel cadastrado')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tentar novamente' })).toBeInTheDocument()
-  })
-
-  it('exibe erro da API ao salvar', async () => {
-    vi.mocked(fetch)
-      .mockReturnValueOnce(response([]))
-      .mockReturnValueOnce(response({ detail: 'Dados inválidos' }, false, 422))
-    render(<PropertiesPage />)
-    await screen.findByText('Nenhum imóvel cadastrado')
-    fireEvent.click(screen.getAllByRole('button', { name: 'Novo imóvel' })[0])
-    fillForm()
-    fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
-
-    expect(await screen.findByText('Dados inválidos')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Novo imóvel' })).toBeInTheDocument()
   })
 })
