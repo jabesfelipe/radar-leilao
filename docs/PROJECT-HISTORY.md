@@ -146,3 +146,29 @@ Na consolidação, a referência residual a **Java 21 / Spring** na arquitetura 
 ### Estado após a consolidação
 
 O projeto entra na fase de validação operacional com imóveis reais. A suíte automatizada está verde, mas o E2E real com documentos da Caixa, OCR e LLM continua sendo uma etapa distinta e deve ser validado antes de declarar o fluxo real completamente concluído.
+
+
+## TASK 61 — Setup local automatizado (WSL2 + Docker)
+
+- Objetivo: permitir subir o Radar Leilão em um notebook novo (Windows + WSL2 + Docker) sem configuração manual de banco/migrations/infra.
+- Implementação:
+  - `docker-compose.yml`: serviços `postgres` (pgvector/pgvector:pg16), `backend` (FastAPI) e `frontend` (React/Vite). Volumes persistentes `postgres_data` e `backend_storage`. Healthchecks em postgres e backend. Portas e credenciais via `.env` (com defaults).
+  - `backend/Dockerfile` + `docker/backend-entrypoint.sh`: espera o PostgreSQL, executa `alembic upgrade head` (mecanismo oficial, sem estratégia paralela) e sobe o Uvicorn.
+  - `frontend/Dockerfile`: build com `VITE_API_URL` embutido e serve via `vite preview` na porta 5173.
+  - `.env.example` revisado com todas as variáveis realmente usadas (PostgreSQL, backend, frontend, LLM). `.env` continua ignorado pelo `.gitignore`.
+  - Scripts em `scripts/`: `setup.sh`, `start.sh`, `stop.sh`, `restart.sh`, `health.sh`, `reset.sh` (destrutivo, com confirmação), `backup.sh`, `restore.sh`.
+  - `docs/LOCAL-SETUP.md`: passo a passo para usuário leigo (WSL2, Docker, clone, `.env`, setup, URLs, parar/iniciar, health, reset, backup/restore) + troubleshooting.
+- Decisões:
+  - **MinIO não incluído**: o código atual armazena documentos no filesystem local (`storage/documents`), sem MinIO/S3. Persistência garantida por volume Docker (`backend_storage`). Documentado em `docs/LOCAL-SETUP.md`.
+  - **Redis não incluído**: não há dependência real no código.
+  - **LLM opcional**: a stack sobe sem `OPENAI_API_KEY`; apenas as etapas de IA ficam indisponíveis, sem quebrar o sistema.
+- Validação real (WSL2 → Docker):
+  - `docker compose config` válido; `docker compose up -d --build` subiu os 3 serviços.
+  - Backend `healthy`; `/health` = `{status: ok}`; Swagger `/docs` = HTTP 200; frontend `:5173` = HTTP 200.
+  - Migrations aplicadas automaticamente no boot: `alembic_version = 0008_extracao_documental`.
+  - `scripts/health.sh`: PostgreSQL/pgvector/Migrations/Backend/Frontend = OK (5/0).
+  - `pytest -q` = **221 passed** (sem regressão; nenhum teste removido; nenhuma regra de negócio alterada).
+- Limitações conhecidas:
+  - Primeiro `setup.sh`/build é demorado (instala dependências pesadas do backend e faz build do frontend).
+  - Backup cobre banco (pg_dump) + storage de documentos; não cobre `.env`, imagens Docker nem código-fonte.
+  - `reset.sh` é destrutivo (remove volumes) e exige confirmação; não faz parte do fluxo normal.
