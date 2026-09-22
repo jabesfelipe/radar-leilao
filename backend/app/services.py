@@ -81,7 +81,15 @@ def impacted_domains(event_type: str) -> list[str]:
 
 
 def create_analysis(db: Session, prop: models.Property, scope: str, domains: list[str], evidence_ids: list[int], changes: str, agents: list[str]):
-    version = len(prop.analyses) + 1
+    # Próxima versão calculada direto no banco (a coleção prop.analyses pode estar
+    # desatualizada dentro da mesma sessão, gerando versões repetidas na reanálise
+    # incremental). Preserva o contrato: 1ª análise = v1, 2ª = v2, incremental.
+    last_version = db.scalars(
+        select(models.Analysis.version)
+        .where(models.Analysis.property_id == prop.id)
+        .order_by(models.Analysis.version.desc())
+    ).first()
+    version = (last_version or 0) + 1
     analysis = models.Analysis(property_id=prop.id, version=version, scope=scope, affected_domains=domains, agents_executed=agents, evidence_ids=evidence_ids, changes=changes)
     db.add(analysis); db.flush(); return analysis
 
