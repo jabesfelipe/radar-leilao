@@ -111,3 +111,46 @@ Os marcos de implementação anteriores permanecem registrados neste histórico.
 - `create_analysis` passou a consultar a maior versão persistida diretamente no banco, evitando duplicidade na reanálise incremental.
 - Sem migration/schema, alteração de testes ou nova regra de negócio.
 - CI/workflow não publicou execução para este commit; não há contagem independente de testes.
+
+
+---
+
+## Consolidação de validação — 21/09/2026
+
+### Validação da TASK 60 em runtime
+
+Após as correções da TASK 60, os três testes diretamente relacionados à correção passaram:
+
+```text
+3 passed, 13 deselected
+```
+
+Em seguida, a suíte completa de integração foi executada:
+
+```text
+pytest -q tests/test_integration_flows.py
+16 passed, 2110 warnings in 3.29s
+```
+
+### Validação da suíte completa
+
+```text
+pytest -q
+221 passed, 2744 warnings in 9.41s
+```
+
+Resultado: **221 testes passaram e nenhuma falha automatizada permanece neste estado do projeto.**
+
+Os warnings foram registrados para acompanhamento futuro, mas não bloquearam a validação.
+
+### Documentação mestre
+
+A especificação principal foi movida da raiz para:
+
+`docs/SPEC-VIBE-CODING-RADAR-LEILAO.md`
+
+Na consolidação, a referência residual a **Java 21 / Spring** na arquitetura foi corrigida para **Python + FastAPI**, alinhando a documentação com a implementação efetiva.
+
+### Estado após a consolidação
+
+O projeto entra na fase de validação operacional com imóveis reais. A suíte automatizada está verde, mas o E2E real com documentos da Caixa, OCR e LLM continua sendo uma etapa distinta e deve ser validado antes de declarar o fluxo real completamente concluído.
