@@ -13,13 +13,13 @@ A especificação arquitetural oficial permanece em:
 
 - `SPEC-VIBE-CODING-RADAR-LEILAO.md`
 
-Este documento não substitui a SPEC. Ele controla o **andamento de implementação**, registra o que já foi validado e aponta a próxima tarefa.
+Este documento controla o **andamento de implementação**, registra o que já foi validado e aponta a próxima tarefa.
 
 ---
 
 ## 2. Regra de desenvolvimento
 
-Fluxo oficial a partir deste documento:
+Fluxo oficial:
 
 1. Kiro lê este arquivo.
 2. Kiro executa **somente a próxima TASK marcada como PENDENTE**.
@@ -47,28 +47,32 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit implementado:** `1aa3912445c3e25a6f0b9e2ac4fa93d9e82f1d74`  
-**Mensagem:** `fix: corrige proxima falha da suite`
+**Último commit de implementação:** `23b47172f1855e7f6facde86142ed7762759615c`  
+**Mensagem:** `fix: corrige serializacao decimal na integracao`
 
-**Última TASK aprovada:** TASK 56
+**Última TASK aprovada:** TASK 58
 
-**TASK 51:** execução diagnóstica realizada, não aprovada como E2E completo
+**TASK 51:** execução diagnóstica realizada, não aprovada como E2E completo.
 
-**TASK 51B:** runtime WSL + Docker + PostgreSQL/pgvector preparado; migrations corrigidas e validadas
+**TASK 51B:** runtime WSL + Docker + PostgreSQL/pgvector preparado; migrations corrigidas e validadas.
 
-**TASK 52:** cadeia de migrations validada em banco limpo; 211 testes passaram e 10 falharam por problemas de aplicação fora do escopo da migration
+**TASK 52:** cadeia de migrations validada em banco limpo; 211 testes passaram e 10 falharam por problemas de aplicação fora do escopo da migration.
 
-**TASK 53:** correção do snapshot anterior do Checklist aprovada
+**TASK 53:** correção do snapshot anterior do Checklist aprovada.
 
-**TASK 54:** concluída — suíte checklist verde; primeira falha corrigida em `test_documents.py`
+**TASK 54:** concluída — fixture de `test_documents.py` corrigida; 213 passed, 8 failed.
 
-**TASK 55:** concluída — próxima falha corrigida em `test_extraction.py`
+**TASK 55:** concluída — fixture de `test_extraction.py` corrigida; 214 passed, 7 failed.
 
-**TASK 56:** concluída — próxima falha corrigida em `test_extraction.py`; suíte atual: 215 passed, 6 failed
+**TASK 56:** concluída — fixture de `test_extraction.py` corrigida; 215 passed, 6 failed.
 
-**TASK 57:** em execução pelo Kiro — próxima falha: `test_persistencia_cria_registro_e_evidencia_rastreavel`
+**TASK 57:** concluída — fixture de `test_extraction.py` corrigida; 216 passed, 5 failed.
 
-**Status global:** 🟡 MVP em construção
+**TASK 58:** concluída — corrigido `db.refresh(result)` no endpoint `update_checklist`; 217 passed, 4 failed.
+
+**Próxima falha:** fluxo de análise/persistência em `tests/test_integration_flows.py`.
+
+**Status global:** 🟡 MVP em construção.
 
 > A porcentagem de conclusão não é usada como fonte oficial. O controle por TASK abaixo é a referência.
 
@@ -76,233 +80,74 @@ Uma TASK só é considerada concluída quando:
 
 # 4. Backlog controlado
 
-## Fundação, arquitetura e IA
+As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na documentação anterior.
 
-- [x] **TASK 01** — Implementar MVP inicial do Radar Leilão em português.
-  - Commit: `d984909c9354e4472c999e5820fb0871064f309d`
+## TASK 51 — Primeiro teste E2E com imóvel real da Caixa
+- [~] EXECUÇÃO DIAGNÓSTICA REALIZADA — NÃO CONCLUÍDA
+- Commit: `ea7db957b6ef6e739bfa19d086b4a508d462acc6`
 
-- [x] **TASK 02** — Alinhar arquitetura do Radar à SPEC oficial.
-  - Commit: `1be818451b38cf5b691f0fc0707a6e2610a40005`
+## TASK 51B — Reexecução controlada do E2E após preparar runtime
+- [x] CONCLUÍDA
+- Runtime oficial WSL2 → Docker → PostgreSQL + pgvector validado.
+- Migrations executadas e validadas em banco limpo.
 
-- [x] **TASK 03** — Implementar primeira análise real com LLM, RAG e LangGraph.
-  - Commit: `db5e488b2bfe3906f42d285553e84a4438993acc`
+## TASK 52 — Correção e validação da cadeia de migrations
+- [x] CONCLUÍDA
+- Commit de implementação: `b676a889fdfb79c4609b72107a345f9b5ed3a080`
+- Validação em banco limpo: migrations 0001 → 0008.
+- Resultado: 211 passed, 10 failed; falhas restantes eram de aplicação.
 
-- [x] **TASK 04** — Estabilizar RAG híbrido com isolamento e ranking normalizado.
-  - Commit: `f7bad52fe9c6d5613f39a44cf90ac9941087dc0d`
+## TASK 53 — Corrigir snapshot anterior do Checklist
+- [x] CONCLUÍDA
+- Commit: `f36cecebb490112945d2f6a91ae96bf2e9492157`
+- Auditoria: 🟢 aprovada.
 
-- [x] **TASK 05** — Adicionar rastreabilidade e controle de custos de LLM.
-  - Commit: `7218b87f0c8a4122c998c88c36cd9e9fec3d4db5`
+## TASK 54 — Reexecutar suíte e corrigir a próxima falha
+- [x] CONCLUÍDA
+- Commit: `ecde86518d4d9d4136184877974f103b9735e80d`
+- Resultado: 213 passed, 8 failed.
 
-- [x] **TASK 06** — Endurecer segurança do fluxo LLM.
-  - Commit: `f39fb619e0bb9c36bb5ecd5bb8c721ec4335b7a1`
+## TASK 55 — Corrigir a próxima falha da suíte
+- [x] CONCLUÍDA
+- Commit: `27a65e3cd21053d710c68338a4f1a853a4ad8caa`
+- Resultado: 214 passed, 7 failed.
 
-- [x] **TASK 07** — Implementar Checklist Mestre versionado.
-  - Commit: `5261c6c84c3ee346d8e1e4974bc9342572820e3b`
+## TASK 56 — Corrigir a próxima falha da suíte
+- [x] CONCLUÍDA
+- Commit: `1aa3912445c3e25a6f0b9e2ac4fa93d9e82f1d74`
+- Resultado: 215 passed, 6 failed.
 
-- [x] **TASK 08** — Implementar motor financeiro determinístico.
-  - Commit: `df8c11ba7571714684c4582bfbc4a43ffa1eaf79a`
+## TASK 57 — Corrigir a próxima falha da suíte
+- [x] CONCLUÍDA
+- Commit: `4c26ee67243cc622b89748a607fc01e3e294ca26`
+- Auditoria: 🟢 aprovada.
+- Corrigida a fixture de `test_extraction.py` para fornecer `success=True`.
+- Resultado: 216 passed, 5 failed.
 
-- [x] **TASK 09** — Implementar motor determinístico de mercado.
-  - Commit: `04333e888a432a57559a5853b33ebaa930a34067`
-
-- [x] **TASK 10** — Adicionar cadastro de ocupação do imóvel.
-  - Commit: `5300ab6b35df859deca08d5a5724acacf6a9076f`
-
-- [x] **TASK 11** — Adicionar cadastro de processos jurídicos.
-  - Commit: `0fd36e1a8011aae819d539c91cd20f5d5fa90ea6`
-
-- [x] **TASK 12** — Adicionar versionamento de documentos.
-  - Commit: `d3b1d69c088359577ea5a3ca5f76d8872d3cbbcd`
-
-- [x] **TASK 13** — Consolidar custos e dívidas do imóvel.
-  - Commit: `ad81ad0f90f3a190b51b173aa81239a20dea8059`
-
-- [x] **TASK 14** — Adicionar cadastro de matrícula e edital.
-  - Commit: `1fc9dba87d68d7c6649df2e55ca5f75a82219e70`
-
-- [x] **TASK 15** — Consolidar evidências e vínculos.
-  - Commit: `080cdd8d1059ccfde1f70d9b23086c05c71c7635`
-
-- [x] **TASK 16** — Consolidar pipeline documental para RAG.
-  - Commit: `ad55db96b817e5858077d09eb675a492fc29105e`
-
-- [x] **TASK 17** — Adicionar extração documental estruturada.
-  - Commit: `5672cbc08436b1365820723ed261ab2584266f0e`
-
-- [x] **TASK 18** — Exigir rastreabilidade na extração documental.
-  - Commit: `4f54f07a92ff58ddde214038504609b2e686c817`
-
-- [x] **TASK 19** — Normalizar evidências documentais.
-  - Commit: `db12b25704f8deb29e5adbda933b4c16319b3411`
-
-- [x] **TASK 20** — Adicionar endpoint do Document Agent.
-  - Commit: `95a28afeb84f55c0a6b2678e8191c7f1476f6f32`
-
-- [x] **TASK 21** — Ajustar rastreabilidade do Document Agent.
-  - Commit: `32ca1957abbfe35ffa7a1752696c6fbc1c8beb58`
-
-- [x] **TASK 22** — Adicionar Jurídico Agent.
-  - Commit: `060b6a6a89715695262df4dc5f99f18de82f68bf`
-
-- [x] **TASK 23** — Adicionar Financeiro Agent.
-  - Commit: `5f7ee44826468ff87930db9c79a5cf96c8d5fe30`
-
-- [x] **TASK 24** — Adicionar Mercado Agent.
-  - Commit: `f3b71965c6dd7e6e0ab7c54709c91088629d60b3`
-
-- [x] **TASK 25** — Adicionar Checklist Agent.
-  - Commit: `118dbf463f99aff3a2f558502eb9df0edb6f6514`
-
-- [x] **TASK 26** — Consolidar orquestração com LangGraph.
-  - Commit: `3971ba926f96f82cb4763957c0fa7d8156cc18a3`
-
-- [x] **TASK 27** — Separar consolidação de Risk e Verdict no LangGraph.
-  - Commit: `5d91b8e4bbfc2c5bab02c310151440c65b1476b7`
-
-- [x] **TASK 28** — Adicionar Impact Analyzer determinístico.
-  - Commit: `d659aef262b428bf5f1d5320dd0aa56721e0ac5a`
-
-- [x] **TASK 29** — Implementar reanálise incremental.
-  - Commit: `3f87a76bce36f4cd123b8455328fa1d9be446356`
-  - Correção obrigatória posterior:
-    `d416345516fe11c7c27a1684a4071d916433dfaf`
-  - A correção limitou a criação do ChecklistExecution aos casos em que checklist está realmente afetado.
-
-- [x] **TASK 30** — Adicionar consolidação dos resultados dos Agents.
-  - Commit: `b76c77311b60d082d169397cdab8bbf412a8d14a`
-
-- [x] **TASK 31** — Implementar Risk Engine determinístico.
-  - Commit inicial: `023bb2856fd67ce168b9137e18e3a506f8780f61`
-  - Correção aprovada: `acc515f321a6f827ae32c10be98972940530fe08`
-  - A correção removeu regras de risco que não estavam formalizadas.
-
-- [x] **TASK 32** — Implementar Verdict Engine determinístico.
-  - Commit: `12b2914abe3fe672c4fed1b27f2da4d5b444aeb3`
-
-- [x] **TASK 33** — Implementar comparação de histórico de análises.
-  - Commit: `37386bb47b246252ebdc0ba595b90b5d953c8910`
-
-- [x] **TASK 34** — Adicionar memória estruturada de casos.
-  - Commit: `f7d951ac3ebdcec98e4524e6d8152b9e124e2d40`
-
-- [x] **TASK 35** — Adicionar busca estruturada da memória.
-  - Commit: `1c5f95ca9b287eb1487fc58a5f95117729dd4075`
-
-- [x] **TASK 36** — Adicionar embeddings na memória de casos.
-  - Commit: `e4e9f394c599df4661f96084ec2c8b16e185d113`
-
-- [x] **TASK 37** — Adicionar busca semântica da memória.
-  - Commit: `e5572d3cfaa0123eaa1ad0dace196e9b400d2380`
-
-- [x] **TASK 38** — Adicionar busca híbrida da memória.
-  - Commit: `9636f93c61e10e2702176ef882f1894a54bf6550`
-
-- [x] **TASK 39** — Adicionar evals básicos dos Agents.
-  - Commit: `64b156ef60c662071709ef8970d2bc20f8f361da`
-
-## Frontend e Hub do Imóvel
-
-- [x] **TASK 40** — Criar foundation do frontend.
-  - Commit: `e8f8a9a7172220c3ed90430c9a3aac34e1a1edf0`
-
-- [x] **TASK 40A** — Reforçar responsividade do frontend.
-  - Commit: `4d248c724ab53d4347bf5ffcddc2c7769b40f0ed`
-
-- [x] **TASK 40B** — Criar identidade visual e design system do Radar.
-  - Commit: `392f9b677f6bc73cb19c7769d32403d225e1b962`
-
-- [x] **TASK 41** — Cadastro básico de imóvel.
-  - Commit inicial: `0c10233c0a8b379e22a39c40050e5377533aa435`
-  - Correção aprovada: `d244a08e375e4b2c23f88e9acbeccd84fe12719b`
-  - Correção removeu enum artificial de tipo de imóvel.
-
-- [x] **TASK 42** — Criar Hub de Detalhe do Imóvel.
-  - Commit: `c7c9ac51de790282bd65b32f3c94c4dc8eb0f43f`
-
-- [x] **TASK 42A** — Implementar Documentos no Hub.
-  - Commit: `147e8bc5cd8e7a10dfcb95a6a95c12e05f101f08`
-
-- [x] **TASK 42B** — Implementar Matrícula e Edital no Hub.
-  - Commit: `1c330c430793bf2da50ed462ef16f34aff24da38`
-
-- [x] **TASK 42C** — Implementar Processos Jurídicos no Hub.
-  - Commit: `a4f5d761167cccda07e233816af05cda449b0e73`
-
-- [x] **TASK 43** — Implementar Financeiro no Hub.
-  - Commit: `30f366678b9359238cdca08d5a5724acacf6a9076f`
-
-- [x] **TASK 44** — Implementar Mercado + Ocupação no Hub.
-  - Commit: `13b6c9325978908b7960e17edb65700fd94c0aa2`
-  - Mercado: listagem/cadastro de comparáveis, estados de loading/empty/error/retry/saving/sucesso e integração no Hub.
-  - Ocupação: consulta da situação atual e registro via endpoint POST existente, com recarga da situação após gravação.
-  - Não foram criados endpoints de update inexistentes nem regras de valuation/liquidez/yield/veredito.
-
-> Observação: TASKs A/B/C foram refinamentos do plano operacional original. Elas são mantidas aqui para preservar o histórico real dos commits sem alterar artificialmente a sequência principal.
+## TASK 58 — Corrigir a próxima falha de integração
+- [x] CONCLUÍDA
+- Commit: `23b47172f1855e7f6facde86142ed7762759615c`
+- Auditoria: 🟢 aprovada.
+- Falha reproduzida inicialmente como `Decimal is not JSON serializable`, mas o traceback completo confirmou a causa real: o PATCH do Checklist retornava `{}`.
+- Causa raiz: `update_checklist` fazia `db.commit(); return result` sem `db.refresh(result)`; após o commit, os atributos ORM expiravam e a serialização retornava objeto vazio.
+- Correção: uma única linha em `main.py`, adicionando `db.refresh(result)` antes do retorno.
+- Contrato preservado; não houve alteração de schema, migration, teste, regra de negócio ou conversão indevida para string.
+- Resultado: teste alvo passou; `test_integration_flows.py`: 12 passed, 4 failed; suíte: 217 passed, 4 failed.
 
 ---
 
 # 5. PRÓXIMA TASK — PENDENTE
 
-**TASK 49 — Revisão da integração Frontend ↔ Backend**
-- [x] CONCLUÍDA
-- Commit: `2a549c8e9b90e6fc07e50b1f915f109fdc31ca02`
-- Auditoria: 🟢 aprovada.
-- Revisados contratos, payloads, estados e testes das integrações alteradas; não foram identificadas novas regras de negócio.
-
-## TASK 50 — Testes de integração
-- [x] CONCLUÍDA
-- Commit: `1e50f30e09f314e058eaa396a49b0a769209f6c2`
-- Auditoria: 🟢 aprovada.
-- Adicionados testes de integração HTTP contra FastAPI + PostgreSQL/pgvector, cobrindo cadastro, documentos, matrícula/edital, processos, financeiro, mercado/ocupação, checklist, análise, riscos/veredito, histórico e nova versão de análise.
-
-## TASK 51 — Primeiro teste E2E com imóvel real da Caixa
-- [~] **EXECUÇÃO DIAGNÓSTICA REALIZADA — NÃO CONCLUÍDA**
-- Commit: `ea7db957b6ef6e739bfa19d086b4a508d462acc6`
-- Auditoria: 🟡 não aprovada como E2E completo.
-- O imóvel real e os dois PDFs oficiais da Caixa foram baixados e o `DocumentNormalizer` real foi exercitado.
-- Primeiro GAP real confirmado: processamento de PDF do MarkItDown bloqueado pela ausência da dependência PDF (`pdfminer`).
-- PostgreSQL/pgvector e LLM também estavam indisponíveis no ambiente, portanto RAG, Agents, LangGraph, Checklist, Risk, Verdict, Dossiê, Histórico e reanálise não foram executados com dados reais.
-- Relatório: `docs/E2E-DIAGNOSTICO-TASK-51.md`
-
-## TASK 51B — Reexecução controlada do E2E após preparar runtime
-- [x] **CONCLUÍDA**
-- Runtime oficial WSL2 → Docker → PostgreSQL + pgvector validado.
-- Dependência PDF do MarkItDown preparada.
-- Migrations executadas e validadas em banco limpo.
-
-## TASK 52 — Correção e validação da cadeia de migrations
-- [x] **CONCLUÍDA**
-- Commit de implementação: `b676a889fdfb79c4609b72107a345f9b5ed3a080`
-- Validação realizada em banco recém-migrado: migrations 0001 → 0008, pgvector/pg_trgm e campos específicos passaram.
-- Resultado da suíte: 211 passed, 10 failed.
-- As falhas restantes são de lógica/aplicação e não da cadeia de migrations; nenhuma correção dessas falhas foi incluída na TASK 52.
-
-## TASK 53 — Corrigir snapshot anterior do Checklist
-- [x] **CONCLUÍDA**
-- Commit: `f36cecebb490112945d2f6a91ae96bf2e9492157`
-- Auditoria: 🟢 aprovada.
-- Corrigido `create_execution` para preencher `previous_result_id` apontando para o resultado correspondente da execução anterior, sem copiar resposta/estado.
-
-## TASK 54 — Reexecutar suíte e corrigir a próxima falha
-- [x] **CONCLUÍDA**
-- Commit: `ecde86518d4d9d4136184877974f103b9735e80d`
-- Corrigida fixture de `test_documents.py`.
-- Resultado: 213 passed, 8 failed.
-
-## TASK 55 — Corrigir a próxima falha da suíte
-- [x] **CONCLUÍDA**
-- Commit: `27a65e3cd21053d710c68338a4f1a853a4ad8caa`
-- Corrigida fixture de `test_extraction.py` para manter rastreabilidade da extração.
-- Resultado: 214 passed, 7 failed.
-
-## TASK 56 — Corrigir a próxima falha da suíte
-- [x] **CONCLUÍDA**
-- Commit: `1aa3912445c3e25a6f0b9e2ac4fa93d9e82f1d74`
-- Corrigida fixture de `test_extraction.py` para fornecer referências aos campos preenchidos.
-- Resultado: 215 passed, 6 failed.
-
-## TASK 57 — Corrigir a próxima falha da suíte
-- [ ] **EM EXECUÇÃO**
-- Próxima falha: `tests/test_extraction.py::test_persistencia_cria_registro_e_evidencia_rastreavel`
-- Falha registrada: `AttributeError: 'Result' object has no attribute 'success'`.
-- Não avançar para as falhas seguintes até concluir esta task.
+## TASK 59 — Corrigir a próxima falha real do fluxo de análise
+- [ ] **PENDENTE**
+- Arquivo-alvo: `tests/test_integration_flows.py`
+- Próxima falha:
+  `test_execucao_analise_completa_atualiza_dossie`
+- Contexto: existem 4 falhas restantes no fluxo de análise/persistência.
+- Regra: reproduzir e confirmar a causa exata antes de alterar código.
+- Corrigir **somente a primeira falha**.
+- Se a correção fizer o teste alvo passar, executar a suíte de `test_integration_flows.py`, registrar o resultado e parar.
+- Não corrigir as outras três falhas na mesma TASK.
+- Não alterar migrations/schema sem evidência.
+- Não mascarar a falha convertendo genericamente valores para string.
+- Não alterar RAG/LLM/LangGraph/Risk/Verdict sem necessidade comprovada.
