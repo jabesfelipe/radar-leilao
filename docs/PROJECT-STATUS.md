@@ -47,12 +47,14 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit de implementação:** `23b47172f1855e7f6facde86142ed7762759615c`  
-**Mensagem:** `fix: corrige serializacao decimal na integracao`
+**Último commit de implementação:** `1262637fa681d056f4191a8e15cbb72aefcc4038`  
+**Mensagem:** `fix: corrige 3 falhas restantes da integracao`
 
-**Última TASK aprovada:** TASK 58
+**Última TASK aprovada:** TASK 60
 
-**TASK 59:** 🔵 EM EXECUÇÃO — correção da próxima falha real do fluxo de análise. Kiro está trabalhando nesta task.
+**TASK 59:** 🟢 CONCLUÍDA — primeira falha do fluxo de análise corrigida e auditada.
+
+**TASK 60:** 🟢 CONCLUÍDA — três falhas restantes da integração corrigidas e auditadas por inspeção do diff. O GitHub não publicou workflow/CI para o commit.
 
 **TASK 51:** execução diagnóstica realizada, não aprovada como E2E completo.
 
@@ -138,18 +140,21 @@ As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na document
 
 ---
 
-# 5. PRÓXIMA TASK — PENDENTE
+# 5. Últimas TASKs — concluídas
 
-## TASK 59 — Corrigir a próxima falha real do fluxo de análise
-- [~] **EM EXECUÇÃO**
-- Arquivo-alvo: `tests/test_integration_flows.py`
-- Próxima falha:
-  `test_execucao_analise_completa_atualiza_dossie`
-- Contexto: existem 4 falhas restantes no fluxo de análise/persistência.
-- Regra: reproduzir e confirmar a causa exata antes de alterar código.
-- Corrigir **somente a primeira falha**.
-- Se a correção fizer o teste alvo passar, executar a suíte de `test_integration_flows.py`, registrar o resultado e parar.
-- Não corrigir as outras três falhas na mesma TASK.
-- Não alterar migrations/schema sem evidência.
-- Não mascarar a falha convertendo genericamente valores para string.
-- Não alterar RAG/LLM/LangGraph/Risk/Verdict sem necessidade comprovada.
+## TASK 59 — Corrigir a primeira falha real do fluxo de análise
+- [x] CONCLUÍDA
+- Commit: `92c3e44aa314fc38c402a895d64b9add17381d85`
+- Correção: serialização do resultado financeiro antes da criação do veredito.
+- Auditoria: 🟢 aprovada.
+
+## TASK 60 — Corrigir as 3 falhas restantes da integração
+- [x] CONCLUÍDA
+- Commit: `1262637fa681d056f4191a8e15cbb72aefcc4038`
+- Auditoria: 🟢 aprovada por inspeção do diff.
+- `get_property`: análises agora são expostas ordenadas por versão.
+- `create_analysis`: próxima versão agora é calculada diretamente no banco, corrigindo a reanálise incremental (v1, v2...).
+- Sem migration/schema, alteração de testes, nova regra de negócio ou refatoração ampla.
+- CI/workflow: nenhuma execução publicada no GitHub para este commit; portanto não há contagem independente de testes a registrar.
+
+**Status global:** 🟡 MVP em construção — as 4 correções do fluxo de integração estão implementadas e auditadas; ainda não declarar E2E completo até validação do runtime/suíte.
