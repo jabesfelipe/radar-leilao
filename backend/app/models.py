@@ -62,9 +62,10 @@ class Auction(TimestampMixin, Base):
     appraisal_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     bid_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
     # 1º e 2º leilão preservados separadamente (não sobrescrevem avaliação/lance atual).
-    first_auction_date: Mapped[date | None] = mapped_column(Date)
+    # DateTime para preservar data + hora do leilão (ex.: 28/09/2026 10:00).
+    first_auction_date: Mapped[datetime | None] = mapped_column(DateTime)
     first_auction_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
-    second_auction_date: Mapped[date | None] = mapped_column(Date)
+    second_auction_date: Mapped[datetime | None] = mapped_column(DateTime)
     second_auction_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     acquisition_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     commission_percent: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))

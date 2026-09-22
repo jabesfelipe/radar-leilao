@@ -33,6 +33,7 @@ TABLES_ADDED_LATER = (
     "llm_pricing",             # 0002_llm_usage_pricing
     "property_registrations",  # 0007_matricula_edital
     "auction_notices",         # 0007_matricula_edital
+    "property_sources",        # 0009_cadastro_completo_imovel
 )
 
 # Colunas adicionadas por migrations posteriores (removidas do schema base).
@@ -49,13 +50,21 @@ COLUMNS_ADDED_LATER = {
     "checklist_results": (  # 0003_checklist_mestre
         "item_version", "applicable", "previous_result_id",
     ),
-    "auctions": (  # 0004_financeiro_entradas
+    "auctions": (  # 0004_financeiro_entradas + 0009_cadastro_completo_imovel
         "acquisition_value", "commission_percent", "commission_fixed",
+        "first_auction_date", "first_auction_value",
+        "second_auction_date", "second_auction_value",
     ),
     "legal_processes": (  # 0006_processos_juridicos
         "comarca", "nature", "polo_active", "polo_passive",
         "distribution_date", "observations", "evidence_id",
     ),
+    "properties": (  # 0009_cadastro_completo_imovel
+        "neighborhood", "private_area_m2", "parking_spots", "description",
+        "origin", "origin_property_code", "inscription", "modality", "system",
+    ),
+    # auction_notices.item também é de 0009, mas auction_notices é recriada por 0007
+    # (está em TABLES_ADDED_LATER), então o DROP da tabela já remove a coluna.
 }
 
 

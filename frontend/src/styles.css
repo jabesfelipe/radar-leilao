@@ -545,3 +545,4 @@ button:disabled { cursor: not-allowed; opacity: .58; }
   .wizard-review { grid-template-columns: 1fr; }
   .wizard-source-row { grid-template-columns: 1fr; }
 }
+.wizard-failed-list { margin: .35rem 0; padding-left: 1.1rem; display: grid; gap: .2rem; }

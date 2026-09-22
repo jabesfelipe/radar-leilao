@@ -82,7 +82,9 @@ CAIXA_PAYLOAD = {
     },
     "leilao": {
         "appraisal_value": 370000,
+        "first_auction_date": "2026-09-28T10:00:00",
         "first_auction_value": 370000,
+        "second_auction_date": "2026-10-02T10:00:00",
         "second_auction_value": 222000,
         "auctioneer": "WERNO KLÖCKNER JÚNIOR",
     },
@@ -121,13 +123,16 @@ def test_cadastro_completo_persiste_todas_as_entidades(client):
     assert imovel["inscription"] == "57000970088001"
     assert imovel["modality"] == "Extrajudicial" and imovel["system"] == "SFI"
 
-    # leilão preserva avaliação e 1º/2º leilão separadamente
+    # leilão preserva avaliação e 1º/2º leilão separadamente, com data + hora
     leilao = detalhe["leilao"]
     assert leilao is not None
     assert float(leilao["appraisal_value"]) == pytest.approx(370000)
     assert float(leilao["first_auction_value"]) == pytest.approx(370000)
     assert float(leilao["second_auction_value"]) == pytest.approx(222000)
     assert leilao["auctioneer"] == "WERNO KLÖCKNER JÚNIOR"
+    # a hora (10:00) não pode ser truncada
+    assert "10:00" in leilao["first_auction_date"]
+    assert "10:00" in leilao["second_auction_date"]
 
     # edital e matrícula
     assert detalhe["edital"]["identifier"] == "0044/0226 - CPA/RE"
@@ -201,3 +206,22 @@ def test_cadastro_completo_habilita_analise_e_gera_versao(client):
     # o financeiro consome o leilão cadastrado (avaliação preservada)
     detalhe = client.get(f"/api/imoveis/{property_id}").json()
     assert detalhe["financeiro"] is not None
+
+
+# 7. Data + hora do leilão preservadas (TASK 63) --------------------------------
+
+def test_leilao_preserva_data_e_hora(client):
+    payload = {
+        "imovel": {"title": "Imóvel Data-Hora", "city": "Curitiba", "state": "PR", "property_type": "Apartamento"},
+        "leilao": {
+            "first_auction_date": "2026-09-28T10:00:00",
+            "second_auction_date": "2026-10-02T10:00:00",
+            "first_auction_value": 370000,
+            "second_auction_value": 222000,
+        },
+    }
+    criado = _cadastrar(client, payload)
+    leilao = client.get(f"/api/imoveis/{criado['id']}").json()["leilao"]
+    # a resposta serializa datetime completo (data + hora), sem truncar para date
+    assert leilao["first_auction_date"].startswith("2026-09-28T10:00")
+    assert leilao["second_auction_date"].startswith("2026-10-02T10:00")

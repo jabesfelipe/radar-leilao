@@ -57,6 +57,42 @@ describe('PropertyWizard', () => {
     expect(payload.matricula.registration_number).toBe('25278')
   })
 
+  it('quando um upload falha, mantém o imóvel e avisa o usuário sem navegar automaticamente', async () => {
+    const onCreated = vi.fn()
+    // 1) cadastro OK  2) upload edital OK  3) upload matrícula FALHA
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ id: 55, status: 'EM_ANALISE' }, true, 201))
+      .mockReturnValueOnce(response({ id: 1, versions: [] }, true, 200))
+      .mockReturnValueOnce(response({ detail: 'Falha ao processar documento' }, false, 422))
+
+    render(<PropertyWizard onCancel={() => {}} onCreated={onCreated} />)
+
+    fireEvent.change(screen.getByLabelText('Nome / identificação'), { target: { value: 'Imóvel com docs' } })
+    fireEvent.change(screen.getByLabelText('Cidade'), { target: { value: 'Curitiba' } })
+    fireEvent.change(screen.getByLabelText('Estado (UF)'), { target: { value: 'PR' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Avançar' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Avançar' })) // leilão -> fontes
+    fireEvent.click(await screen.findByRole('button', { name: 'Avançar' })) // fontes -> documentos
+
+    // seleciona dois arquivos na etapa de documentos
+    const edital = new File(['a'], 'edital.pdf', { type: 'application/pdf' })
+    const matricula = new File(['b'], 'matricula.pdf', { type: 'application/pdf' })
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [edital, matricula] } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Avançar' })) // documentos -> revisão
+    fireEvent.click(await screen.findByRole('button', { name: 'Salvar imóvel' }))
+
+    // não navega automaticamente; mostra aviso identificando o documento que falhou
+    expect(await screen.findByText('Atenção com os documentos')).toBeInTheDocument()
+    expect(screen.getByText('matricula.pdf')).toBeInTheDocument()
+    expect(onCreated).not.toHaveBeenCalled()
+
+    // o usuário decide ir ao dossiê
+    fireEvent.click(screen.getByRole('button', { name: 'Ir para o dossiê' }))
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(55))
+  })
+
   it('valida URL de fonte inválida antes de avançar', async () => {
     render(<PropertyWizard onCancel={() => {}} onCreated={() => {}} />)
 

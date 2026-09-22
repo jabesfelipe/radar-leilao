@@ -172,6 +172,13 @@ As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na document
 - Fixture de validação: COND PARQUE ARVOREDO RESIDENCIAL CLUBE (E2E real da Caixa NÃO declarado concluído).
 - Resultado: `pytest -q` = **227 passed** (+6); Vitest = 88 passed; `alembic upgrade head` aplica 0009 em banco limpo.
 
+## TASK 63 — Ajustes finais do cadastro: data/hora do leilão e feedback de upload
+- [x] CONCLUÍDA
+- Data + hora do 1º/2º leilão preservadas: `auctions.first/second_auction_date` `DATE` → `TIMESTAMP` (migration `0010_leilao_data_hora`; ajuste na redução de `0001` para funcionar em banco novo).
+- Feedback de upload no wizard: falha de upload não é mais silenciosa — imóvel é criado, o usuário vê quais documentos falharam e vai ao Dossiê por ação própria.
+- Fluxo de análise intacto. Nenhuma nova tabela/arquitetura.
+- Resultado: `pytest -q` = **228 passed** (+1); Vitest = **89 passed** (+1); `tsc` OK; `alembic upgrade head` validado em banco existente e limpo.
+
 **Status global:** 🟢 suíte automatizada verde; 🟡 E2E real com documentos/OCR/LLM ainda pendente.
 
 

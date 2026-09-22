@@ -23,7 +23,7 @@ class PropertyCreate(BaseModel):
 class PropertyOut(PropertyCreate):
     id: int; status: str; created_at: datetime; model_config = ConfigDict(from_attributes=True)
 class AuctionCreate(BaseModel):
-    auction_date: date | None = None; auction_stage: str = "2º leilão"; appraisal_value: Decimal = 0; bid_value: Decimal = 0; first_auction_date: date | None = None; first_auction_value: Decimal | None = None; second_auction_date: date | None = None; second_auction_value: Decimal | None = None; acquisition_value: Decimal | None = None; commission_percent: Decimal | None = None; commission_fixed: Decimal | None = None; auctioneer: str = ""; notice_url: str = ""
+    auction_date: date | None = None; auction_stage: str = "2º leilão"; appraisal_value: Decimal = 0; bid_value: Decimal = 0; first_auction_date: datetime | None = None; first_auction_value: Decimal | None = None; second_auction_date: datetime | None = None; second_auction_value: Decimal | None = None; acquisition_value: Decimal | None = None; commission_percent: Decimal | None = None; commission_fixed: Decimal | None = None; auctioneer: str = ""; notice_url: str = ""
 class CostCreate(BaseModel):
     category: str; description: str; amount: Decimal = 0; recurring: bool = False
 class DebtCreate(BaseModel):
@@ -159,9 +159,9 @@ class AuctionFull(BaseModel):
     auction_stage: str = "2º leilão"
     appraisal_value: Decimal | None = None
     bid_value: Decimal | None = None
-    first_auction_date: date | None = None
+    first_auction_date: datetime | None = None
     first_auction_value: Decimal | None = None
-    second_auction_date: date | None = None
+    second_auction_date: datetime | None = None
     second_auction_value: Decimal | None = None
     acquisition_value: Decimal | None = None
     commission_percent: Decimal | None = None

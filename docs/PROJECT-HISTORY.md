@@ -240,3 +240,31 @@ Novo imóvel
 ### Limitações conhecidas
 - A análise continua funcionando sem LLM configurada (comportamento atual preservado); as etapas de IA ficam limitadas sem chave.
 - Upload de documentos por URL externa não é baixado automaticamente: a URL é preservada como fonte e o usuário pode fazer upload do arquivo.
+
+
+## TASK 63 — Ajustes finais do cadastro: data/hora do leilão e feedback de upload
+- Objetivo: dois ajustes corretivos identificados na auditoria da TASK 62, antes do E2E real da Caixa. Sem nova arquitetura, sem tocar em LangGraph/agentes/RAG/Risk/Verdict/Checklist/histórico, sem nova tabela.
+
+### 1) Preservar data + hora do 1º e 2º leilão
+- Problema: o wizard usa `datetime-local` (ex.: 28/09/2026 10:00), mas os campos eram `DATE`, truncando a hora.
+- `backend/app/models.py`: `Auction.first_auction_date` e `Auction.second_auction_date` passaram de `Date` para `DateTime`.
+- `backend/app/schemas.py`: `AuctionCreate` e `AuctionFull` passaram `first/second_auction_date` de `date` para `datetime`.
+- `backend/migrations/versions/0010_leilao_data_hora.py` (down_revision `0009`): `ALTER COLUMN ... TYPE TIMESTAMP USING (coluna::timestamp)`, preservando os valores existentes. Downgrade converte de volta para `date`.
+- `backend/migrations/versions/0001_fundacao_radar.py`: ajuste necessário na "redução ao estado da fundação" (0001 faz `create_all` do schema atual e depois remove o que 0002+ recriam). Adicionadas as colunas de 0009 (`properties.*` novas e `auctions.first/second_auction_*`) e a tabela `property_sources` à lista de remoção, para que `alembic upgrade head` funcione em **banco novo** (antes falhava com `DuplicateColumn`).
+- Frontend: `datetime-local` já enviava data+hora sem truncar; o dossiê já exibia via `toLocaleString('pt-BR')`. Sem alteração de contrato no front para este item.
+
+### 2) Feedback de upload de documentos (não esconder falhas)
+- Problema: no wizard, uma falha de upload após o cadastro era silenciosamente ignorada.
+- `frontend/src/pages/PropertyWizard.tsx`: o cadastro segue transacional e independente do upload. Após criar o imóvel, cada documento é enviado individualmente e contabilizado (`sent`/`failed`). Se algum falhar, o wizard **não navega automaticamente** — mostra um aviso claro (imóvel criado, quantos foram enviados, quais falharam, e que podem ser reenviados pelo Dossiê) com um botão "Ir para o dossiê". Se todos os uploads funcionarem (ou não houver documentos), navega direto ao Dossiê como antes.
+- `frontend/src/styles.css`: classe `.wizard-failed-list`.
+- O upload continua uma etapa posterior (nunca dentro da transação do cadastro).
+
+### Testes
+- `tests/test_cadastro_completo.py`: fixture COND PARQUE ARVOREDO agora com `first_auction_date=2026-09-28T10:00:00` e `second_auction_date=2026-10-02T10:00:00`; asserção de que a hora `10:00` não é truncada; novo `test_leilao_preserva_data_e_hora`.
+- `frontend/src/pages/PropertyWizard.test.tsx`: novo teste de upload parcial (imóvel criado, aviso exibido identificando o documento que falhou, navegação só após ação do usuário).
+- Resultado: `pytest -q` = **228 passed** (era 227, +1). Vitest = **89 passed** (era 88, +1). `tsc --noEmit` OK.
+- Migration validada: `alembic upgrade head` em **banco existente com dados** (0009→0010) e em **banco limpo** (0001→0010; colunas resultam `timestamp without time zone`).
+
+### Escopo preservado
+- Fluxo de análise (`POST /api/imoveis/{id}/analisar`) intacto — apenas garantida a ausência de regressão pela mudança de tipo de data.
+- Nenhuma nova arquitetura, agente, tabela ou fluxo paralelo. O E2E real da Caixa **não** é declarado concluído.

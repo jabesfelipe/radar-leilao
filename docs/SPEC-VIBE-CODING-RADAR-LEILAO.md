@@ -836,6 +836,7 @@ Documentos e análise de IA são etapas distintas do cadastro (não bloqueiam a 
 
 Campos preservados separadamente (o valor de avaliação nunca é sobrescrito pelo valor do leilão):
 `Auction.appraisal_value`, `Auction.first_auction_date/value`, `Auction.second_auction_date/value`.
+As datas do 1º e 2º leilão são `TIMESTAMP` (data + hora), preservando o horário (ex.: 28/09/2026 10:00) de ponta a ponta (frontend `datetime-local` → API `datetime` → PostgreSQL `timestamp` → dossiê). O upload de documentos é etapa posterior ao cadastro; falhas de upload não desfazem o imóvel e são informadas ao usuário.
 Identificação na origem (extensível, sem enum rígido): `Property.origin`, `origin_property_code`, `inscription`, `modality`, `system`.
 
 Caso de validação do primeiro fluxo E2E real: **COND PARQUE ARVOREDO RESIDENCIAL CLUBE** (o E2E real da Caixa não é declarado concluído — apenas o cadastro foi preparado para esse caso).

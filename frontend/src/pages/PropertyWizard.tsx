@@ -122,6 +122,8 @@ export function PropertyWizard({ onCancel, onCreated }: PropertyWizardProps) {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
+  // Resultado do envio dos documentos após o cadastro (não esconde falhas).
+  const [uploadResult, setUploadResult] = useState<{ propertyId: number; sent: number; failed: string[] } | null>(null)
 
   const update = (field: keyof WizardForm, value: string) => {
     setForm((current) => ({ ...current, [field]: field === 'state' ? value.toUpperCase() : value }))
@@ -242,20 +244,54 @@ export function PropertyWizard({ onCancel, onCreated }: PropertyWizardProps) {
     setSaveError('')
     try {
       const created = await createPropertyFull(payload)
-      // Documentos são enviados após o cadastro; falhas de upload não impedem
-      // a criação do imóvel (cadastro e processamento são etapas distintas).
+      // Documentos são enviados após o cadastro (etapa separada, não transacional):
+      // uma falha de upload NÃO desfaz o imóvel. Contabilizamos enviados/falhados
+      // para informar o usuário — a falha nunca é escondida.
+      const failed: string[] = []
+      let sent = 0
       for (const doc of docs) {
         try {
           await uploadDocument(created.id, { file: doc.file, document_type: doc.document_type, source: 'Cadastro do imóvel' })
+          sent += 1
         } catch {
-          // segue: o usuário pode reenviar o documento pelo dossiê
+          failed.push(doc.file.name)
         }
+      }
+      if (failed.length > 0) {
+        // Mantém o usuário na tela para ver o aviso antes de ir ao dossiê.
+        setUploadResult({ propertyId: created.id, sent, failed })
+        setSaving(false)
+        return
       }
       onCreated(created.id)
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : 'Não foi possível salvar o imóvel.')
       setSaving(false)
     }
+  }
+
+  if (uploadResult) {
+    return (
+      <Card variant="elevated" padding="lg" className="property-form-card wizard-card">
+        <Section title="Imóvel cadastrado" description="O imóvel foi criado. Alguns documentos não foram enviados.">
+          <Alert tone="warning" title="Atenção com os documentos">
+            <p>
+              Imóvel cadastrado com sucesso.{uploadResult.sent > 0 ? ` ${uploadResult.sent} documento(s) enviado(s).` : ''}
+            </p>
+            <p>
+              {uploadResult.failed.length} documento(s) não foram enviados:
+            </p>
+            <ul className="wizard-failed-list">
+              {uploadResult.failed.map((name) => <li key={name}>{name}</li>)}
+            </ul>
+            <p>Você pode reenviá-los pelo Dossiê do imóvel.</p>
+          </Alert>
+          <div className="dossier-form-actions wizard-actions">
+            <Button onClick={() => onCreated(uploadResult.propertyId)}>Ir para o dossiê</Button>
+          </div>
+        </Section>
+      </Card>
+    )
   }
 
   return (
