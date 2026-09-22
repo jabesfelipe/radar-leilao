@@ -91,9 +91,8 @@ Os marcos de implementação anteriores permanecem registrados neste histórico.
 - Contrato preservado; nenhum schema, migration, teste ou regra de negócio alterado.
 - Resultado: teste alvo passou; `test_integration_flows.py`: 12 passed, 4 failed; suíte: 217 passed, 4 failed.
 
-## Próxima etapa
-
-### TASK 59 — Corrigir a próxima falha real do fluxo de análise
+## TASK 59 — Em execução
+- Status: 🔵 Kiro trabalhando na próxima falha real do fluxo de análise.
 - Próxima falha: `tests/test_integration_flows.py::test_execucao_analise_completa_atualiza_dossie`.
 - Regra: reproduzir e confirmar a causa exata antes de alterar código.
 - Corrigir somente a primeira falha; após o alvo passar, executar `test_integration_flows.py` e parar.
