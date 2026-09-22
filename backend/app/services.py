@@ -121,7 +121,7 @@ def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis
         risks=risks,
         checklist_results=execution.results if execution else [],
         evidence_ids=analysis.evidence_ids or [],
-        financial=build_finance(prop),
+        financial=serialize(build_finance(prop)),
     )
     verdict = models.Verdict(**decision.to_dict())
     db.add(verdict); db.flush(); return verdict
