@@ -235,3 +235,95 @@ O próximo marco é validar o fluxo real com imóveis e documentos reais, especi
 - histórico/reanálise.
 
 A ausência de chave de LLM e as limitações observadas no processamento do documento escaneado da matrícula da Caixa devem continuar registradas como limitações do E2E real, e não como falhas da suíte automatizada.
+
+
+## TASK 64 — Operação segura local: rebuild, .env, logs e proteção de dados
+
+**Status:** 🟡 PENDENTE — próxima task do Kiro.
+
+### Objetivo
+
+Corrigir o ciclo operacional local antes da nova validação E2E com LLM real. O ambiente precisa:
+
+- usar o .env real como fonte de configuração;
+- reconstruir backend/frontend quando código ou Dockerfile mudar, evitando imagem antiga;
+- preservar integralmente os volumes existentes do PostgreSQL e documentos;
+- ter logs consultáveis e salváveis para investigação;
+- documentar os comandos operacionais no WSL;
+- manter migrations seguras para banco existente com dados.
+
+### Escopo obrigatório
+
+1. **Scripts oficiais**
+   - revisar scripts/start.sh, scripts/restart.sh e scripts/setup.sh;
+   - garantir que o fluxo de atualização reconstrua backend/frontend quando necessário;
+   - não usar down -v nos fluxos normais;
+   - manter stop.sh/restart.sh preservando volumes;
+   - criar scripts/logs.sh com comandos status, tail, follow e save;
+   - save deve gerar snapshots em logs/ com timestamp;
+   - mensagens dos scripts devem deixar explícito quando uma operação preserva dados.
+
+2. **Docker Compose**
+   - revisar a estratégia de build/recreate do backend e frontend;
+   - manter postgres_data e backend_storage como volumes persistentes;
+   - adicionar rotação de logs do Docker por serviço, sem criar dependência externa de observabilidade;
+   - não introduzir MinIO, Redis ou outro serviço sem necessidade;
+   - não alterar portas/contratos existentes sem justificativa.
+
+3. **Logs da aplicação**
+   - garantir logs suficientemente detalhados do backend para investigar falhas de upload, documentos, RAG, agentes, LLM, migrations e endpoints;
+   - logs devem conter timestamp e contexto útil, mas nunca imprimir OPENAI_API_KEY ou outros segredos;
+   - manter docker compose logs funcionando;
+   - não registrar conteúdo sensível de documentos desnecessariamente.
+
+4. **Proteção do banco**
+   - não apagar, recriar ou resetar o banco existente;
+   - não executar docker compose down -v;
+   - não alterar migrations já aplicadas para corrigir banco existente;
+   - se uma alteração de schema for necessária, criar nova migration Alembic incremental;
+   - qualquer DDL deve preservar os dados existentes e ser validado em banco com dados;
+   - validar também alembic upgrade head em banco limpo;
+   - não alterar dados existentes manualmente.
+
+5. **.env / LLM**
+   - .env.example permanece sem segredo real;
+   - documentação deixa claro que Compose lê .env, não .env.example;
+   - não exibir chave em logs, testes ou mensagens de erro;
+   - após mudança do .env, restart.sh deve aplicar a configuração ao container.
+
+6. **Testes e validação**
+   - docker compose config;
+   - docker compose up -d --build ou equivalente seguro;
+   - ./scripts/health.sh;
+   - confirmar containers backend/frontend foram realmente recriados com a imagem atual;
+   - confirmar alembic_version sem regressão;
+   - pytest -q e testes frontend relevantes;
+   - validar logs.sh status, tail, follow (interrompível) e save;
+   - confirmar que os dados existentes permanecem após stop/restart/rebuild.
+
+### Fora do escopo
+
+- não mudar LangGraph, agentes, RAG, Risk, Verdict ou Checklist;
+- não trocar modelo LLM;
+- não refatorar o domínio;
+- não criar nova infraestrutura externa de logs;
+- não fazer reset de banco;
+- não alterar dados existentes manualmente.
+
+### Critério de aceite
+
+A task só será concluída se for possível executar no WSL:
+
+    ./scripts/backup.sh
+    ./scripts/restart.sh
+    ./scripts/health.sh
+    ./scripts/logs.sh status
+    ./scripts/logs.sh tail
+    ./scripts/logs.sh save
+
+sem perda de dados, com backend/frontend usando a versão atual do código, migrations consistentes e logs recuperáveis.
+
+### Documentação de apoio
+
+- docs/OPERATIONS.md
+- docs/LOCAL-SETUP.md
