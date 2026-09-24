@@ -72,11 +72,13 @@ cd radar-leilao
 
 ## 5. Configurar o ambiente
 
-Copie o arquivo de exemplo:
+Copie o arquivo de exemplo somente se ainda não existir:
 
 ```bash
-cp .env.example .env
+if [ ! -f .env ]; then cp .env.example .env; fi
 ```
+
+IMPORTANTE: Docker Compose lê o arquivo .env, não .env.example. Nunca coloque uma chave real no .env.example. Se a chave estiver apenas no .env.example, ela não será usada pela aplicação.
 
 - Você **não precisa alterar nada** para rodar localmente.
 - O `.env` **não vai para o Git** (fica só no seu computador).
@@ -128,6 +130,8 @@ Os dados do banco e dos documentos **ficam salvos** (em volumes do Docker).
 ./scripts/start.sh
 ```
 
+O script oficial deve reconstruir backend/frontend quando necessário. Isso evita usar uma imagem antiga depois de um commit novo. A reconstrução não deve remover volumes.
+
 ---
 
 ## 10. Verificar o ambiente
@@ -153,6 +157,8 @@ Frontend         OK
 ```bash
 ./scripts/restart.sh
 ```
+
+Use este comando depois de atualizar o código ou alterar o .env. O restart deve aplicar a configuração atual e reconstruir backend/frontend quando necessário, preservando os volumes.
 
 Reinicia os containers **sem apagar dados**.
 
@@ -307,3 +313,29 @@ Só use `./scripts/reset.sh` como último recurso (e depois de fazer backup).
 | `./scripts/reset.sh` | **Apaga** dados (pede confirmação). |
 | `./scripts/backup.sh` | Gera backup do banco + documentos. |
 | `./scripts/restore.sh <pasta>` | Restaura um backup. |
+
+
+## 15. Operação, rebuild e logs
+
+Para o procedimento completo e seguro, consulte docs/OPERATIONS.md.
+
+Comandos principais no WSL:
+
+```bash
+./scripts/backup.sh
+./scripts/restart.sh
+./scripts/health.sh
+./scripts/logs.sh status
+./scripts/logs.sh tail backend
+./scripts/logs.sh save
+```
+
+O restart.sh deve reconstruir backend/frontend quando necessário. Não use docker compose down -v em uma correção operacional, pois essa opção remove volumes.
+
+### Logs
+
+Os logs podem ser acompanhados em tempo real com ./scripts/logs.sh follow backend e salvos em snapshots com ./scripts/logs.sh save. Os snapshots ficam em logs/ e não devem ser versionados.
+
+### Segurança do banco
+
+Antes de qualquer migration estrutural em banco com dados, executar backup. Migrations novas devem ser incrementais e preservar os dados existentes. Não editar migrations já aplicadas para alterar um banco existente.
