@@ -6,9 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
+from .logging_config import configure_logging, get_logger
 from . import models, schemas
 from .ai.agents import ChecklistAgent, DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
-from .ai.gateway import build_gateway
+from .ai.gateway import build_gateway, sanitize_error
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .extraction import extract_document, persist_extraction
@@ -17,6 +18,8 @@ from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
 from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
+configure_logging()
+log = get_logger("api")
 app = FastAPI(title=settings.app_name, version="0.2.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -49,6 +52,9 @@ def create_property_full(data: schemas.PropertyFullCreate, db: Session = Depends
     commit ao final); se qualquer etapa falhar, nada é persistido. Documentos e
     análise LLM NÃO fazem parte deste fluxo (upload e análise são etapas próprias).
     """
+    log.info("cadastro completo iniciado: titulo=%r cidade=%s/%s tipo=%s leilao=%s edital=%s matricula=%s fontes=%d",
+             data.imovel.title, data.imovel.city, data.imovel.state, data.imovel.property_type,
+             data.leilao is not None, data.edital is not None, data.matricula is not None, len(data.fontes))
     prop = models.Property(**data.imovel.model_dump()); db.add(prop); db.flush()
     ensure_checklist_master(db); create_execution(db, prop, "CADASTRO")
     record_event(db, prop, "IMOVEL_CADASTRADO", "Property", prop.id, data.imovel.model_dump(mode="json"), ["documental", "financeiro", "juridico", "mercado", "checklist"])
@@ -82,6 +88,7 @@ def create_property_full(data: schemas.PropertyFullCreate, db: Session = Depends
         record_history(db, prop, "PropertySource", source.id, "CREATE", None, source_data.model_dump(mode="json"), event.id)
 
     db.commit(); db.refresh(prop)
+    log.info("cadastro completo concluido: property_id=%s status=%s fontes=%d", prop.id, prop.status, len(data.fontes))
     return {"id": prop.id, "status": prop.status}
 
 @app.get("/api/imoveis/{property_id}/fontes", response_model=list[schemas.PropertySourceOut])
@@ -495,12 +502,19 @@ def document_snapshot(document: models.Document) -> dict:
 async def process_document_upload(document: models.Document, file: UploadFile, db: Session):
     try:
         content = await file.read()
+        log.info("upload de documento: document_id=%s property_id=%s tipo=%s arquivo=%r bytes=%d",
+                 document.id, document.property_id, document.document_type, file.filename, len(content))
         version = DocumentPipeline(db).ingest(document, content, file.filename or "documento")
+        log.info("upload processado: document_id=%s version=%s status=%s", document.id, version.version, version.status)
         return version
     except ValueError as exc:
-        document.status = "ERRO"; db.commit(); raise HTTPException(400, str(exc)) from exc
+        document.status = "ERRO"; db.commit()
+        log.warning("upload rejeitado (validacao): document_id=%s erro=%s", document.id, sanitize_error(str(exc)))
+        raise HTTPException(400, str(exc)) from exc
     except Exception as exc:
-        document.status = "ERRO"; db.commit(); raise HTTPException(422, f"Falha ao processar documento: {exc}") from exc
+        document.status = "ERRO"; db.commit()
+        log.exception("falha ao processar documento: document_id=%s tipo=%s", document.id, type(exc).__name__)
+        raise HTTPException(422, f"Falha ao processar documento: {exc}") from exc
 
 
 @app.post("/api/imoveis/{property_id}/documentos")
@@ -579,10 +593,12 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     domains = request.domains or ["documental", "juridico", "financeiro", "mercado", "checklist"]
     analysis = create_analysis(db, prop, ",".join(domains), domains, [], f"Domínios afetados: {', '.join(domains)}", [])
     execution = create_execution(db, prop, "REANALISE_INCREMENTAL", analysis.version)
+    log.info("analise iniciada: property_id=%s versao=%s dominios=%s", property_id, analysis.version, domains)
     try:
         orchestration = AnalysisOrchestrator(db).run(property_id, domains, request.query, analysis_id=analysis.id)
     except Exception as exc:
         db.rollback()
+        log.exception("analise falhou na orquestracao: property_id=%s versao=%s tipo=%s", property_id, analysis.version, type(exc).__name__)
         raise HTTPException(502, f"Falha na orquestração da análise: {str(exc)[:500]}") from exc
     agents = [item["agent"] for item in orchestration.get("agent_results", [])]
     analysis.agents_executed = agents
@@ -598,6 +614,9 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     recalculate_risks(db, prop, analysis.version)
     verdict = create_verdict(db, prop, analysis, orchestration.get("verdict"))
     db.commit()
+    log.info("analise concluida: property_id=%s versao=%s agentes=%s llm_usada=%s modelo=%s chunks=%d evidencias=%d veredito=%s",
+             property_id, analysis.version, agents, orchestration.get("llm_used", False), analysis.model,
+             len(orchestration.get("retrieved_chunk_ids", [])), len(evidence_ids), verdict.overall)
     return {"versao": analysis.version, "agentes": agents, "llm_usada": orchestration.get("llm_used", False), "modelo": analysis.model, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", []), "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "financeiro": serialize(verdict.financial), "veredito": verdict.overall, "status": "concluida"}
 
 @app.get("/api/imoveis/{property_id}/historico")

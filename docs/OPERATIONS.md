@@ -62,11 +62,11 @@ Depois de um commit novo:
     git pull
     ./scripts/restart.sh
 
-O script deve reconstruir backend/frontend quando necessário. Também é possível executar:
+O `start.sh`/`restart.sh` executam `docker compose up -d --build`, reconstruindo backend/frontend quando o código/Dockerfile mudam. Também é possível executar diretamente:
 
     docker compose up -d --build
 
-O --build reconstrói as imagens antes de iniciar os serviços. Isso não remove named volumes. O risco de perda de dados aparece quando volumes são explicitamente removidos, especialmente com down -v.
+O --build reconstrói as imagens antes de iniciar os serviços. Isso não remove named volumes. O risco de perda de dados aparece quando volumes são explicitamente removidos, especialmente com down -v. O `restart.sh` recria os containers, o que faz o `.env` ser relido (aplicando, por exemplo, a `OPENAI_API_KEY`).
 
 ## 4. Confirmar a versão atual
 
@@ -89,7 +89,7 @@ Regra para DDL: nunca editar uma migration já aplicada para corrigir um banco e
 
 ## 6. Logs
 
-O diagnóstico começa pelos logs do Compose. O projeto deve disponibilizar o script scripts/logs.sh.
+O diagnóstico começa pelos logs do Compose. O script `scripts/logs.sh` centraliza o acesso:
 
     ./scripts/logs.sh status
     ./scripts/logs.sh tail
@@ -98,7 +98,9 @@ O diagnóstico começa pelos logs do Compose. O projeto deve disponibilizar o sc
     ./scripts/logs.sh follow
     ./scripts/logs.sh save
 
-O comando save deve gravar snapshots em logs/ com timestamp. O diretório logs/ é local e não deve ser versionado.
+O comando save grava snapshots em logs/ com timestamp (ex.: logs/radar-<timestamp>.log). O diretório logs/ é local e não deve ser versionado.
+
+A rotação de logs dos containers é feita pelo Docker (`json-file`, `max-size=10m`, `max-file=5`), evitando crescimento indefinido. O nível de log do backend é controlado por `LOG_LEVEL` (`DEBUG|INFO|WARNING|ERROR`, padrão `INFO`).
 
 Também é possível usar diretamente:
 
@@ -115,7 +117,7 @@ RAG: consulta, quantidade de chunks, filtros/metadados, reranking e erros de emb
 LangGraph/agentes: início/fim, agente, domínio, status, erro/stack trace, evidências/chunks e versão da análise.
 LLM: provider, modelo, início/fim da chamada e erro do provider.
 
-Nunca registrar OPENAI_API_KEY, Authorization headers, credenciais de banco ou conteúdo completo de documentos sem necessidade.
+Nunca registrar OPENAI_API_KEY, Authorization headers, credenciais de banco ou conteúdo completo de documentos sem necessidade. As mensagens de erro de LLM passam por `sanitize_error`.
 
 ## 8. Fluxo seguro para a próxima validação E2E
 

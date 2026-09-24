@@ -6,6 +6,9 @@ Radar Leilão rodando localmente (banco, backend e frontend) com um único coman
 O ambiente oficial é **Windows + WSL2 + Docker**. Tudo roda em containers: você
 **não** precisa instalar Python, Node, PostgreSQL nem criar banco manualmente.
 
+> Para a operação do dia a dia (rebuild, `.env`, logs, backup, proteção de dados),
+> consulte também [`docs/OPERATIONS.md`](OPERATIONS.md).
+
 ---
 
 ## 1. O que você precisa instalar

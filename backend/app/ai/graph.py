@@ -5,10 +5,13 @@ from typing import Any, TypedDict
 from sqlalchemy.orm import Session
 
 from .. import models
+from ..logging_config import get_logger
 from ..rag.retriever import RetrieverFilters
 from ..rag.service import RAGService
 from .gateway import LLMGateway, build_gateway
 from ..consolidation import consolidate_agent_results
+
+log = get_logger("langgraph")
 
 
 class AnalysisState(TypedDict, total=False):
@@ -87,7 +90,20 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
         }
 
     def run_agents(state: AnalysisState) -> dict[str, Any]:
+        property_id = state["property_id"]
+        domains = state.get("domains", [])
+        analysis_id = state.get("analysis_id")
+        log.info("langgraph agentes iniciados: property_id=%s analysis_id=%s dominios=%s chunks=%d llm=%s",
+                 property_id, analysis_id, domains, len(state.get("retrieved_chunk_ids", [])), gateway is not None)
         results = supervisor.run(state["property_id"], state.get("domains", []), state.get("context", ""), state.get("retrieved_chunk_ids", []))
+        for result in results:
+            call = result.llm_call
+            log.info("agente executado: agente=%s property_id=%s analysis_id=%s status=%s provider=%s modelo=%s evidencias=%d chunks=%d%s",
+                     result.agent, property_id, analysis_id,
+                     call.status if call else "SEM_CHAMADA",
+                     call.provider if call else "-", call.model if call else "-",
+                     len(result.evidence_ids), len(result.retrieved_chunk_ids),
+                     f" erro={call.error_message}" if call and call.error_message else "")
         calls = [
             dict(result.llm_call.to_dict(), agent=result.agent, retrieved_chunk_ids=result.retrieved_chunk_ids)
             for result in results

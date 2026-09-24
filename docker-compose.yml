@@ -1,8 +1,17 @@
+# Rotação de logs dos containers: evita crescimento indefinido dos arquivos de log
+# (driver json-file com limite de tamanho por arquivo e número de arquivos).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: radar-leilao-postgres
     restart: unless-stopped
+    logging: *default-logging
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-radar_leilao}
       POSTGRES_USER: ${POSTGRES_USER:-radar}
@@ -24,6 +33,7 @@ services:
       dockerfile: backend/Dockerfile
     container_name: radar-leilao-backend
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,6 +46,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-radar}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-radar_local}
       STORAGE_DIR: /app/backend/storage/documents
+      # Nível de log da aplicação (DEBUG|INFO|WARNING|ERROR). Padrão: INFO.
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
       # LLM é opcional: o projeto sobe sem OPENAI_API_KEY.
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
@@ -61,6 +73,7 @@ services:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
     container_name: radar-leilao-frontend
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       - backend
     ports:

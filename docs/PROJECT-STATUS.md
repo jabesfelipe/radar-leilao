@@ -179,7 +179,16 @@ As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na document
 - Fluxo de análise intacto. Nenhuma nova tabela/arquitetura.
 - Resultado: `pytest -q` = **228 passed** (+1); Vitest = **89 passed** (+1); `tsc` OK; `alembic upgrade head` validado em banco existente e limpo.
 
-**Status global:** 🟢 suíte automatizada verde; 🟡 E2E real com documentos/OCR/LLM ainda pendente.
+## TASK 64 — Operação segura local: rebuild, .env, logs e proteção de dados
+- [x] CONCLUÍDA
+- `start.sh`/`restart.sh` com `up -d --build` (imagem atual) preservando `postgres_data`/`backend_storage`; `restart` recarrega o `.env`.
+- Novo `scripts/logs.sh` (status/tail/follow/save→`logs/`); rotação de logs no compose (`json-file` 10m×5); `LOG_LEVEL` no backend.
+- Logging detalhado do backend (cadastro, documentos, RAG, LangGraph, agentes, LLM) sem vazar segredos (`sanitize_error`, sem conteúdo de documento).
+- `.gitignore`: `logs/`, `backups/`. Novo `docs/OPERATIONS.md`.
+- Sem mudança de schema (nenhuma migration nova). Dados preservados no rebuild/restart (contagem idêntica antes/depois). `OPENAI_API_KEY configurada` confirmado sem exibir a chave.
+- Resultado: `pytest -q` = **228 passed** (sem regressão); `health.sh` 5/5 OK.
+
+**Status global:** 🟢 suíte automatizada verde; 🟡 base operacional pronta para o E2E real da Caixa com `OPENAI_API_KEY` (E2E ainda não executado).
 
 
 ---

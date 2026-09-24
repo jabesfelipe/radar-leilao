@@ -6,6 +6,9 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from ..config import settings
+from ..logging_config import get_logger
+
+log = get_logger("llm")
 
 
 _SECRET_PATTERNS = (
@@ -75,14 +78,20 @@ class LLMGateway:
 
     def _execute(self, operation: Any) -> LLMCall:
         started = time.perf_counter()
+        log.info("llm chamada iniciada: provider=%s modelo=%s", self.provider_name, self.model)
         try:
             raw = operation()
             elapsed = int((time.perf_counter() - started) * 1000)
             if isinstance(raw, ProviderResponse):
+                log.info("llm chamada concluida: provider=%s modelo=%s duracao_ms=%d", self.provider_name, self.model, elapsed)
                 return LLMCall(content=raw.content, provider=self.provider_name, model=self.model, input_tokens=raw.input_tokens, output_tokens=raw.output_tokens, duration_ms=elapsed, request_id=raw.request_id, status="CONCLUIDO")
+            log.info("llm chamada concluida: provider=%s modelo=%s duracao_ms=%d", self.provider_name, self.model, elapsed)
             return LLMCall(content=raw, provider=self.provider_name, model=self.model, duration_ms=elapsed, status="CONCLUIDO")
         except Exception as exc:
             elapsed = int((time.perf_counter() - started) * 1000)
+            # error_message já sanitizado (nunca expõe chave/token/credencial).
+            log.warning("llm chamada falhou: provider=%s modelo=%s duracao_ms=%d tipo=%s erro=%s",
+                        self.provider_name, self.model, elapsed, type(exc).__name__, sanitize_error(str(exc)))
             return LLMCall(provider=self.provider_name, model=self.model, duration_ms=elapsed, status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)))
 
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> LLMCall:

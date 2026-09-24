@@ -8,3 +8,5 @@ frontend/.vite/
 storage/
 backend/uploads/
 *.db
+logs/
+backups/

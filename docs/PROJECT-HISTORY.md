@@ -270,10 +270,33 @@ Novo imóvel
 - Nenhuma nova arquitetura, agente, tabela ou fluxo paralelo. O E2E real da Caixa **não** é declarado concluído.
 
 
-## TASK 64 — Operação segura local (planejada)
+## TASK 64 — Operação segura local: rebuild, .env, logs e proteção de dados
+- Objetivo: base operacional segura antes do E2E real com LLM. Sem tocar em regras de negócio, LangGraph, agentes, RAG, Risk/Verdict/Checklist, histórico ou modelo LLM. Sem infra externa (MinIO/Redis/ELK). Sem reset do banco.
 
-Foi identificada uma necessidade operacional antes do novo E2E com LLM real: os scripts start.sh/restart.sh usam docker compose up -d sem --build, o que pode manter uma imagem antiga quando o código foi alterado. Também foi necessário formalizar o uso correto do .env (e não .env.example), proteção dos volumes de dados e um procedimento de logs investigáveis.
+### Rebuild garantido (imagem atual)
+- `scripts/start.sh` e `scripts/restart.sh` passaram a usar `docker compose up -d --build`, reconstruindo backend/frontend quando código/Dockerfile mudam. Continuam usando `down` **sem `-v`** — `postgres_data` e `backend_storage` preservados. Mensagens deixam claro que os dados são preservados. `restart.sh` recria os containers, releitura do `.env` (ex.: `OPENAI_API_KEY`).
 
-A TASK 64 foi criada para corrigir esse ciclo sem alterar o domínio da aplicação: rebuild seguro de backend/frontend, preservação dos volumes postgres_data e backend_storage, logs com rotação/consulta/snapshot, diagnóstico no WSL e regras explícitas para migrations incrementais sem perda de dados.
+### Logs operacionais
+- Novo `scripts/logs.sh` com `status` (containers/estado/portas/saúde), `tail [servico]`, `follow [servico]` (Ctrl+C não afeta containers) e `save` (snapshot em `logs/radar-<timestamp>.log`).
+- `docker-compose.yml`: rotação de logs via `json-file` (`max-size=10m`, `max-file=5`) nos 3 serviços (âncora YAML `x-logging`). Variável `LOG_LEVEL` (padrão INFO) no backend.
+- `.gitignore`: `logs/` e `backups/` ignorados.
 
-A documentação operacional foi consolidada em docs/OPERATIONS.md e referenciada em docs/LOCAL-SETUP.md.
+### Logging detalhado do backend (sem segredos)
+- Novo `backend/app/logging_config.py` (`configure_logging` idempotente por `LOG_LEVEL`; namespace `radar.*`).
+- Logs adicionados em: cadastro completo e upload (`main.py`), pipeline de documentos — normalização/chunks/versão/erros (`documents/pipeline.py`), RAG — início/filtros/chunks/fallback (`rag/service.py`), LangGraph e agentes — início/versão/domínios/agente/status/evidências (`ai/graph.py`), LLM — provider/modelo/início/fim/erro sanitizado (`ai/gateway.py`).
+- Segurança: nenhum segredo é registrado (API key, Authorization, senha, credencial, token). Erros de LLM passam por `sanitize_error`. Conteúdo integral de documentos não é logado (apenas metadados: ids, contagens, status, durações).
+
+### `.env` e proteção do banco
+- `.env` permanece a configuração real; `.env.example` só modelo (sem chave). Modelo LLM inalterado (`openai`/`gpt-4o-mini`/`text-embedding-3-small`).
+- Nenhuma mudança de schema → **nenhuma migration nova**. Migrations históricas intactas.
+- Antes da validação: `./scripts/backup.sh`.
+
+### Documentação
+- Novo `docs/OPERATIONS.md` (comandos WSL, rebuild, `.env`, logs, migrations, proteção de dados). `docs/LOCAL-SETUP.md` referencia o guia operacional.
+
+### Validação (ao vivo, WSL2)
+- `docker compose config` válido; `docker compose up -d --build` reconstruiu backend/frontend; `health.sh` = 5/5 OK.
+- Dados preservados no rebuild/restart: contagem de imóveis/análises/documentos idêntica antes e depois; `alembic_version` inalterado.
+- `logs.sh status/tail/save` funcionando; arquivo gerado em `logs/`.
+- `OPENAI_API_KEY configurada` confirmado sem exibir a chave.
+- `pytest -q` = 228 passed (sem regressão). `alembic upgrade head` sem destruir dados.

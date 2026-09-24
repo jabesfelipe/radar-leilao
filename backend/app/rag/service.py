@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session
 from .retriever import HybridRetriever, RetrieverFilters, clamp_limit
 from ..ai.gateway import build_gateway
 from ..config import settings
+from ..logging_config import get_logger
+
+log = get_logger("rag")
 
 
 @dataclass(frozen=True)
@@ -44,8 +47,12 @@ class RAGService:
         except Exception as exc:
             text_fallback = True
             reason = f"Busca vetorial indisponível: {exc}"
+        log.info("rag busca iniciada: property_id=%s categoria=%s vetorial=%s fallback_texto=%s%s",
+                 property_id, effective_filters.category, embedding is not None, text_fallback,
+                 f" motivo={reason}" if reason else "")
         chunks = self.retriever.search(query=query, embedding=embedding, property_id=property_id, limit=clamp_limit(limit), filters=effective_filters)
         context = "\n\n".join(self._format_chunk(chunk) for chunk in chunks)
+        log.info("rag busca concluida: property_id=%s chunks_recuperados=%d", property_id, len(chunks))
         return RAGResult(context=context, chunks=chunks, chunk_ids=[chunk["chunk_id"] for chunk in chunks], count=len(chunks), context_found=bool(chunks), vector_search=embedding is not None, text_fallback=text_fallback, reason="evidência insuficiente" if not chunks else None)
 
     def context_text(self, query: str, property_id: int | None = None, limit: int | None = None, filters: RetrieverFilters | None = None) -> RAGResult:
