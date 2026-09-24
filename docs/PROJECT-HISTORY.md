@@ -268,3 +268,12 @@ Novo imóvel
 ### Escopo preservado
 - Fluxo de análise (`POST /api/imoveis/{id}/analisar`) intacto — apenas garantida a ausência de regressão pela mudança de tipo de data.
 - Nenhuma nova arquitetura, agente, tabela ou fluxo paralelo. O E2E real da Caixa **não** é declarado concluído.
+
+
+## TASK 64 — Operação segura local (planejada)
+
+Foi identificada uma necessidade operacional antes do novo E2E com LLM real: os scripts start.sh/restart.sh usam docker compose up -d sem --build, o que pode manter uma imagem antiga quando o código foi alterado. Também foi necessário formalizar o uso correto do .env (e não .env.example), proteção dos volumes de dados e um procedimento de logs investigáveis.
+
+A TASK 64 foi criada para corrigir esse ciclo sem alterar o domínio da aplicação: rebuild seguro de backend/frontend, preservação dos volumes postgres_data e backend_storage, logs com rotação/consulta/snapshot, diagnóstico no WSL e regras explícitas para migrations incrementais sem perda de dados.
+
+A documentação operacional foi consolidada em docs/OPERATIONS.md e referenciada em docs/LOCAL-SETUP.md.
