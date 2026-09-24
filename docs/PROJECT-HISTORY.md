@@ -300,3 +300,42 @@ Novo imóvel
 - `logs.sh status/tail/save` funcionando; arquivo gerado em `logs/`.
 - `OPENAI_API_KEY configurada` confirmado sem exibir a chave.
 - `pytest -q` = 228 passed (sem regressão). `alembic upgrade head` sem destruir dados.
+
+## Diagnóstico E2E real — 24/09/2026
+
+Após a TASK 64, foi executada investigação somente leitura no banco para o imóvel Caixa **633**, análise **V4 / analysis_id 189**.
+
+### Evidências de execução
+
+- `llm_runs` registrou 5 agentes: documental, jurídico, financeiro, mercado e checklist.
+- Todos os 5 agentes executaram com `provider=openai`, `model=gpt-4o-mini` e `status=CONCLUIDO`.
+- Todos receberam exatamente os mesmos 8 chunks: `276, 277, 278, 279, 280, 281, 282, 283`.
+- A análise produziu 31 evidências.
+- O Checklist possui 27 resultados: 25 `PENDENTE` e 2 `CONFIRMADO`.
+- Os 2 confirmados foram `CONSOLIDACAO_REGISTRADA` e `EDITAL_LIDO`, ambos com confiança ALTA e evidência vinculada.
+
+### Diagnóstico documental/RAG
+
+A inspeção dos chunks mostrou que:
+
+- o chunk `276`, associado à matrícula, contém essencialmente dados de autenticidade/CNS e indicação de páginas, caracterizando extração textual insuficiente para a análise registral completa;
+- os chunks `277` a `283` representam principalmente o início do edital e contêm dados úteis, como datas dos leilões, comissão, responsabilidade por levantamento/pagamento de débitos, condições de pagamento, regras de habilitação e preço mínimo;
+- um único conjunto genérico de 8 chunks não oferece cobertura garantida para as 27 perguntas heterogêneas do Checklist Mestre.
+
+### Conclusão
+
+O diagnóstico não apontou falha geral de LLM, LangGraph ou persistência. O fluxo de execução está funcionando. A limitação principal está na **qualidade da extração documental da matrícula** e na **estratégia de retrieval genérico usada para alimentar o Checklist**.
+
+Foi definida a **TASK 65 — Melhorar Document Intelligence e RAG direcionado para o Checklist**, com foco em:
+
+- detecção de extração textual insuficiente;
+- OCR local quando necessário e viável;
+- preservação de rastreabilidade;
+- retrieval direcionado por grupos/perguntas do Checklist;
+- manutenção dos 27 canonical keys;
+- ausência de confirmação sem evidência;
+- preservação de dados, histórico e versões existentes;
+- testes de regressão;
+- reanálise controlada do imóvel 633.
+
+Nenhuma alteração de código de produto foi feita durante esse diagnóstico.
