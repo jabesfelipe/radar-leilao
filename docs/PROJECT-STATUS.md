@@ -1,7 +1,7 @@
 # Radar Leilão — Controle Central do Projeto
 
 > Documento operacional central do desenvolvimento.  
-> Última consolidação: 21/09/2026  
+> Última consolidação: 24/09/2026  
 > Branch principal: `main`  
 > Repositório: `jabesfelipe/radar-leilao`
 
@@ -47,11 +47,11 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit de implementação:** `1262637fa681d056f4191a8e15cbb72aefcc4038`  
-**Último commit de documentação:** `e59d8613a994ad4834b94fe96321346aff6ebb20`  
-**Mensagem:** `fix: corrige 3 falhas restantes da integracao`
+**Último commit de implementação:** `6d91485a1188c0f2cb178f0b6ddb9b3ab769edaa`  
+**Último commit de documentação:** `538f387ce5929e6cbbcb1c7bcf7d2ed790515863`  
+**Mensagem:** `chore: operacao local segura com rebuild, logs e protecao de dados`
 
-**Última TASK aprovada:** TASK 60
+**Última TASK aprovada:** TASK 64
 
 **TASK 59:** 🟢 CONCLUÍDA — primeira falha do fluxo de análise corrigida e auditada.
 
@@ -77,7 +77,7 @@ Uma TASK só é considerada concluída quando:
 
 **Última validação:** suíte completa verde — 221 passed.
 
-**Status global:** 🟡 MVP em construção.
+**Status global:** 🟡 MVP em construção — base operacional validada; próxima etapa é corrigir a cobertura documental/RAG antes do E2E final.
 
 > A porcentagem de conclusão não é usada como fonte oficial. O controle por TASK abaixo é a referência.
 
@@ -188,7 +188,7 @@ As TASKs 01–50 permanecem concluídas conforme histórico abaixo e na document
 - Sem mudança de schema (nenhuma migration nova). Dados preservados no rebuild/restart (contagem idêntica antes/depois). `OPENAI_API_KEY configurada` confirmado sem exibir a chave.
 - Resultado: `pytest -q` = **228 passed** (sem regressão); `health.sh` 5/5 OK.
 
-**Status global:** 🟢 suíte automatizada verde; 🟡 base operacional pronta para o E2E real da Caixa com `OPENAI_API_KEY` (E2E ainda não executado).
+**Status global:** 🟢 suíte automatizada verde; 🟡 E2E real em execução diagnóstica com LLM. O fluxo LLM/RAG/LangGraph/Agentes está funcionando, mas a cobertura documental da matrícula e do retrieval do Checklist precisa ser corrigida antes de declarar o E2E completo.
 
 
 ---
@@ -491,94 +491,317 @@ O próximo marco é validar o fluxo real com imóveis e documentos reais, especi
 
 A ausência de chave de LLM e as limitações observadas no processamento do documento escaneado da matrícula da Caixa devem continuar registradas como limitações do E2E real, e não como falhas da suíte automatizada.
 
+---
 
-## TASK 64 — Operação segura local: rebuild, .env, logs e proteção de dados
+# 7. Diagnóstico E2E real — imóvel Caixa 633 / análise V4
+
+## Resultado validado em 24/09/2026
+
+A análise real da propriedade **633** chegou à versão **4** com LLM real configurada.
+
+Validações observadas no runtime:
+
+- provider: OpenAI;
+- modelo: `gpt-4o-mini`;
+- 5 agentes executados: documental, jurídico, financeiro, mercado e checklist;
+- todos os agentes receberam os mesmos 8 chunks: `276, 277, 278, 279, 280, 281, 282, 283`;
+- todos os `llm_runs` da análise 189 ficaram `CONCLUIDO`;
+- 31 evidências foram produzidas;
+- execução do Checklist: 27 resultados;
+- 2 resultados `CONFIRMADO`;
+- 25 resultados `PENDENTE`;
+- as duas confirmações foram `CONSOLIDACAO_REGISTRADA` e `EDITAL_LIDO`;
+- as duas confirmações possuem evidência vinculada.
+
+### Diagnóstico
+
+O fluxo de execução e persistência está funcionando. O problema identificado não é uma falha geral do LLM, LangGraph, execução do Checklist ou persistência.
+
+O diagnóstico aponta duas limitações de entrada/contexto:
+
+1. **Matrícula escaneada / extração insuficiente**
+   - o chunk `276`, associado à versão da matrícula, contém essencialmente os dados de autenticidade/CNS e indicação de páginas;
+   - o conteúdo registral relevante da matrícula não está disponível adequadamente no chunk utilizado pela análise;
+   - portanto, a análise jurídica da matrícula fica limitada.
+
+2. **Retrieval genérico e contexto insuficiente para o Checklist**
+   - os 5 agentes receberam exatamente os mesmos 8 chunks;
+   - os chunks do edital recuperados são predominantemente o início do documento;
+   - existem informações úteis nesses chunks, como datas dos leilões, comissão, responsabilidade por levantamento/pagamento de débitos, condições de pagamento e preço mínimo;
+   - porém, um único conjunto genérico de 8 chunks não garante cobertura das 27 perguntas do Checklist Mestre;
+   - não devemos transformar automaticamente `PENDENTE` em resposta sem evidência.
+
+### Decisão técnica
+
+A próxima tarefa deve atacar **Document Intelligence + Retrieval direcionado**, preservando integralmente os fluxos já aprovados.
+
+---
+
+# TASK 65 — Melhorar Document Intelligence e RAG direcionado para o Checklist
 
 **Status:** 🟡 PENDENTE — próxima task do Kiro.
 
 ### Objetivo
 
-Corrigir o ciclo operacional local antes da nova validação E2E com LLM real. O ambiente precisa:
+Melhorar a capacidade do Radar de analisar documentos reais de leilão, especialmente PDFs escaneados e documentos extensos, sem quebrar o fluxo existente.
 
-- usar o .env real como fonte de configuração;
-- reconstruir backend/frontend quando código ou Dockerfile mudar, evitando imagem antiga;
-- preservar integralmente os volumes existentes do PostgreSQL e documentos;
-- ter logs consultáveis e salváveis para investigação;
-- documentar os comandos operacionais no WSL;
-- manter migrations seguras para banco existente com dados.
+A tarefa deve resolver duas limitações observadas no E2E da Caixa:
+
+1. detectar quando a normalização textual de um documento é insuficiente e permitir OCR como etapa de recuperação;
+2. evitar que o Checklist Mestre dependa exclusivamente de uma única busca RAG genérica com 8 chunks para responder 27 perguntas heterogêneas.
+
+### Princípio obrigatório
+
+**Não preencher o Checklist artificialmente.**
+
+Se os documentos não comprovarem uma resposta, o sistema deve manter o item pendente ou utilizar um estado já previsto pelo contrato quando houver evidência suficiente para isso. A tarefa não pode introduzir respostas inventadas, inferências sem evidência ou alteração silenciosa da semântica dos estados.
 
 ### Escopo obrigatório
 
-1. **Scripts oficiais**
-   - revisar scripts/start.sh, scripts/restart.sh e scripts/setup.sh;
-   - garantir que o fluxo de atualização reconstrua backend/frontend quando necessário;
-   - não usar down -v nos fluxos normais;
-   - manter stop.sh/restart.sh preservando volumes;
-   - criar scripts/logs.sh com comandos status, tail, follow e save;
-   - save deve gerar snapshots em logs/ com timestamp;
-   - mensagens dos scripts devem deixar explícito quando uma operação preserva dados.
+#### 1. Preservar tudo que já funciona
 
-2. **Docker Compose**
-   - revisar a estratégia de build/recreate do backend e frontend;
-   - manter postgres_data e backend_storage como volumes persistentes;
-   - adicionar rotação de logs do Docker por serviço, sem criar dependência externa de observabilidade;
-   - não introduzir MinIO, Redis ou outro serviço sem necessidade;
-   - não alterar portas/contratos existentes sem justificativa.
+Não alterar desnecessariamente:
 
-3. **Logs da aplicação**
-   - garantir logs suficientemente detalhados do backend para investigar falhas de upload, documentos, RAG, agentes, LLM, migrations e endpoints;
-   - logs devem conter timestamp e contexto útil, mas nunca imprimir OPENAI_API_KEY ou outros segredos;
-   - manter docker compose logs funcionando;
-   - não registrar conteúdo sensível de documentos desnecessariamente.
+- cadastro completo;
+- upload;
+- fluxo `POST /api/imoveis/{id}/analisar`;
+- LangGraph existente;
+- Document Agent;
+- Jurídico Agent;
+- Financeiro Agent;
+- Mercado Agent;
+- Checklist Agent como contrato;
+- Risk Engine;
+- Verdict Engine;
+- histórico/reanálise;
+- memória estruturada;
+- frontend do Dossiê;
+- migrations existentes;
+- dados do imóvel 633.
 
-4. **Proteção do banco**
-   - não apagar, recriar ou resetar o banco existente;
-   - não executar docker compose down -v;
-   - não alterar migrations já aplicadas para corrigir banco existente;
-   - se uma alteração de schema for necessária, criar nova migration Alembic incremental;
-   - qualquer DDL deve preservar os dados existentes e ser validado em banco com dados;
-   - validar também alembic upgrade head em banco limpo;
-   - não alterar dados existentes manualmente.
+Não fazer reset de banco.
 
-5. **.env / LLM**
-   - .env.example permanece sem segredo real;
-   - documentação deixa claro que Compose lê .env, não .env.example;
-   - não exibir chave em logs, testes ou mensagens de erro;
-   - após mudança do .env, restart.sh deve aplicar a configuração ao container.
+Não apagar documentos/chunks/evidências existentes.
 
-6. **Testes e validação**
-   - docker compose config;
-   - docker compose up -d --build ou equivalente seguro;
-   - ./scripts/health.sh;
-   - confirmar containers backend/frontend foram realmente recriados com a imagem atual;
-   - confirmar alembic_version sem regressão;
-   - pytest -q e testes frontend relevantes;
-   - validar logs.sh status, tail, follow (interrompível) e save;
-   - confirmar que os dados existentes permanecem após stop/restart/rebuild.
+Não substituir migrations históricas.
+
+Se houver necessidade real de schema, criar migration incremental nova e somente após justificar a necessidade.
+
+#### 2. Diagnóstico de qualidade documental
+
+Revisar o pipeline existente de normalização para permitir identificar documentos cujo texto extraído é insuficiente.
+
+O mecanismo deve considerar sinais objetivos de baixa qualidade, por exemplo:
+
+- texto vazio ou quase vazio;
+- quantidade de caracteres incompatível com o número de páginas;
+- documento escaneado sem camada textual;
+- conteúdo repetitivo de autenticação/capa sem conteúdo principal.
+
+**Não definir um limite arbitrário sem verificar o pipeline e os testes existentes.**
+
+A solução deve preservar:
+
+- documento original;
+- versão;
+- hash;
+- páginas;
+- rastreabilidade;
+- chunks existentes.
+
+#### 3. OCR
+
+Investigar e implementar a estratégia de OCR somente onde o pipeline detectar necessidade.
+
+Requisitos:
+
+- OCR não deve substituir o original;
+- resultado OCR deve ser rastreável ao documento/versão;
+- preservar página;
+- permitir identificar que o texto veio de OCR;
+- não quebrar documentos que já possuem texto;
+- não criar dependência externa obrigatória sem necessidade;
+- manter operação local-first;
+- registrar erros de OCR nos logs sem conteúdo sensível.
+
+Se a infraestrutura atual não tiver uma solução OCR local adequada, documentar claramente a limitação em vez de inventar uma integração frágil.
+
+#### 4. Retrieval direcionado para Checklist
+
+Revisar o fluxo atual em que uma consulta genérica recupera um único conjunto de chunks para todos os agentes.
+
+Para o Checklist Mestre, criar estratégia de recuperação direcionada por grupos/domínios ou por perguntas, reutilizando o RAG existente sempre que possível.
+
+A estratégia deve:
+
+- usar as perguntas/regras canônicas existentes;
+- preservar os 27 `canonical_key`;
+- gerar consultas contextualizadas;
+- recuperar chunks relevantes de documentos distintos;
+- deduplicar chunks;
+- manter `chunk_ids`;
+- preservar evidência e rastreabilidade;
+- respeitar limites de contexto;
+- evitar chamadas LLM desnecessárias;
+- não fazer 27 chamadas independentes obrigatoriamente se uma estratégia por grupo for suficiente.
+
+Grupos podem ser organizados por domínio/contexto existente no Checklist Mestre, mas **não criar novas regras de negócio nem alterar os 27 itens canônicos**.
+
+#### 5. Contexto do Checklist Agent
+
+O Checklist Agent deve receber contexto suficiente para investigar as perguntas, mas continuar obedecendo às regras atuais:
+
+- somente keys canônicas;
+- somente estados permitidos;
+- evidência obrigatória quando aplicável;
+- chunk/page/section/excerpt rastreáveis;
+- não inventar fatos;
+- manter pendente quando não houver suporte documental.
+
+O agente não deve ser obrigado a transformar todo item em `CONFIRMADO`.
+
+#### 6. Justificativa de pendência
+
+Avaliar a forma atual de representar `PENDENTE`.
+
+Sem alterar o contrato de forma ampla, garantir que o sistema consiga distinguir, quando suportado pelos modelos atuais, entre:
+
+- informação não encontrada;
+- documento não disponível;
+- evidência insuficiente;
+- investigação dependente de fonte externa;
+- análise ainda pendente.
+
+Se for necessária alteração de contrato/schema, **não inventar campo silenciosamente**. Primeiro verificar a SPEC e os modelos existentes e criar mudança incremental somente se realmente necessária.
+
+#### 7. Testes
+
+Adicionar testes focados no comportamento novo, sem remover ou enfraquecer testes existentes.
+
+Obrigatório validar pelo menos:
+
+- documento textual normal continua funcionando sem OCR;
+- documento com extração insuficiente é detectado;
+- OCR, quando disponível, preserva rastreabilidade por página;
+- retrieval direcionado recupera chunks diferentes quando as perguntas exigem documentos/contextos diferentes;
+- Checklist continua usando apenas canonical keys;
+- evidências continuam vinculadas aos chunks corretos;
+- ausência de evidência não gera confirmação artificial;
+- fluxo existente de análise continua funcionando;
+- migrations existentes continuam válidas;
+- banco existente não é resetado.
+
+Executar:
+
+```bash
+pytest -q
+```
+
+E, se houver testes frontend afetados:
+
+```bash
+npm test -- --run
+npm run build
+```
+
+Usar os comandos efetivamente existentes no projeto, sem inventar comandos.
+
+### Validação específica do caso Caixa 633
+
+Depois da implementação, reexecutar a análise do imóvel 633 somente de forma controlada.
+
+**Não apagar as versões históricas existentes.**
+
+Validar:
+
+- nova versão de análise;
+- documentos preservados;
+- chunks/evidências anteriores preservados;
+- novos chunks quando OCR for necessário;
+- retrieval direcionado;
+- Checklist com rastreabilidade;
+- Risk/Verdict sem regressão.
+
+O resultado não precisa obrigatoriamente transformar os 27 itens em confirmados. O critério é aumentar a **cobertura investigada com evidência rastreável**, mantendo pendente aquilo que realmente não puder ser comprovado.
 
 ### Fora do escopo
 
-- não mudar LangGraph, agentes, RAG, Risk, Verdict ou Checklist;
-- não trocar modelo LLM;
-- não refatorar o domínio;
-- não criar nova infraestrutura externa de logs;
-- não fazer reset de banco;
-- não alterar dados existentes manualmente.
+- não trocar `gpt-4o-mini`;
+- não trocar provider;
+- não trocar LangGraph;
+- não criar novos agentes;
+- não refatorar toda a arquitetura de RAG;
+- não criar MinIO/Redis/ELK;
+- não criar infraestrutura externa obrigatória;
+- não alterar Risk/Verdict;
+- não alterar os 27 itens do Checklist Mestre;
+- não criar respostas determinísticas artificiais;
+- não resetar banco;
+- não apagar histórico;
+- não apagar documentos;
+- não alterar migrations históricas;
+- não fazer alteração manual de dados para "melhorar" o resultado.
 
 ### Critério de aceite
 
-A task só será concluída se for possível executar no WSL:
+A TASK 65 somente poderá ser considerada concluída quando:
 
-    ./scripts/backup.sh
-    ./scripts/restart.sh
-    ./scripts/health.sh
-    ./scripts/logs.sh status
-    ./scripts/logs.sh tail
-    ./scripts/logs.sh save
+1. o pipeline identificar adequadamente extração textual insuficiente;
+2. houver estratégia segura para OCR quando aplicável, ou limitação explicitamente documentada se a implementação local não for viável;
+3. o Checklist utilizar retrieval direcionado em vez de depender exclusivamente da busca genérica única;
+4. evidências permanecerem rastreáveis até documento/versão/chunk/página/seção quando disponíveis;
+5. nenhum item for confirmado sem suporte documental;
+6. dados existentes forem preservados;
+7. `pytest -q` passar sem regressão;
+8. build/testes frontend relevantes passarem, quando afetados;
+9. o caso Caixa 633 puder ser reanalisado sem apagar versões anteriores;
+10. a implementação ficar limitada ao escopo desta TASK.
 
-sem perda de dados, com backend/frontend usando a versão atual do código, migrations consistentes e logs recuperáveis.
+### Fluxo esperado após a TASK
 
-### Documentação de apoio
+```
+Documento original
+      ↓
+Normalização
+      ↓
+Texto suficiente?
+   ┌──┴──┐
+  SIM   NÃO
+   │     │
+   │    OCR
+   │     │
+   └──┬──┘
+      ↓
+Chunks rastreáveis
+      ↓
+RAG
+      ↓
+Retrieval direcionado
+      ↓
+Checklist / Agentes
+      ↓
+Evidências
+      ↓
+Risk
+      ↓
+Verdict
+      ↓
+Histórico
+```
 
-- docs/OPERATIONS.md
-- docs/LOCAL-SETUP.md
+### Regra de execução para o Kiro
+
+**Executar somente a TASK 65.**
+
+Não antecipar TASK 66.
+
+Antes de qualquer alteração destrutiva, fazer backup e confirmar o estado do banco.
+
+Ao finalizar:
+
+- criar commit único e rastreável;
+- informar arquivos alterados;
+- informar testes executados;
+- informar resultado do caso Caixa 633;
+- não declarar E2E completo sem validação real;
+- aguardar auditoria antes de avançar.
