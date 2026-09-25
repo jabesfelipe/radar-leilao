@@ -2591,3 +2591,52 @@ auditoria do resultado
 ```
 
 A execução da V9 continua separada da Task 70 e deve ocorrer somente após a confirmação visual.
+
+
+# 46. ADDENDUM — Seleção determinística da execução do Checklist no Veredito
+
+Durante a validação real da UI do imóvel 633, foi confirmado que o Checklist V8 possui 27 resultados, sendo 7 CONFIRMADO e 20 PENDENTE. O Veredito V8 persistido possui 28 pending_items: 27 perguntas do Checklist mais uma pendência financeira sobre a fórmula canônica de preço máximo.
+
+A causa é a função latest_execution():
+
+    def latest_execution(prop: models.Property):
+        return next(iter(reversed(prop.checklist_executions)), None)
+
+Relacionamentos ORM não devem definir o estado atual pela posição incidental da coleção. Para ChecklistExecution, a regra passa a ser:
+
+    return db.scalar(
+        select(models.ChecklistExecution)
+        .where(models.ChecklistExecution.property_id == prop.id)
+        .order_by(
+            models.ChecklistExecution.analysis_version.desc(),
+            models.ChecklistExecution.id.desc(),
+        )
+    )
+
+A correção deve ser mínima e não deve alterar as regras do Checklist ou do Verdict Engine. O motor deve continuar consolidando pendências do Checklist e pendências financeiras legítimas.
+
+## 46.1 Task 71 — escopo
+
+1. Corrigir latest_execution() de forma determinística.
+2. Adicionar teste com múltiplas execuções fora de ordem.
+3. Garantir alinhamento entre a versão da Analysis e a execução do Checklist usada pelo Veredito.
+4. Preservar a pendência financeira existente.
+5. Executar suíte completa.
+6. Não alterar Verdict Engine, Risk Engine, RAG, LangGraph, agentes, Checklist Mestre, modelos ou migrations.
+7. Não executar nova análise real e não gerar V9.
+
+**Commit esperado:** fix: corrige selecao da execucao do checklist
+
+## 46.2 Critério de aceite
+
+    Checklist V8
+    7 CONFIRMADO
+    20 PENDENTE
+
+            ↓
+
+    Veredito V8
+    20 pendências do Checklist
+    + pendências financeiras legítimas, se existentes
+
+Os sete itens confirmados na V8 não podem reaparecer como pendentes no Veredito da mesma análise.
