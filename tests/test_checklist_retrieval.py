@@ -95,3 +95,50 @@ def test_retrieval_direcionado_sem_evidencia_retorna_vazio(db, documents, monkey
     # Sem casamento, não há chunks — PENDENTE permanece possível (sem invenção).
     assert directed.chunk_ids == []
     assert directed.context == ""
+
+
+def _chunk(chunk_id: int, document_id: int, score: float) -> dict:
+    return {"chunk_id": chunk_id, "document_id": document_id, "document_version_id": document_id, "final_score": score}
+
+
+def test_selecao_garante_diversidade_por_documento():
+    # Cenário da TASK 68: um documento (edital=1) tem muitos chunks de score alto
+    # e outro (matrícula=2) tem poucos; a seleção não pode excluir a matrícula.
+    from backend.app.rag.checklist_retrieval import _select_with_document_diversity
+
+    edital = [_chunk(100 + i, 1, 0.90 - i * 0.01) for i in range(20)]  # 20 chunks, scores altos
+    matricula = [_chunk(200, 2, 0.50), _chunk(201, 2, 0.48)]           # 2 chunks, scores menores
+    selecionados = _select_with_document_diversity(edital + matricula, max_total=6)
+
+    docs = {c["document_id"] for c in selecionados}
+    assert docs == {1, 2}  # ambos os documentos coexistem
+    # a matrícula (documento minoritário) aparece mesmo com score menor
+    assert any(c["document_id"] == 2 for c in selecionados)
+    assert len(selecionados) == 6
+
+
+def test_selecao_respeita_teto_e_ordena_por_score():
+    from backend.app.rag.checklist_retrieval import _select_with_document_diversity
+
+    chunks = [_chunk(1, 1, 0.9), _chunk(2, 1, 0.8), _chunk(3, 2, 0.7), _chunk(4, 2, 0.6)]
+    selecionados = _select_with_document_diversity(chunks, max_total=3)
+    assert len(selecionados) == 3
+    # ordenado por score desc no resultado final
+    scores = [c["final_score"] for c in selecionados]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_selecao_documento_unico_nao_quebra():
+    from backend.app.rag.checklist_retrieval import _select_with_document_diversity
+
+    # Só um documento: comporta-se como top-N por score (sem regressão).
+    chunks = [_chunk(i, 1, 1.0 - i * 0.1) for i in range(5)]
+    selecionados = _select_with_document_diversity(chunks, max_total=3)
+    assert [c["chunk_id"] for c in selecionados] == [0, 1, 2]
+
+
+def test_selecao_lista_vazia_ou_teto_zero():
+    from backend.app.rag.checklist_retrieval import _select_with_document_diversity
+
+    assert _select_with_document_diversity([], max_total=5) == []
+    assert _select_with_document_diversity([_chunk(1, 1, 0.9)], max_total=0) == []

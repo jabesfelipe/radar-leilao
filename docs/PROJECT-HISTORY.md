@@ -1263,3 +1263,38 @@ Informar:
 ### Regra de encerramento
 
 Se a TASK 68 passar na auditoria e o E2E final estiver íntegro, o próximo passo não será criar novas funcionalidades: será a revisão final da SPEC, fechamento da documentação e declaração do MVP como concluído, registrando como backlog apenas melhorias futuras que não sejam necessárias para o fluxo principal.
+
+---
+
+## TASK 68 — Execução: recuperação conjunta de edital + matrícula (E2E 633, V8)
+- Objetivo: corrigir a falha comprovada na Task 67 (edital não coexistia com a matrícula no contexto) de forma mínima, reutilizando o embedding da Task 66. Sem backfill global, sem reescrever o RAG, preservando V1–V7 e sem confirmação artificial.
+
+### Identificação do edital
+- Edital efetivamente usado pela análise = **doc 193** (`EDITAL`, `EL00440226CPARE.pdf`, hash `4e5926d9c35c`, ver_id 193 v1, 544 chunks 277–820, 0 embedding). Os chunks 277–283 usados na V6 pertencem a este documento. O doc 195 (`edital`, source caixa) é duplicata do mesmo arquivo/hash → não reprocessado. Backup: `backups/radar-backup-20260924-224856`.
+
+### Reingestão controlada do edital
+- `DocumentPipeline.ingest` (pipeline da Task 66) gerou **edital v2** (`document_version_id=474`) preservando a v1: `SUFICIENTE`, `ocr=False`, `char_count=573775`, **544 chunks, 544 com embedding**, dimensão 1536. Embeddings globais 8 → 552. Sem backfill de outros documentos.
+
+### Prova isolada e diagnóstico do novo desequilíbrio
+- As 5 consultas temáticas passaram a recuperar o edital por similaridade vetorial. Porém o retrieval direcionado do checklist passou a devolver **24/24 chunks de edital** (a matrícula, com apenas 8 chunks, era esmagada pelos 544 do edital). Ou seja, **embeddar o edital sozinho inverteu o problema** (antes matrícula-only na V7; agora edital-only), atendendo à condição da task para aplicar a menor correção.
+
+### Correção mínima (2 arquivos)
+- `backend/app/rag/checklist_retrieval.py`: `_select_with_document_diversity(chunks, max_total)` — agrupa os candidatos já recuperados por documento de origem, ordena cada grupo por `final_score` e distribui os `MAX_TOTAL_CHUNKS` em round-robin por documento (documentos ordenados pelo melhor score), reordenando o resultado por relevância. Substitui o corte por score puro na seleção final. Não altera `PER_ITEM_LIMIT`/`MAX_TOTAL_CHUNKS`, pesos, consulta ou ranking do retriever, e não recupera nada novo.
+- `backend/app/services.py`: `valid_chunk_ids(raw)` restringe os `chunk_ids` do LLM a inteiros positivos ≤ int4 do PostgreSQL, aplicada nos dois pontos de persistência. Corrige um HTTP 500 (`integer out of range`) observado na 1ª tentativa de V8, quando o LLM citou `1555528765064` (número do conteúdo da matrícula) como chunk_id. Guarda defensiva e conservadora (id inválido → sem evidência), sem mudar regra de negócio. Essa 1ª tentativa falhou antes de persistir (nenhuma V8 parcial ficou no banco).
+- Efeito no retrieval direcionado do 633: 24 EDITAL / 0 MATRÍCULA → **22 EDITAL / 2 MATRÍCULA**.
+
+### E2E V8 (preservando V1–V7)
+- Análise **V8** (`analysis_id=280`): HTTP 200, 5 agentes `CONCLUIDO` (5/5, `gpt-4o-mini`), 35.231 tokens, custo ≈ US$ 0,0072, veredito INCONCLUSIVO.
+- Distribuição por agente — **coexistência em todos**: checklist 22 edital + 2 matrícula; documental/financeiro/jurídico/mercado 7 edital + 1 matrícula.
+- Contagens antes → depois: analyses 7→8 (V1–V8 preservadas), document_versions 6→7, document_chunks 1105→1649 (+544 edital v2), evidences 142→175, verdicts 7→8, chunks_com_embedding 8→552. 27 `canonical_key` intactos.
+
+### Checklist V8 e os 7 itens afetados
+- Estados: **7 CONFIRMADO / 20 PENDENTE** (V7: 4/23). CONFIRMADO: CONSOLIDACAO_REGISTRADA (matrícula v3), EDITAL_LIDO, LEILOES_NEGATIVOS_AVERBADOS, VAGA_MATRICULA, EVICCAO, NOTIFICACAO_DOIS_LEILOES, QUITACAO_80 (edital v2).
+- 7 itens afetados: `EDITAL_LIDO` → CONFIRMADO (edital v2, antes impossível); `NOTIFICACAO_DOIS_LEILOES` → CONFIRMADO (edital v2); `RESPONSABILIDADE_DEBITOS`, `CONDOMINIO_ALTO`, `INTIMACAO_EDITAL`, `INTIMACAO_PESSOAL`, `LANCE_MENOR_50_AVALIACAO` → PENDENTE (edital presente no contexto, mas o agente não julgou a evidência suficiente — conservador). 2/7 confirmaram organicamente com o edital; nenhuma confirmação artificial. A matrícula continua sendo usada (CONSOLIDACAO cita chunk 1758).
+
+### Testes
+- +4 testes de diversidade por documento (`tests/test_checklist_retrieval.py`) + 1 de `valid_chunk_ids` (`tests/test_llm_tracking.py`). `pytest -q` = **258 passed** (253 anteriores + 5 novos), sem regressão. Nenhuma migration; frontend não afetado.
+
+### Limitações restantes
+- Itens muito específicos da matrícula cujo texto do edital é semanticamente próximo (ex.: VAGA_MATRICULA, PENHORA_INDISPONIBILIDADE) podem não trazer a matrícula no topo do retrieval por item; a matrícula ainda coexiste no contexto compartilhado do checklist (2 chunks). Ajuste fino de recuperação por item seria tarefa própria, fora do escopo desta correção mínima.
+- O doc 195 (edital duplicado) permanece sem embedding (duplicata do doc 193).

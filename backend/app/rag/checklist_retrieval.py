@@ -53,6 +53,48 @@ def build_item_query(item: dict[str, Any]) -> str:
     return " ".join(query_parts).strip() or (item.get("canonical_key") or "")
 
 
+def _document_key(chunk: dict[str, Any]) -> Any:
+    """Identidade do documento de origem do chunk para a cota de diversidade.
+
+    Usa document_id (agrupa todas as versões do mesmo documento). Cai para
+    document_version_id e, por fim, para o próprio chunk_id, se necessário.
+    """
+    return chunk.get("document_id") or chunk.get("document_version_id") or chunk.get("chunk_id")
+
+
+def _select_with_document_diversity(chunks: list[dict[str, Any]], max_total: int) -> list[dict[str, Any]]:
+    """Seleciona até max_total chunks garantindo diversidade por documento.
+
+    Agrupa os candidatos por documento de origem, ordena cada grupo por
+    final_score desc e percorre os grupos em round-robin (grupos ordenados pelo
+    melhor score de cada um). Assim nenhum documento monopoliza todos os slots e
+    documentos distintos (ex.: edital e matrícula) coexistem no resultado, sem
+    aumentar o teto e preservando a ordem por relevância dentro de cada documento.
+    """
+    if max_total <= 0 or not chunks:
+        return []
+    grupos: dict[Any, list[dict[str, Any]]] = {}
+    for chunk in chunks:
+        grupos.setdefault(_document_key(chunk), []).append(chunk)
+    for lista in grupos.values():
+        lista.sort(key=lambda c: c["final_score"], reverse=True)
+    # Ordena os grupos pelo melhor score de cada documento (documento mais
+    # relevante primeiro), mantendo determinismo.
+    ordem_grupos = sorted(grupos.values(), key=lambda g: g[0]["final_score"], reverse=True)
+    selecionados: list[dict[str, Any]] = []
+    indice = 0
+    while len(selecionados) < max_total and any(indice < len(g) for g in ordem_grupos):
+        for grupo in ordem_grupos:
+            if indice < len(grupo):
+                selecionados.append(grupo[indice])
+                if len(selecionados) >= max_total:
+                    break
+        indice += 1
+    # Mantém o resultado final ordenado por relevância (não altera rastreabilidade).
+    selecionados.sort(key=lambda c: c["final_score"], reverse=True)
+    return selecionados
+
+
 @dataclass
 class DirectedRetrieval:
     context: str
@@ -138,8 +180,17 @@ def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[
                 aggregated[chunk_id] = chunk
         per_item[key] = ids_for_item
 
-    # Ordena por relevância e aplica o teto global de chunks distintos.
-    ordered = sorted(aggregated.values(), key=lambda c: c["final_score"], reverse=True)[:MAX_TOTAL_CHUNKS]
+    # Seleção final com DIVERSIDADE POR DOCUMENTO (TASK 68).
+    # Antes: sorted(...)[:MAX_TOTAL_CHUNKS] por score puro. Quando um documento tem
+    # muito mais chunks vetorizados que outro (ex.: edital com 544 embeddings vs
+    # matrícula com 8), o score puro faz o documento maior monopolizar todos os
+    # slots e o outro é sistematicamente excluído. Para que documentos relevantes
+    # (edital E matrícula) COEXISTAM no contexto, distribuímos os MAX_TOTAL_CHUNKS
+    # por documento em round-robin (cada volta pega o melhor chunk ainda disponível
+    # de cada documento, por ordem de score). Não altera PER_ITEM_LIMIT nem o teto,
+    # não muda pesos/consulta/ranking do retriever e não recupera nada novo:
+    # apenas reordena os candidatos já recuperados para garantir representatividade.
+    ordered = _select_with_document_diversity(list(aggregated.values()), MAX_TOTAL_CHUNKS)
     ordered_ids = [chunk["chunk_id"] for chunk in ordered]
 
     # Formata o contexto reutilizando o formatador do RAG e anexando as perguntas

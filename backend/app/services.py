@@ -17,6 +17,27 @@ def serialize(value):
     return value
 
 
+# PostgreSQL INTEGER (int4) máximo. chunk_ids vêm da resposta do LLM e podem conter
+# números que não são ids reais (ex.: o modelo às vezes cita um número presente no
+# conteúdo do documento). Um valor fora do range de int4 quebra o db.get com
+# "integer out of range". Aceitamos apenas inteiros positivos dentro do range: um
+# id inexistente vira chunk=None (comportamento conservador, evidência não anexada),
+# sem derrubar a análise.
+_PG_INT4_MAX = 2147483647
+
+
+def valid_chunk_ids(raw_ids) -> list[int]:
+    """Filtra chunk_ids do LLM para inteiros positivos dentro do range do int4."""
+    valid: list[int] = []
+    for value in raw_ids or []:
+        if not str(value).isdigit():
+            continue
+        number = int(value)
+        if 0 < number <= _PG_INT4_MAX:
+            valid.append(number)
+    return valid
+
+
 def ensure_checklist_master(db: Session) -> None:
     """Seed controlado: só cria chaves ausentes e nunca reativa/sobrescreve existentes."""
     existing = {item.canonical_key for item in db.scalars(select(models.ChecklistItem)).all()}
@@ -149,7 +170,7 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
             statement = finding.get("statement") or finding.get("descricao")
             if not statement:
                 continue
-            chunk_ids = [int(value) for value in finding.get("chunk_ids", []) if str(value).isdigit()]
+            chunk_ids = valid_chunk_ids(finding.get("chunk_ids", []))
             chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
             version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
             if chunk and version:
@@ -206,7 +227,7 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
             continue
         if state != "NAO_APLICAVEL" and not checklist_result.applicable:
             continue
-        chunk_ids = [int(value) for value in finding.get("chunk_ids", []) if str(value).isdigit()]
+        chunk_ids = valid_chunk_ids(finding.get("chunk_ids", []))
         chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
         version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
         if not chunk or not version:

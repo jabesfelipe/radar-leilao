@@ -155,3 +155,16 @@ def test_document_embedding_nao_constroi_gateway_sem_api_key(monkeypatch):
     assert telemetry["provider_disponivel"] is False
     assert telemetry["embeddings_solicitados"] == 0
     assert telemetry["embeddings_persistidos"] == 0
+
+
+def test_valid_chunk_ids_ignora_valores_fora_do_range_int4():
+    # chunk_ids vêm da resposta do LLM; um número enorme (ex.: número lido do
+    # conteúdo do documento) não pode quebrar o db.get com "integer out of range".
+    from backend.app.services import valid_chunk_ids
+
+    # 1555528765064 > int4 max -> descartado; ids válidos preservados na ordem.
+    assert valid_chunk_ids([1758, "1756", 1555528765064, "abc", -3, 0]) == [1758, 1756]
+    assert valid_chunk_ids([]) == []
+    assert valid_chunk_ids(None) == []
+    assert valid_chunk_ids([2147483647]) == [2147483647]      # limite do int4 é aceito
+    assert valid_chunk_ids([2147483648]) == []                # 1 acima do limite é descartado
