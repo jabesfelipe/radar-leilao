@@ -3,7 +3,9 @@
 **Status global: MVP ENCERRADO (núcleo funcional) — validação operacional incremental pendente**
 
 **Última atualização:** 25/09/2026  
-**Última implementação:** Task 68 — commit b3a94f59f35ffb9ad546a0400dc57b05b3f817ae
+**Última implementação aprovada:** Task 70 — commit 7f8f62454288b96723ea15909c0c967dfbcae3d2
+
+**Próxima correção:** Task 71 — seleção determinística da execução do Checklist usada pelo Veredito
 
 ## 1. Resumo executivo
 
@@ -89,10 +91,16 @@ Resultado:
 
 ## 5. Testes
 
-Último resultado registrado:
+Últimos resultados registrados:
 
-    pytest -q
-    258 passed
+    Task 70 — pytest -q
+    267 passed
+
+    Frontend — Vitest
+    90 passed
+
+    TypeScript — tsc --noEmit
+    OK
 
 Não há afirmação de CI/CD ou homologação produtiva baseada somente nesse resultado.
 
