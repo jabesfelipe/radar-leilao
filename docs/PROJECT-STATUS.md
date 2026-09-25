@@ -47,11 +47,13 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit de implementação:** `6d91485a1188c0f2cb178f0b6ddb9b3ab769edaa`  
-**Último commit de documentação:** `538f387ce5929e6cbbcb1c7bcf7d2ed790515863`  
-**Mensagem:** `chore: operacao local segura com rebuild, logs e protecao de dados`
+**Último commit de implementação:** `f8c21bf7f65659e580a0ab152956c6567b9d092a`  
+**Último commit de documentação:** `538f387ce5929e6cbb1c7bcf7d2ed790515863`  
+**Mensagem:** `feat: melhora document intelligence e rag direcionado do checklist`
 
 **Última TASK aprovada:** TASK 64
+
+**TASK 65:** 🟡 IMPLEMENTADA E AUDITADA — não aprovada como concluída. A implementação está correta em estrutura, mas o OCR ainda não está operacional no Docker e a estratégia atual gera um embedding por item do Checklist (27 embeddings). Foi criada a TASK 65.1 para corrigir/validar esses pontos antes de encerrar a TASK 65.
 
 **TASK 59:** 🟢 CONCLUÍDA — primeira falha do fluxo de análise corrigida e auditada.
 
@@ -813,7 +815,37 @@ Ao finalizar:
 
 ## TASK 65 — Document Intelligence e RAG direcionado para o Checklist
 
-- [x] CONCLUÍDA (aguardando auditoria)
+- [~] IMPLEMENTADA — AGUARDANDO CORREÇÃO 65.1 / NÃO CONCLUÍDA
+- Commit: `f8c21bf7f65659e580a0ab152956c6567b9d092a`
+- Auditoria: 🟡 implementação aprovada estruturalmente, mas **TASK 65 não foi encerrada**.
+
+### Resultado da auditoria
+- A detecção de extração insuficiente foi implementada e usa o `extraction_metadata` existente, sem migration.
+- O RAG direcionado reutiliza o `HybridRetriever`, deduplica chunks, preserva `chunk_id` e entrega contexto direcionado somente ao Checklist Agent.
+- Os 27 canonical keys, estados e regras de evidência do Checklist foram preservados.
+- A suíte reportada pelo Kiro foi `pytest -q = 239 passed`; o GitHub não publicou workflow/CI para este commit, portanto o número não foi validado independentemente por CI.
+- E2E 633 gerou V5 preservando V1–V4. Checklist V5 ficou com 3 CONFIRMADO e 24 PENDENTE; Risk/Verdict permaneceram funcionando.
+
+### Pontos que impedem o encerramento
+1. **OCR não está operacional no Docker:** `ocr_available()=False`; o `backend/Dockerfile` não instala Tesseract/Poppler e `backend/requirements.txt` não possui as dependências Python do OCR. A matrícula escaneada continua sem OCR real.
+2. **Custo/latência do retrieval:** a implementação gera um embedding por item do Checklist, potencialmente 27 embeddings por análise. Isso não são 27 chamadas de geração do LLM, mas deve ser medido e documentado antes do encerramento.
+
+### Preservação validada
+- Não houve migration nova.
+- Não houve reset de banco.
+- V1–V4 permaneceram preservadas.
+- O fluxo dos cinco agentes continuou funcionando.
+- O Checklist permaneceu conservador, sem confirmação artificial.
+
+### TASK 65.1 — Tornar OCR operacional e validar E2E da matrícula
+- [ ] PENDENTE — **próxima TASK do Kiro**.
+- Objetivo: provisionar OCR local no Docker, validar Tesseract + português + Poppler/pytesseract, reprocessar a matrícula do imóvel 633 sem apagar a versão anterior, executar nova análise, validar rastreabilidade por página/evidência e medir a quantidade de embeddings do RAG direcionado.
+- Não alterar os 27 itens, Risk/Verdict, provider/modelo, histórico ou dados existentes.
+- Não fazer otimização ampla do RAG nesta TASK; primeiro medir o comportamento atual.
+- Se houver qualquer alteração de schema, somente migration incremental e somente se indispensável.
+- Ao finalizar, criar um único commit, atualizar este documento com resultados reais e aguardar auditoria.
+
+**Próxima ação operacional:** Kiro deve executar **somente TASK 65.1**.
 - **Frente A:** detecção objetiva de extração insuficiente em `backend/app/documents/normalizer.py` (`assess_extraction_quality`: `char_count`/`original_bytes`/`chars_per_kb`/`is_binary`/`extraction_quality` gravados no `extraction_metadata`, sem coluna nova); OCR local-first **opcional** em `backend/app/documents/ocr.py` (import-guard `pytesseract`/`pdf2image`) — **indisponível neste ambiente** (dependências de sistema não provisionadas), pipeline preparado e limitação documentada.
 - **Frente B:** RAG direcionado por item do Checklist em `backend/app/rag/checklist_retrieval.py` (query derivada de `question`/`description`/`expected_evidence`/`related_rules`), reutilizando o `HybridRetriever` existente, com dedup por `chunk_id`, rastreabilidade (perguntas por chunk) e teto de contexto. Entregue **apenas ao ChecklistAgent** via `Supervisor.run`/`graph.run_agents`; demais agentes inalterados.
 - Contrato do Checklist preservado: 27 `canonical_key`, estados e persistência (que exige chunk+evidência) intactos. **Sem migration.** Frontend não afetado.
