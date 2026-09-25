@@ -607,3 +607,156 @@ Depois do commit, aguardar auditoria antes de avançar.
 
 ### Limitação registrada (honesta, fora do escopo 65.1)
 - Os chunks do imóvel 633 **não possuem embedding**: a geração de embeddings não ocorre na ingestão (lacuna pré-existente da Task 65). Logo o `HybridRetriever` opera em **modo texto** e as 27 consultas direcionadas recuperam predominantemente chunks genéricos do edital; os chunks OCR da matrícula não entram no top-k e o OCR ainda não se reflete em confirmações do Checklist. A correção (gerar embeddings na ingestão) é uma mudança de pipeline que **excede o escopo desta task** e deve ser tratada separadamente. Por isso a V6 permaneceu conservadora — comportamento correto, não uma regressão.
+
+
+---
+
+## 24/09/2026 — Aprovação da TASK 65.1 e definição da TASK 66
+
+### TASK 65.1 — resultado da auditoria
+
+**Commit:** `af00ccb` — `fix: torna OCR operacional no Docker e mede embeddings do RAG direcionado`
+
+**Status:** 🟢 APROVADA.
+
+A auditoria confirmou que a implementação atende ao escopo: OCR local operacional no Docker, Tesseract com português, Poppler, `ocr_available()=True`, OCR opcional/desligado por padrão, reprocessamento real da matrícula 25278 do imóvel 633 em nova versão sem apagar a anterior, preservação de páginas/chunks/rastreabilidade, telemetria de embeddings do retrieval direcionado e suíte `pytest -q = 243 passed` reportada pelo Kiro.
+
+A reanálise criou V6 preservando V1–V5. Foram mantidos os 27 canonical keys e nenhuma confirmação artificial foi introduzida. A limitação restante foi confirmada: os chunks não recebem embedding automaticamente durante a ingestão, portanto o pgvector não consegue aproveitar plenamente os novos chunks OCR.
+
+### Nova lacuna técnica identificada
+
+O pipeline atual cria `DocumentChunk`, mas a geração/persistência do embedding do chunk não ocorre automaticamente na ingestão. Isso produz uma assimetria:
+
+- as consultas do RAG direcionado geram embeddings;
+- os chunks do documento podem não possuir embedding;
+- o `HybridRetriever` fica limitado ao componente textual para esses chunks;
+- documentos OCR novos não são plenamente explorados pela busca vetorial.
+
+Essa lacuna não foi tratada na TASK 65.1 porque a correção de ingestão estava explicitamente fora do escopo daquela tarefa.
+
+## TASK 66 — Embeddings na ingestão dos DocumentChunks
+
+**Status:** PENDENTE — próxima tarefa operacional do Kiro.
+
+### Objetivo
+
+Garantir que novos `DocumentChunk` elegíveis recebam embedding e tenham o vetor persistido no mecanismo pgvector já existente durante a ingestão, reutilizando o código de embeddings atual e sem criar nova arquitetura.
+
+### Restrições
+
+- Não criar novo RAG.
+- Não criar novo banco vetorial.
+- Não criar novos agentes.
+- Não alterar LangGraph.
+- Não alterar os 27 canonical keys ou estados do Checklist.
+- Não alterar Risk/Verdict.
+- Não trocar provider/modelo.
+- Não apagar histórico.
+- Não apagar documentos, versões, chunks, evidências ou análises.
+- Não reprocessar automaticamente todo o histórico.
+- Não criar infraestrutura nova como MinIO/Redis/ELK.
+- Não alterar migrations históricas.
+- Só criar migration incremental se a inspeção comprovar necessidade real.
+
+### Primeiro passo obrigatório
+
+Antes de codificar, localizar no código:
+
+1. modelo `DocumentChunk` e campo vetorial existente;
+2. mecanismo atual de geração de embeddings (`gateway`, `RAGService` ou equivalente);
+3. ponto correto da ingestão em que o chunk já existe e pode receber embedding;
+4. comportamento esperado quando `OPENAI_API_KEY` não existe;
+5. se existe algum fluxo parcial de embedding que possa ser reutilizado.
+
+**Não recriar um mecanismo que já existe.**
+
+### Comportamento esperado
+
+Para um novo documento:
+
+`documento → normalização/OCR → chunks → embedding do chunk → pgvector → RAG`
+
+Quando houver chave/configuração válida:
+
+- gerar embedding para cada chunk elegível;
+- persistir no campo vetorial existente;
+- manter `chunk_id`, document_version, página e demais metadata intactos;
+- permitir recuperação semântica pelo `HybridRetriever`.
+
+Quando não houver chave ou o embedding estiver indisponível:
+
+- não quebrar a ingestão;
+- manter o documento/chunks persistidos conforme o comportamento atual;
+- registrar a limitação de forma segura;
+- permitir fallback textual do RAG.
+
+### Idempotência e custo
+
+A implementação deve evitar geração duplicada desnecessária.
+
+Não fazer backfill automático de todo o banco.
+
+Medir no E2E quantos embeddings foram solicitados/executados e quantos chunks receberam vetor.
+
+### Testes obrigatórios
+
+Adicionar testes para:
+
+- chunk novo com embedding persistido;
+- embedding correto associado ao chunk;
+- documento com múltiplos chunks;
+- ausência de API key;
+- falha do provider de embedding;
+- fallback sem quebrar ingestão;
+- não duplicação quando o chunk já possui embedding;
+- preservação de página/document_version/metadata;
+- recuperação do chunk via busca semântica existente;
+- regressão do pipeline atual.
+
+Executar `pytest -q`.
+
+### E2E controlado — imóvel 633
+
+Não apagar V1–V6.
+
+Fazer uma nova ingestão controlada de um documento do imóvel 633, preferencialmente a matrícula já utilizada no OCR, criando nova versão.
+
+Validar no banco:
+
+- novos chunks criados;
+- novos chunks com embedding não nulo;
+- dimensão compatível com o modelo configurado;
+- document_version correta;
+- página correta;
+- hash/original preservados.
+
+Depois executar uma consulta semântica específica relacionada ao conteúdo da matrícula e confirmar que um chunk OCR pode ser recuperado pelo `HybridRetriever` por similaridade vetorial.
+
+Se o fluxo estiver estável, executar nova análise do 633 e comparar com V6.
+
+**Não existe meta de número de CONFIRMADO.** O objetivo é comprovar a recuperação semântica e manter o comportamento conservador do Checklist.
+
+### Critério de aceite
+
+A TASK 66 somente será aprovada quando:
+
+1. um novo `DocumentChunk` real tiver embedding persistido;
+2. o vetor estiver associado ao chunk correto;
+3. uma busca semântica real conseguir recuperar esse chunk;
+4. a ingestão continuar funcionando sem API key;
+5. falha do embedding não quebrar o pipeline;
+6. não houver duplicação desnecessária;
+7. `pytest -q` passar sem regressão;
+8. histórico do 633 permanecer preservado;
+9. nenhum contrato de Checklist/Risk/Verdict for alterado;
+10. a implementação estiver limitada ao escopo desta TASK.
+
+### Entrega
+
+Um único commit.
+
+Atualizar `PROJECT-STATUS.md` e `PROJECT-HISTORY.md` com resultados reais.
+
+Informar arquivos alterados, testes, quantidade de embeddings e resultado do E2E.
+
+Depois do commit, **parar e aguardar auditoria**. Não iniciar TASK 67.
