@@ -1506,3 +1506,38 @@ Somente após a auditoria da Task 70 e nova validação manual pela UI será ret
 ### Próximo marco
 
 Validação manual da UI do imóvel 633 e, se confirmada, execução controlada da reanálise incremental V8 → V9.
+
+
+## TASK 71 — Correção da seleção da execução do Checklist usada pelo Veredito
+
+**Status:** 🟡 especificada — aguardando implementação/auditoria.
+
+No imóvel property_id=633, o PostgreSQL confirmou a V8 com 27 resultados, 20 PENDENTE e 7 CONFIRMADO. O Veredito V8 contém 28 pending_items: as 27 perguntas do Checklist aparecem como pendentes e uma pendência financeira adicional.
+
+### Causa confirmada
+
+backend/app/services.py usa:
+
+    def latest_execution(prop: models.Property):
+        return next(iter(reversed(prop.checklist_executions)), None)
+
+A função depende da ordem incidental da coleção ORM e pode entregar uma execução antiga para o Veredito. É o mesmo padrão de risco corrigido na Task 70 para prop.verdicts[-1].
+
+### Escopo
+
+Corrigir a seleção para analysis_version DESC, id DESC, adicionar regressão com execuções fora de ordem e garantir que create_verdict() use a execução da análise corrente. Preservar a pendência financeira. Não alterar Verdict Engine, Risk Engine, RAG, LangGraph, agentes, Checklist Mestre, modelos ou migrations. Não gerar V9.
+
+Direção esperada:
+
+    return db.scalar(
+        select(models.ChecklistExecution)
+        .where(models.ChecklistExecution.property_id == prop.id)
+        .order_by(
+            models.ChecklistExecution.analysis_version.desc(),
+            models.ChecklistExecution.id.desc(),
+        )
+    )
+
+**Commit esperado:** fix: corrige selecao da execucao do checklist
+
+**Aceite:** V8 continua 7/20 no Checklist e o Veredito V8 deixa de considerar os 7 confirmados como pendentes.
