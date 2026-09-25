@@ -68,8 +68,39 @@ def create_execution(db: Session, prop: models.Property, triggered_by: str = "MA
     return execution
 
 
+def _execution_sort_key(execution: models.ChecklistExecution) -> tuple[int, int]:
+    # analysis_version pode ser None; tratamos None como o menor possível para não
+    # vencer uma execução versionada. id.desc() é o desempate defensivo (mesma versão).
+    version = execution.analysis_version if execution.analysis_version is not None else -1
+    return (version, execution.id or -1)
+
+
 def latest_execution(prop: models.Property):
-    return next(iter(reversed(prop.checklist_executions)), None)
+    """Retorna a ChecklistExecution mais recente de forma determinística.
+
+    Antes usava next(iter(reversed(prop.checklist_executions))), que dependia da
+    ordem incidental do relacionamento ORM e podia devolver uma execução antiga.
+    Agora seleciona por maior analysis_version e, em empate, maior id.
+    """
+    executions = list(prop.checklist_executions or [])
+    if not executions:
+        return None
+    return max(executions, key=_execution_sort_key)
+
+
+def execution_for_version(prop: models.Property, analysis_version: int | None):
+    """Retorna a ChecklistExecution correspondente a uma analysis_version específica.
+
+    Usado pelo Veredito para garantir que o cálculo use a execução da própria
+    análise (não uma execução antiga/mais recente de outra versão). Em empate de
+    versão, escolhe o maior id. Se não houver execução para a versão, cai para a
+    execução mais recente (comportamento anterior seguro).
+    """
+    if analysis_version is not None:
+        candidates = [e for e in (prop.checklist_executions or []) if e.analysis_version == analysis_version]
+        if candidates:
+            return max(candidates, key=lambda e: e.id or -1)
+    return latest_execution(prop)
 
 
 def latest_occupancy(prop: models.Property):
@@ -142,7 +173,9 @@ def recalculate_risks(db: Session, prop: models.Property, analysis_version: int)
 
 
 def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None):
-    execution = latest_execution(prop)
+    # Usa a execução do Checklist correspondente à versão desta análise, para o
+    # Veredito não ser contaminado por uma execução de outra versão.
+    execution = execution_for_version(prop, analysis.version)
     risks = list(db.scalars(select(models.Risk).where(models.Risk.property_id == prop.id, models.Risk.analysis_version == analysis.version)).all())
     decision = VerdictEngine().evaluate(
         property_id=prop.id,
