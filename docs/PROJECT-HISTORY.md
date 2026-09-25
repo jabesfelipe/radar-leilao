@@ -373,3 +373,206 @@ Nenhuma alteração de código de produto foi feita durante esse diagnóstico.
 ### Limitações registradas
 - **OCR não executado neste ambiente**: `pytesseract`/`tesseract`/`poppler` não estão instalados (Dockerfile do backend instala só `curl`); `ocr_available()=False`. A detecção funciona e o pipeline fica preparado; habilitar OCR exige provisionar as dependências de sistema/Python e `OCR_ENABLED=true` (documentado em código). Os `document_versions` já existentes do 633 (matrícula escaneada) foram ingeridos antes desta task e não foram reprocessados — a detecção/OCR aplicam-se a novas ingestões.
 - **Custo/latência**: o RAG direcionado gera um embedding por item (27) quando há chave de LLM; mantido conservador via `PER_ITEM_LIMIT=4` e teto de 24 chunks. Sem multiplicar chamadas de LLM dos agentes (continua 5).
+
+
+---
+
+## 24/09/2026 — Auditoria da TASK 65 e definição da TASK 65.1
+
+### Commit auditado
+
+`f8c21bf7f65659e580a0ab152956c6567b9d092a`  
+Mensagem: `feat: melhora document intelligence e rag direcionado do checklist`
+
+A comparação com o último estado aprovado mostrou um único commit da TASK 65, sem migration e sem alteração dos contratos dos 27 itens do Checklist.
+
+### O que a TASK 65 implementou
+
+#### Document Intelligence
+
+- Detecção de extração textual insuficiente em `backend/app/documents/normalizer.py`.
+- Avaliação usando `char_count`, tamanho do arquivo, densidade chars/KB e tipo binário.
+- Metadados gravados no `extraction_metadata`, sem nova coluna.
+- Novo OCR local-first em `backend/app/documents/ocr.py`.
+- OCR preparado para Tesseract/pytesseract, pdf2image/Poppler e Pillow.
+- OCR preserva página e marca a origem no metadata.
+- OCR é opcional e não substitui o documento original.
+
+#### RAG direcionado
+
+- Novo `backend/app/rag/checklist_retrieval.py`.
+- Query derivada dos próprios campos do Checklist: question, description, expected_evidence, related_rules e category.
+- Reutilização do `HybridRetriever` existente.
+- Deduplicação por `chunk_id`.
+- Rastreabilidade de quais perguntas recuperaram cada chunk.
+- Limite por item e teto global de contexto.
+- Contexto direcionado entregue somente ao Checklist Agent.
+- Demais agentes continuam usando o fluxo genérico.
+
+### O que foi validado
+
+Suíte reportada pelo Kiro:
+
+`pytest -q = 239 passed`
+
+O GitHub não publicou workflow/CI para o commit, portanto esse número é considerado resultado reportado pelo ambiente do Kiro, não uma validação independente por CI.
+
+E2E do imóvel Caixa 633:
+
+- V1–V4 preservadas.
+- Nova análise V5 criada.
+- analyses: 4 → 5.
+- document_versions: 4 → 4.
+- document_chunks: 1089 → 1089.
+- evidences: 40 → 73.
+- checklist_executions: 5 → 6.
+- checklist_results: 135 → 162.
+- llm_runs: 20 → 25.
+- 5 agentes executados com OpenAI/gpt-4o-mini.
+- Checklist V5: 27 itens, 3 CONFIRMADO e 24 PENDENTE.
+- `LEILOES_NEGATIVOS_AVERBADOS` passou a CONFIRMADO com evidência.
+- Risk/Verdict continuaram funcionando.
+- Nenhuma versão histórica foi apagada.
+
+### Resultado da auditoria
+
+**TASK 65 NÃO foi encerrada.**
+
+A implementação foi considerada estruturalmente correta, porém existem dois pontos que precisam ser tratados antes do encerramento:
+
+#### 1. OCR ainda não está operacional no Docker
+
+A validação real mostrou:
+
+`ocr_available() = False`
+
+O `backend/Dockerfile` continua sem Tesseract/Poppler e o `backend/requirements.txt` não possui as dependências Python necessárias ao OCR.
+
+Consequentemente, a matrícula escaneada do imóvel 633 ainda não passou por OCR real.
+
+A detecção de extração insuficiente funciona, mas a resolução documental ainda não está operacional no ambiente.
+
+#### 2. Retrieval direcionado gera um embedding por item
+
+A implementação executa uma consulta por item e pode gerar até 27 embeddings por análise do Checklist.
+
+Isso não representa 27 chamadas de geração do LLM — continuam sendo 5 agentes —, mas existe impacto potencial de custo/latência.
+
+A decisão é **medir primeiro**, sem fazer uma refatoração ampla do RAG.
+
+---
+
+## TASK 65.1 — Tornar OCR operacional e validar E2E da matrícula
+
+**Status:** PENDENTE — próxima tarefa operacional do Kiro.
+
+### Objetivo
+
+Corrigir somente os pontos restantes da TASK 65:
+
+1. tornar o OCR local operacional dentro do Docker;
+2. validar Tesseract + idioma português + Poppler/pytesseract;
+3. processar a matrícula real do imóvel 633 com OCR sem apagar a versão anterior;
+4. validar rastreabilidade por página → chunk → evidência → Checklist;
+5. medir a quantidade de embeddings produzida pelo retrieval direcionado;
+6. executar nova análise controlada do imóvel 633;
+7. verificar se a cobertura documental melhora sem criar confirmações artificiais.
+
+### Restrições
+
+- não resetar banco;
+- não apagar documentos;
+- não apagar document_versions;
+- não apagar document_chunks;
+- não apagar evidências;
+- não apagar análises;
+- não alterar os 27 canonical keys;
+- não alterar estados do Checklist;
+- não alterar Risk/Verdict;
+- não criar novos agentes;
+- não trocar provider/modelo;
+- não criar outro mecanismo de RAG;
+- não alterar migrations históricas;
+- não fazer otimização ampla de custos nesta etapa;
+- não alterar frontend sem necessidade.
+
+### OCR
+
+Adicionar somente as dependências necessárias ao ambiente Docker:
+
+- Tesseract;
+- `tesseract-ocr-por`;
+- Poppler;
+- `pytesseract`;
+- `pdf2image`;
+- Pillow.
+
+Usar versões compatíveis com o ambiente atual.
+
+Manter OCR opcional via configuração.
+
+Validar dentro do container:
+
+- Tesseract disponível;
+- português disponível;
+- Poppler disponível;
+- `ocr_available() = True`.
+
+### Matrícula 633
+
+Usar a matrícula já existente.
+
+Não substituir o original.
+
+Se houver nova versão, preservar a anterior e validar:
+
+`document_version → page → chunk → evidence → checklist_result`
+
+### RAG
+
+Não reescrever o RAG.
+
+Adicionar apenas medição/log para:
+
+- quantidade de itens;
+- embeddings solicitados;
+- embeddings executados;
+- chunks recuperados;
+- chunks distintos.
+
+Não registrar API key nem conteúdo integral de documentos.
+
+### E2E
+
+Executar nova análise do imóvel 633.
+
+Se V5 é a versão atual, esperar nova versão sem apagar V1–V5.
+
+Comparar:
+
+- evidências;
+- chunks;
+- Checklist;
+- estados;
+- evidências do Checklist;
+- Risk;
+- Verdict;
+- histórico.
+
+Não existe meta artificial de quantidade de CONFIRMADO.
+
+### Testes
+
+Executar:
+
+`pytest -q`
+
+Adicionar testes somente quando necessários para OCR/medição/regressão.
+
+### Entrega
+
+Criar um único commit.
+
+Atualizar `PROJECT-STATUS.md` e este histórico com os resultados reais.
+
+Depois do commit, aguardar auditoria antes de avançar.
