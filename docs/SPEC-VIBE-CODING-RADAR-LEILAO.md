@@ -2640,3 +2640,34 @@ A correção deve ser mínima e não deve alterar as regras do Checklist ou do V
     + pendências financeiras legítimas, se existentes
 
 Os sete itens confirmados na V8 não podem reaparecer como pendentes no Veredito da mesma análise.
+
+
+# 47. TASK 71 — Correção da seleção da execução do Checklist — APROVADA
+
+A Task 71 foi implementada e auditada no commit **8f9b54d**.
+
+## 47.1 Implementação
+
+A seleção da execução do Checklist deixou de depender da ordem incidental do relacionamento ORM. A função `latest_execution()` usa `analysis_version DESC` e `id DESC` como desempate.
+
+Foi adicionada `execution_for_version(prop, analysis_version)`, e o `create_verdict()` passou a utilizar a execução correspondente à versão da Analysis.
+
+## 47.2 Testes
+
+Foram adicionados 8 testes de regressão. Resultado informado pelo Kiro:
+
+```
+pytest -q
+275 passed
+0 falhas
+```
+
+## 47.3 Escopo
+
+Não houve alteração em VerdictEngine, RiskEngine, modelos, migrations, frontend, Checklist Mestre, RAG, LangGraph ou agentes. Nenhuma análise real, LLM, reanálise ou V9 foi executada.
+
+## 47.4 Estado
+
+Task 71: **🟢 APROVADA**.
+
+O próximo passo é validar operacionalmente a UI do imóvel 633 após rebuild/health. A transição V8 → DomainEvent → ImpactAnalyzer → reanálise incremental → V9 somente deve ocorrer depois dessa validação.
