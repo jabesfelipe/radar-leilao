@@ -13,6 +13,7 @@ from .ai.gateway import build_gateway, sanitize_error
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .extraction import extract_document, persist_extraction
+from .incremental import IncrementalAnalysisService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
@@ -622,3 +623,26 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
 @app.get("/api/imoveis/{property_id}/historico")
 def history(property_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id); return {"eventos": db.scalars(select(models.DomainEvent).where(models.DomainEvent.property_id == property_id).order_by(models.DomainEvent.created_at.desc())).all(), "alteracoes": db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id).order_by(models.EntityHistory.created_at.desc())).all(), "analises": db.scalars(select(models.Analysis).where(models.Analysis.property_id == property_id).order_by(models.Analysis.version.desc())).all()}
+
+
+@app.post("/api/imoveis/{property_id}/eventos/{event_id}/reanalisar")
+def reanalyze_from_event(property_id: int, event_id: int, db: Session = Depends(get_db)):
+    """Gatilho operacional da reanálise incremental.
+
+    Apenas valida o imóvel e o evento e delega ao IncrementalAnalysisService
+    existente (que decide, via ImpactAnalyzer, se há reanálise e trata o
+    commit/rollback). Não duplica a lógica de reanálise.
+    """
+    property_or_404(db, property_id)
+    event = db.get(models.DomainEvent, event_id)
+    if not event or event.property_id != property_id:
+        raise HTTPException(404, "Evento não encontrado para o imóvel")
+    log.info("reanalise incremental solicitada: property_id=%s event_id=%s tipo=%s", property_id, event_id, event.event_type)
+    try:
+        result = IncrementalAnalysisService(db).run_for_event(event)
+    except Exception as exc:
+        log.exception("reanalise incremental falhou: property_id=%s event_id=%s tipo=%s", property_id, event_id, type(exc).__name__)
+        raise HTTPException(502, f"Falha na reanálise incremental: {str(exc)[:500]}") from exc
+    log.info("reanalise incremental concluida: property_id=%s event_id=%s status=%s analise_executada=%s versao=%s",
+             property_id, event_id, result.get("status"), result.get("analise_executada"), result.get("versao"))
+    return result

@@ -141,3 +141,15 @@ Portanto, a próxima ação é **exclusivamente habilitar o gatilho operacional 
 A tarefa de continuidade fica registrada como **Task 69 — Gatilho operacional da reanálise incremental**, com escopo estritamente limitado à exposição do serviço já implementado.
 
 Novas funcionalidades fora desse objetivo continuam sendo evolução/backlog.
+
+---
+
+## TASK 69 — Execução: gatilho operacional da reanálise incremental
+
+- [x] CONCLUÍDA (aguardando auditoria)
+- **Endpoint novo:** `POST /api/imoveis/{property_id}/eventos/{event_id}/reanalisar` (`reanalyze_from_event` em `backend/app/main.py`). Valida o imóvel (`property_or_404`), busca o `DomainEvent` e confirma que ele pertence ao imóvel (404 caso não exista ou seja de outro imóvel), então **delega** a `IncrementalAnalysisService(db).run_for_event(event)` e retorna o resultado do serviço. Em erro, responde 502 preservando o rollback transacional que o próprio serviço já faz.
+- **Sem lógica nova:** o endpoint é apenas o gatilho de runtime. Nenhuma alteração em `IncrementalAnalysisService`, `ImpactAnalyzer`, LangGraph, RAG, Checklist, agentes, Risk/Verdict. Sem migration, sem mudança de modelos, sem nova arquitetura. Se `requires_reanalysis=False`, o serviço retorna `analise_executada=False` sem criar nova Analysis.
+- **Testes:** `tests/test_reanalyze_endpoint.py` (5) — evento inexistente → 404; evento de outro imóvel → 404; imóvel inexistente → 404; evento sem reanálise → `analise_executada=False` e nenhuma Analysis criada pelo endpoint; evento com reanálise (serviço mockado, sem LLM) → `run_for_event` chamado e `analysis_id`/versão preservados no response. `pytest -q` = **263 passed** (258 anteriores + 5 novos), sem regressão.
+- Permite o teste operacional manual (pós-auditoria): `V8 → DomainEvent → ImpactAnalyzer → reanálise incremental → V9`, preservando o histórico.
+
+**Status global (Task 69):** 🟢 suíte verde (263 passed); gatilho operacional da reanálise incremental exposto por endpoint que delega ao serviço existente; nenhuma lógica de análise duplicada ou alterada.
