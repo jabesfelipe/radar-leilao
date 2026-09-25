@@ -327,3 +327,44 @@ reanálise incremental
     ↓
 V9
 ```
+
+
+## 11. TASK 71 — Correção da seleção da execução do Checklist usada pelo Veredito
+
+**Status:** 🟡 especificada — aguardando implementação/auditoria
+
+Diagnóstico confirmado no imóvel 633: a execução V8 do Checklist possui **27 resultados, 7 CONFIRMADO e 20 PENDENTE**. O Veredito V8 persistido possui **28 pending_items** porque recebeu as 27 perguntas do Checklist como pendentes, inclusive as 7 confirmadas, mais uma pendência financeira legítima sobre a fórmula canônica de preço máximo.
+
+A causa está em backend/app/services.py:
+
+    def latest_execution(prop: models.Property):
+        return next(iter(reversed(prop.checklist_executions)), None)
+
+A seleção depende da ordem incidental do relacionamento ORM, e não de analysis_version.
+
+A Task 71 deve corrigir isso de forma determinística:
+
+    return db.scalar(
+        select(models.ChecklistExecution)
+        .where(models.ChecklistExecution.property_id == prop.id)
+        .order_by(
+            models.ChecklistExecution.analysis_version.desc(),
+            models.ChecklistExecution.id.desc(),
+        )
+    )
+
+### Escopo fechado
+
+- corrigir latest_execution();
+- teste de regressão com execuções fora de ordem;
+- garantir alinhamento entre analysis.version e ChecklistExecution.analysis_version ao criar o Veredito;
+- preservar a pendência financeira existente;
+- sem alteração de Verdict Engine, Risk Engine, RAG, LangGraph, agentes, Checklist Mestre, modelos ou migrations;
+- sem nova análise real e sem V9;
+- suíte backend completa.
+
+**Commit esperado:** fix: corrige selecao da execucao do checklist
+
+### Critério de aceite
+
+Checklist V8 do imóvel 633 permanece em **7 CONFIRMADO / 20 PENDENTE** e o Veredito V8 deixa de tratar os 7 confirmados como pendentes. Pendências financeiras legítimas continuam separadas.
