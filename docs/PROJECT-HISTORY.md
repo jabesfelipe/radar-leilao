@@ -963,3 +963,45 @@ Relatar:
 Depois do commit:
 
 **PARAR. Não iniciar TASK 68. Aguardar auditoria.**
+
+---
+
+## TASK 67 — Execução: diagnóstico da qualidade do contexto RAG (E2E 633, V7)
+- Objetivo: validar, com dados reais, o que cada um dos 5 agentes recebe de contexto no E2E do imóvel 633 (referência V7), comparar V6×V7, medir a cobertura das 27 perguntas do Checklist e distinguir ausência documental de falha de retrieval. Tarefa diagnóstica: não começar alterando o RAG; só corrigir se houver falha comprovada e a correção for mínima e dentro do escopo.
+
+### Como o contexto chega a cada agente (investigação de código)
+- `graph.py`: `RETRIEVE_RAG` faz UMA busca genérica (`RAGService.retrieve_context("análise documental do imóvel", filtros=_rag_filter(domains))`). Como a análise inclui os 5 domínios, `_rag_filter` deixa `category=None` (sem filtro por domínio) e retorna `rag_default_limit=8` chunks compartilhados.
+- `RUN_AGENTS`/`Supervisor.run`: Documental, Jurídico, Financeiro e Mercado recebem esse mesmo contexto genérico; apenas o Checklist recebe o contexto **direcionado** (`checklist_retrieval.retrieve_for_checklist`, `PER_ITEM_LIMIT=4`, `MAX_TOTAL_CHUNKS=24`, dedup por `chunk_id`).
+- `HybridRetriever` (retriever.py): ranking `final = vetor·0,7 + texto_norm·0,3`, isolado por `property_id`; usa o vetor do chunk só quando `embedding IS NOT NULL`.
+
+### Diagnóstico por agente (fonte: `llm_runs.retrieved_chunk_ids`)
+```text
+V6 (analysis_id=229):
+  Documental/Jurídico/Financeiro/Mercado: 8 chunks = 1 MATRICULA v1 (276) + 7 EDITAL v1 (277..283)
+  Checklist:                              4 chunks = 1 MATRICULA v1 + 3 EDITAL v1
+
+V7 (analysis_id=266):
+  Documental/Jurídico/Financeiro/Mercado/Checklist: 8 chunks = 8 MATRICULA v3 (1752..1759), EDITAL = 0
+```
+V6 era edital-dominado (matrícula quase ausente); V7 inverteu para matrícula-only (edital 100% ausente). Matrícula e edital **não coexistem** no contexto de nenhum agente na V7.
+
+### Cobertura das 27 perguntas do Checklist (V7, execução 1089)
+- 4 CONFIRMADO, todos citando matrícula v3: `CONSOLIDACAO_REGISTRADA` (1752), `LEILOES_NEGATIVOS_AVERBADOS` (1756), `VAGA_MATRICULA` (1752), `PENHORA_INDISPONIBILIDADE` (1754).
+- 2 PENDENTE com evidência da matrícula (Caso C — agente conservador): `ACAO_QUESTIONAMENTO` (1756), `QUITACAO_80` (1758).
+- 21 PENDENTE sem evidência:
+  - Caso A (ausência documental / dependem de engine determinístico ou comparáveis — PENDENTE correto): Mercado (`COMPARAVEIS_SUFFICIENTES`, `CONDOMINIO_PORTARIA`, `ILIQUIDEZ`, `REFORMA_LIQUIDEZ`, `REGIAO_SERVICOS`), `DISTANCIA_USUARIO`, Financeiro `RETORNO_SELIC`/`PRAZO_DOIS_ANOS`/`REFORMA_GRANDE`, Desocupação (`ETICA_OCUPACAO`/`LOCACAO_REGISTRADA`/`TERCEIRO_OCUPANTE`), Jurídico `EVICCAO`/`GARANTIA_DIVIDA_TERCEIRO`.
+  - Caso B (falha de retrieval — a informação existe no edital, mas o edital não chegou): `EDITAL_LIDO`, Financeiro `RESPONSABILIDADE_DEBITOS`/`CONDOMINIO_ALTO`, Jurídico `INTIMACAO_EDITAL`/`NOTIFICACAO_DOIS_LEILOES`/`LANCE_MENOR_50_AVALIACAO`/`INTIMACAO_PESSOAL`.
+
+### Causa raiz (comprovada)
+- No 633, só a matrícula v3 (8 chunks) tem embedding; edital (doc 193 e 195, 544 chunks cada) e matrícula v1/v2 têm 0 embedding — consequência direta de a Task 66 não fazer backfill do histórico.
+- Com o peso vetorial de 0,7, os chunks da matrícula (final ~0,35) superam qualquer edital por texto puro (final ~0,30) e ocupam todos os 8 slots. Probes ao vivo: a query genérica com embedding retorna 8 matrícula / 0 edital; sem embedding retorna 0; nas 27 consultas por item do Checklist, 108/108 candidatos são matrícula e 0 são edital (as consultas são frases longas com `plainto_tsquery` em AND; `expected_evidence`/`related_rules` estão vazios para os itens de edital). O edital só é alcançável por texto com termos curtos (`avaliação` 0,3, `débitos` 0,2, `comissão leiloeiro` 0,11), que as consultas atuais não usam.
+- Não é perda por `PER_ITEM_LIMIT`/`MAX_TOTAL_CHUNKS` nem por dedup: é assimetria de cobertura de embedding + ranking sem diversidade por documento + consultas que não alcançam o edital por texto.
+
+### Decisão: sem alteração funcional (correção fora do escopo)
+A falha é real, porém as três formas de corrigi-la estão explicitamente fora do escopo da TASK 67: (1) embedar o edital = backfill do histórico (proibido); (2) reescrever a semântica de consulta/casamento textual = reescrever o RAG (proibido); (3) cota de diversidade por documento não resolve, pois o edital nem entra como candidato. Portanto, conforme a regra da própria task (“não inventar alteração funcional”; “só a menor correção, se existir”), **nenhum código foi alterado**. A instrumentação existente já respondeu a todas as perguntas de aceite; **nenhuma instrumentação adicional foi necessária**.
+
+Recomendação para a próxima task (fora do escopo desta): tornar edital+matrícula recuperáveis em conjunto — via reingestão controlada do edital para gerar seus embeddings (equivalente à Task 66 aplicada ao edital) e/ou cota por documento no retrieval combinada com consultas que alcancem o edital por texto.
+
+### Preservação e testes
+- V1–V7 preservadas; nenhum dado histórico alterado; nenhuma confirmação artificial; V8 não foi criada (diagnóstico possível com dados/telemetria já persistidos).
+- `pytest -q` = 253 passed (baseline intacto; nenhum código alterado nesta task).

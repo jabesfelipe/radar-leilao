@@ -1073,3 +1073,75 @@ Informar:
 Se a investigação concluir que o código já está adequado e somente documentação/telemetria foi necessária, registrar isso claramente.
 
 **Depois do commit, PARAR e aguardar auditoria. Não iniciar TASK 68.**
+
+---
+
+## TASK 67 — Execução: diagnóstico da qualidade do contexto RAG (E2E 633, V7)
+
+- [x] CONCLUÍDA (aguardando auditoria) — **diagnóstico concluído sem necessidade de alteração funcional** (a menor correção necessária está fora do escopo desta task; ver conclusão).
+
+### Diagnóstico por agente (dados reais de `llm_runs.retrieved_chunk_ids`)
+
+Referência: análises do 633 — V6 = `analysis_id` 229, V7 = `analysis_id` 266.
+
+```text
+V7 (analysis_id=266) — TODOS os 5 agentes receberam os MESMOS 8 chunks:
+  Documental : 8 chunks  -> MATRICULA v3 (doc 192)  [1752..1759]   edital: 0
+  Jurídico   : 8 chunks  -> MATRICULA v3 (doc 192)  [1752..1759]   edital: 0
+  Financeiro : 8 chunks  -> MATRICULA v3 (doc 192)  [1752..1759]   edital: 0
+  Mercado    : 8 chunks  -> MATRICULA v3 (doc 192)  [1752..1759]   edital: 0
+  Checklist  : 8 chunks  -> MATRICULA v3 (doc 192)  [1752..1759]   edital: 0
+```
+
+### Comparação V6 × V7
+
+```text
+V6 (analysis_id=229):
+  4 agentes genéricos: 8 chunks = 1 MATRICULA v1 (276) + 7 EDITAL v1 (277..283)
+  Checklist          : 4 chunks = 1 MATRICULA v1 + 3 EDITAL v1
+  -> edital-dominado; matrícula quase ausente.
+
+V7 (analysis_id=266):
+  5 agentes: 8 chunks = 8 MATRICULA v3 (1752..1759); EDITAL = 0
+  -> matrícula-only; edital totalmente AUSENTE.
+```
+
+Ou seja: a V7 corrigiu a ausência da matrícula, mas passou ao extremo oposto — **edital e matrícula não coexistem** no contexto. O OCR da matrícula chega ao Jurídico/Checklist (bom), mas o edital deixou de chegar a qualquer agente.
+
+### Cobertura das 27 perguntas do Checklist (V7, execução 1089)
+
+- **4 CONFIRMADO** (todos com evidência da matrícula v3): `CONSOLIDACAO_REGISTRADA` (1752), `LEILOES_NEGATIVOS_AVERBADOS` (1756), `VAGA_MATRICULA` (1752), `PENHORA_INDISPONIBILIDADE` (1754).
+- **2 PENDENTE com evidência da matrícula** (agente conservador — Caso C): `ACAO_QUESTIONAMENTO` (1756), `QUITACAO_80` (1758).
+- **21 PENDENTE sem evidência**, classificados:
+  - **Caso A — ausência documental / dependem de engine determinístico ou comparáveis (PENDENTE correto):** Mercado (`COMPARAVEIS_SUFFICIENTES`, `CONDOMINIO_PORTARIA`, `ILIQUIDEZ`, `REFORMA_LIQUIDEZ`, `REGIAO_SERVICOS`), `DISTANCIA_USUARIO`, Financeiro `RETORNO_SELIC`/`PRAZO_DOIS_ANOS`/`REFORMA_GRANDE`, Desocupação (`ETICA_OCUPACAO`/`LOCACAO_REGISTRADA`/`TERCEIRO_OCUPANTE`), Jurídico `EVICCAO`/`GARANTIA_DIVIDA_TERCEIRO`.
+  - **Caso B — falha de retrieval (a informação existe no edital, mas o edital não chegou ao contexto):** `EDITAL_LIDO`, Financeiro `RESPONSABILIDADE_DEBITOS`/`CONDOMINIO_ALTO`, Jurídico `INTIMACAO_EDITAL`/`NOTIFICACAO_DOIS_LEILOES`/`LANCE_MENOR_50_AVALIACAO`/`INTIMACAO_PESSOAL`.
+
+### Causa raiz (comprovada por instrumentação e probes ao vivo)
+
+- No imóvel 633, **apenas** os 8 chunks da matrícula v3 possuem embedding; o edital (doc 193 e 195, 544 chunks cada) e a matrícula v1/v2 têm **0 embedding** (consequência do escopo da Task 66: sem backfill do histórico).
+- O ranking híbrido é `final = vetor·0,7 + texto_norm·0,3`. Com embedding, os chunks da matrícula pontuam ~0,35; o melhor edital por texto puro pontua ~0,30. Assim a matrícula **ganha todos os 8 slots**, em qualquer consulta.
+- Probes: a query genérica do fluxo (`"análise documental do imóvel"`) com embedding retorna 8 matrícula e 0 edital; sem embedding retorna 0 (não casa o texto do edital). Nas 27 consultas por item do Checklist, **100% dos candidatos são matrícula (108/108), 0 edital** — mesmo em modo texto, porque `build_item_query` gera frases longas e `plainto_tsquery` exige todos os termos (AND), e `expected_evidence`/`related_rules` estão vazios para os itens de edital.
+- O edital **é** recuperável por texto com termos curtos (`avaliação` ts_rank 0,3; `débitos` 0,2; `comissão leiloeiro` 0,11), mas as consultas atuais não usam esse formato.
+
+Conclusão: **não é perda por limite** (`PER_ITEM_LIMIT=4`, `MAX_TOTAL_CHUNKS=24`) **nem por deduplicação**; é assimetria de cobertura de embedding (só a matrícula está vetorizada) combinada com um ranking que não garante diversidade por documento e com consultas que não alcançam o edital por texto.
+
+### Alterações
+
+**Diagnóstico concluído sem necessidade de alteração funcional.** Justificativa objetiva: a menor correção que realmente faria edital e matrícula coexistirem exige uma das opções abaixo, **todas fora do escopo declarado da TASK 67**:
+
+1. gerar embedding do edital (backfill dos ~1097 chunks históricos) — proibido;
+2. reescrever a semântica de consulta/casamento textual (ex.: `websearch_to_tsquery`, extração de palavras-chave, `OR`) — caracteriza reescrever o RAG, proibido;
+3. cota de diversidade por documento no `retrieve_for_checklist` — **não resolve**, pois o edital sequer entra como candidato (0/108).
+
+Assim, seguindo a regra da própria task (“se o código já estiver adequado, não inventar alteração funcional”; “somente implementar a menor correção se ela existir e for mínima”), **nenhum código foi alterado**. A instrumentação atual (`llm_runs.retrieved_chunk_ids` por agente + telemetria do `checklist_retrieval`) já é suficiente para responder “quais evidências chegaram a cada agente”, portanto **nenhuma instrumentação adicional foi necessária**.
+
+### Recomendação para a próxima task (fora do escopo da 67)
+
+Tornar edital e matrícula recuperáveis em conjunto, por uma destas vias mínimas (a decidir em task própria): (a) gerar embedding do edital via reingestão controlada (equivalente à Task 66 aplicada ao edital, sem backfill em massa); ou (b) garantir cobertura por documento no retrieval (cota/round-robin por `document_id`) **em conjunto** com consultas por texto que alcancem o edital. Sem isso, itens do Checklist que dependem do edital permanecerão PENDENTE por falha de retrieval, não por ausência documental.
+
+### Preservação e testes
+
+- **V1–V7 preservadas**; nenhum dado histórico alterado; nenhuma confirmação artificial. Não foi criada V8 (o diagnóstico foi possível com os dados/telemetria já persistidos).
+- `pytest -q` = **253 passed** (baseline intacto; nenhum código alterado nesta task).
+
+**Status global (Task 67):** 🟢 diagnóstico concluído e documentado; instrumentação suficiente; sem alteração funcional (correção necessária fora do escopo). 🔴 Falha de retrieval real registrada: na V7 o edital não coexiste com a matrícula no contexto dos agentes — recomendada correção mínima em task seguinte.
