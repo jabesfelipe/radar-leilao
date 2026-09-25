@@ -1,7 +1,7 @@
 # Radar Leilão — Controle Central do Projeto
 
 > Documento operacional central do desenvolvimento.  
-> Última consolidação: 24/09/2026  
+> Última consolidação: 24/09/2026 — após aprovação da TASK 65.1  
 > Branch principal: `main`  
 > Repositório: `jabesfelipe/radar-leilao`
 
@@ -53,7 +53,7 @@ Uma TASK só é considerada concluída quando:
 
 **Última TASK aprovada:** TASK 64
 
-**TASK 65:** 🟡 IMPLEMENTADA E AUDITADA — não aprovada como concluída. A implementação está correta em estrutura, mas o OCR ainda não está operacional no Docker e a estratégia atual gera um embedding por item do Checklist (27 embeddings). Foi criada a TASK 65.1 para corrigir/validar esses pontos antes de encerrar a TASK 65.
+**TASK 65:** 🟢 CONCLUÍDA — Document Intelligence + RAG direcionado, encerrada após a correção/validação da 65.1. A implementação está correta em estrutura, mas o OCR ainda não está operacional no Docker e a estratégia atual gera um embedding por item do Checklist (27 embeddings). Foi criada a TASK 65.1 para corrigir/validar esses pontos antes de encerrar a TASK 65.
 
 **TASK 59:** 🟢 CONCLUÍDA — primeira falha do fluxo de análise corrigida e auditada.
 
@@ -79,7 +79,7 @@ Uma TASK só é considerada concluída quando:
 
 **Última validação:** suíte completa verde — 221 passed.
 
-**Status global:** 🟡 MVP em construção — base operacional validada; próxima etapa é corrigir a cobertura documental/RAG antes do E2E final.
+**Status global:** 🟡 MVP em construção — OCR operacional; próxima lacuna técnica identificada é a geração/persistência de embeddings dos DocumentChunks durante a ingestão para que o pgvector aproveite plenamente os documentos novos.
 
 > A porcentagem de conclusão não é usada como fonte oficial. O controle por TASK abaixo é a referência.
 
@@ -815,7 +815,8 @@ Ao finalizar:
 
 ## TASK 65 — Document Intelligence e RAG direcionado para o Checklist
 
-- [~] IMPLEMENTADA — AGUARDANDO CORREÇÃO 65.1 / NÃO CONCLUÍDA
+- [x] CONCLUÍDA
+- Encerrada após a TASK 65.1.
 - Commit: `f8c21bf7f65659e580a0ab152956c6567b9d092a`
 - Auditoria: 🟡 implementação aprovada estruturalmente, mas **TASK 65 não foi encerrada**.
 
@@ -838,14 +839,14 @@ Ao finalizar:
 - O Checklist permaneceu conservador, sem confirmação artificial.
 
 ### TASK 65.1 — Tornar OCR operacional e validar E2E da matrícula
-- [ ] PENDENTE — **próxima TASK do Kiro**.
+- [x] CONCLUÍDA — aprovada em auditoria.
 - Objetivo: provisionar OCR local no Docker, validar Tesseract + português + Poppler/pytesseract, reprocessar a matrícula do imóvel 633 sem apagar a versão anterior, executar nova análise, validar rastreabilidade por página/evidência e medir a quantidade de embeddings do RAG direcionado.
 - Não alterar os 27 itens, Risk/Verdict, provider/modelo, histórico ou dados existentes.
 - Não fazer otimização ampla do RAG nesta TASK; primeiro medir o comportamento atual.
 - Se houver qualquer alteração de schema, somente migration incremental e somente se indispensável.
 - Ao finalizar, criar um único commit, atualizar este documento com resultados reais e aguardar auditoria.
 
-**Próxima ação operacional:** Kiro deve executar **somente TASK 65.1**.
+**Próxima ação operacional:** Kiro deve executar **somente TASK 66**.
 - **Frente A:** detecção objetiva de extração insuficiente em `backend/app/documents/normalizer.py` (`assess_extraction_quality`: `char_count`/`original_bytes`/`chars_per_kb`/`is_binary`/`extraction_quality` gravados no `extraction_metadata`, sem coluna nova); OCR local-first **opcional** em `backend/app/documents/ocr.py` (import-guard `pytesseract`/`pdf2image`) — **indisponível neste ambiente** (dependências de sistema não provisionadas), pipeline preparado e limitação documentada.
 - **Frente B:** RAG direcionado por item do Checklist em `backend/app/rag/checklist_retrieval.py` (query derivada de `question`/`description`/`expected_evidence`/`related_rules`), reutilizando o `HybridRetriever` existente, com dedup por `chunk_id`, rastreabilidade (perguntas por chunk) e teto de contexto. Entregue **apenas ao ChecklistAgent** via `Supervisor.run`/`graph.run_agents`; demais agentes inalterados.
 - Contrato do Checklist preservado: 27 `canonical_key`, estados e persistência (que exige chunk+evidência) intactos. **Sem migration.** Frontend não afetado.
@@ -858,7 +859,9 @@ Ao finalizar:
 
 ## TASK 65.1 — OCR operacional no Docker + telemetria de embeddings do RAG direcionado
 
-- [x] CONCLUÍDA (aguardando auditoria)
+- [x] CONCLUÍDA E APROVADA
+- Commit: `af00ccb`
+- Auditoria: 🟢 aprovada.
 - **OCR operacional (local-first, opcional):** `backend/Dockerfile` agora instala as dependências de sistema `tesseract-ocr`, `tesseract-ocr-por` e `poppler-utils`; `backend/requirements.txt` adiciona `pytesseract==0.3.13`, `pdf2image==1.17.0` e `Pillow==11.1.0`. Padrão **`OCR_ENABLED=false`** preservado; `docker-compose.yml` expõe `OCR_ENABLED`/`OCR_LANGUAGE` (defaults `false`/`por`) no serviço backend. OCR continua **opcional** e não substitui o documento original.
 - **Validação no container:** `tesseract 5.5.0` com idioma `por` presente, `poppler pdftoppm 25.03.0`, `ocr_available()=True`, imports `pytesseract`/`pdf2image`/`PIL` OK; `ocr_enabled=False` (default) e `ocr_language=por`. Nenhum segredo exposto na verificação.
 - **Telemetria de embeddings do RAG direcionado:** `backend/app/rag/checklist_retrieval.py` (`DirectedRetrieval.telemetry`) mede e loga `property_id`, `analysis_id`, itens, embeddings solicitados/executados/falhos, chunks recuperados total e distintos; `backend/app/ai/graph.py` passa `analysis_id`. **Sem multiplicar chamadas de LLM** (5 agentes mantidos) e sem vazar segredos.
@@ -869,3 +872,23 @@ Ao finalizar:
 - **Limitação restante (honesta, fora do escopo 65.1):** os chunks de 633 **não possuem embedding** (a geração de embeddings não ocorre na ingestão — lacuna pré-existente da Task 65). Assim, o `HybridRetriever` opera em **modo texto** e as 27 consultas direcionadas recuperam predominantemente chunks genéricos do edital; os chunks OCR da matrícula não são surfaçados no top-k, e por isso o OCR ainda não se reflete em confirmações do Checklist. Corrigir isso é uma mudança de ingestão (geração de embeddings) que **excede o escopo desta task** e deve ser tratada separadamente.
 
 **Status global (Task 65.1):** 🟢 suíte automatizada verde (243 passed); OCR operacional e validado no container; embeddings do RAG direcionado medidos; histórico do 633 preservado (V5→V6). 🟡 O benefício do OCR na análise depende da geração de embeddings na ingestão (limitação registrada, fora do escopo).
+
+
+---
+
+## TASK 66 — Embeddings na ingestão dos DocumentChunks
+
+- [ ] PENDENTE — próxima tarefa operacional do Kiro.
+- Objetivo: corrigir a lacuna identificada na TASK 65.1: novos DocumentChunks são criados, mas o pipeline de ingestão não gera/persiste automaticamente o embedding do chunk. Sem isso, o OCR funciona e o RAG direcionado gera embeddings das consultas, porém o pgvector não consegue explorar semanticamente os novos chunks.
+- Esta TASK é uma correção de pipeline de ingestão. Não é uma nova arquitetura de RAG e não deve alterar agentes, LangGraph, Checklist, Risk ou Verdict.
+- Escopo mínimo: localizar o mecanismo de embeddings existente, reutilizá-lo na ingestão de chunks, persistir o vetor no campo/modelo já existente quando possível e garantir fallback seguro quando não houver API key.
+- Não criar novo RAG, novo vector DB, novo agente, novo provider, nova arquitetura, MinIO/Redis/ELK, processamento em massa ou reprocessamento automático de todo o histórico.
+- Não apagar documentos, versões, chunks, evidências ou análises existentes.
+- Não alterar os 27 canonical keys, estados do Checklist, Risk/Verdict, provider/modelo ou migrations históricas.
+- Migração: primeiro verificar o modelo atual. Se o campo vetorial já existir, não criar migration. Só criar migration incremental se houver necessidade real e documentada.
+- Fallback obrigatório: sem OPENAI_API_KEY, a ingestão deve continuar funcionando conforme o contrato atual; embedding indisponível não pode quebrar cadastro/upload/análise básica.
+- Idempotência: evitar geração duplicada desnecessária para o mesmo DocumentChunk/conteúdo. Reutilizar hash/estado existente quando suportado.
+- Testes: validar chunk novo com embedding; ausência de chave; falha de embedding; persistência; rastreabilidade; não duplicação; regressão da ingestão e RAG. Executar pytest -q e comandos frontend somente se afetados.
+- E2E controlado 633: não apagar V1–V6. Ingerir uma nova versão controlada da matrícula/documento e confirmar que os novos chunks possuem embedding e podem ser recuperados semanticamente pelo RAG. Depois, se apropriado, executar nova análise e comparar com V6. Não existe meta artificial de confirmações.
+- Aceite: pelo menos um chunk novo real do 633 deve ter embedding persistido; uma consulta semântica relacionada deve conseguir recuperar esse chunk; fallback sem chave deve continuar funcionando; suíte verde; histórico preservado.
+- Entrega: um único commit, atualização de PROJECT-STATUS.md e PROJECT-HISTORY.md, relatório objetivo de arquivos/testes/E2E, e aguardar auditoria antes da próxima tarefa.
