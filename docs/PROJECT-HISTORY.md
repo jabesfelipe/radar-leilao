@@ -798,3 +798,168 @@ Depois do commit, **parar e aguardar auditoria**. Não iniciar TASK 67.
 
 ### Limitação registrada (honesta)
 - Somente os chunks **novos** (ingeridos após a correção) recebem embedding. Os ~1097 chunks históricos do 633 permanecem sem vetor (sem backfill, por escopo). A recuperação semântica plena de documentos antigos exigiria reingestão/backfill controlado — fora do escopo desta task.
+
+---
+
+## 24/09/2026 — Auditoria da TASK 66 e definição da TASK 67
+
+### TASK 66 — Embeddings na ingestão dos DocumentChunks
+
+**Commit:** 24e6b2b  
+**Status:** 🟢 APROVADA.
+
+A auditoria confirmou a causa raiz e a correção mínima: o DocumentPipeline criava DocumentChunk, mas não chamava a geração de embedding. A coluna vetorial já existia e o mecanismo de embedding já estava disponível; a correção conectou o pipeline ao helper existente.
+
+Validações principais:
+
+- sem migration;
+- sem novo RAG;
+- sem novo agente;
+- sem novo provider;
+- sem alteração de LangGraph, Checklist, Risk ou Verdict;
+- embedding em lote;
+- idempotência por embedding nulo;
+- validação de dimensão 1536;
+- fallback seguro sem API key;
+- falha do provider não interrompe ingestão;
+- novos chunks recebem embedding;
+- busca semântica real recupera chunks OCR da matrícula 25278.
+
+No imóvel 633:
+
+- matrícula reingerida como v3;
+- 8 chunks criados;
+- 8/8 com embedding;
+- dimensão 1536;
+- modelo text-embedding-3-small;
+- busca vetorial retornou os chunks OCR da matrícula;
+- V7 criada preservando V1–V6;
+- chunks OCR 1752–1759 passaram a ser recuperados;
+- Checklist V7: 4 CONFIRMADO / 23 PENDENTE;
+- LEILOES_NEGATIVOS_AVERBADOS confirmado com evidência da matrícula;
+- sem confirmação artificial.
+
+Suíte reportada: 253 passed. O GitHub não publicou CI independente para essa execução, portanto a contagem é registrada como resultado do ambiente do Kiro.
+
+### Limitação atual
+
+Os chunks históricos anteriores à correção permanecem sem embedding. Não houve backfill, conforme escopo da TASK 66.
+
+Isso não bloqueia a validação do mecanismo novo, mas significa que documentos históricos somente entram na busca vetorial quando reingeridos ou quando um futuro backfill controlado for executado.
+
+### Próximo foco técnico
+
+Agora não devemos continuar adicionando funcionalidades sem validar a qualidade do contexto.
+
+A TASK 67 será uma investigação controlada do retrieval real da V7.
+
+## TASK 67 — Validação de qualidade do contexto RAG no E2E real
+
+**Status:** PENDENTE — próxima tarefa operacional do Kiro.
+
+### Objetivo
+
+Determinar, com dados reais do imóvel 633, exatamente quais chunks/documentos/páginas são entregues aos cinco agentes e ao Checklist.
+
+A pergunta central é:
+
+> O retrieval atual está entregando contexto suficiente e adequado por domínio, sem perder evidências relevantes por deduplicação, limite ou estratégia de busca?
+
+### Escopo
+
+- auditar Documental, Jurídico, Financeiro, Mercado e Checklist separadamente;
+- identificar IDs de chunks, documentos, versões e páginas;
+- identificar origem/tipo do documento quando disponível;
+- comparar V6 e V7;
+- auditar o retrieval direcionado das 27 perguntas;
+- medir distribuição dos chunks por documento;
+- identificar itens sem contexto;
+- identificar perdas por limite/deduplicação;
+- verificar se matrícula OCR chega aos agentes que precisam dela;
+- verificar se edital e matrícula conseguem coexistir quando uma análise depende dos dois;
+- adicionar somente instrumentação mínima se os logs atuais forem insuficientes;
+- não registrar conteúdo integral, prompts completos, chaves ou dados sensíveis.
+
+### Regra principal
+
+**Diagnóstico antes de correção.**
+
+Não alterar o algoritmo de RAG apenas porque V7 mudou.
+
+Primeiro produzir evidência objetiva da composição do contexto.
+
+Se houver falha comprovada, aplicar somente a menor correção necessária e testá-la.
+
+Se não houver falha, não inventar mudança funcional.
+
+### E2E
+
+Usar V7 como referência.
+
+Não apagar V1–V7.
+
+Não reingerir documentos sem necessidade.
+
+Não criar V8 apenas para gerar dados se a telemetria existente for suficiente.
+
+Se V8 for necessária para validar a instrumentação, preservar V7 e executar de forma controlada.
+
+### Fora do escopo
+
+- novo agente;
+- troca de LLM/provider;
+- troca de embedding;
+- novo vector DB;
+- substituição do pgvector;
+- reescrita completa do RAG;
+- alteração dos 27 canonical keys;
+- alteração de estados;
+- alteração de Risk/Verdict;
+- backfill histórico;
+- infraestrutura nova;
+- otimização ampla de custos;
+- apagar histórico;
+- alterar migrations históricas.
+
+### Testes
+
+Executar pytest -q.
+
+Adicionar apenas testes relacionados à instrumentação ou a uma correção comprovada.
+
+Não criar testes artificiais apenas para aumentar a contagem.
+
+### Critérios de aceite
+
+A TASK 67 deverá entregar:
+
+1. diagnóstico dos chunks/contextos por agente;
+2. comparação V6 × V7;
+3. diagnóstico das 27 perguntas do Checklist;
+4. documentos/versões/páginas representados;
+5. confirmação de que o OCR da matrícula chega aos agentes necessários;
+6. gargalos de contexto/deduplicação/limite identificados;
+7. nenhuma confirmação artificial;
+8. suíte verde;
+9. histórico V1–V7 preservado;
+10. qualquer correção funcional deve ser mínima e justificada pelos dados.
+
+### Entrega
+
+Um único commit se houver alteração necessária.
+
+Atualizar PROJECT-STATUS.md e PROJECT-HISTORY.md.
+
+Relatar:
+
+- diagnóstico por agente;
+- chunks/documentos/páginas;
+- V6 × V7;
+- cobertura do Checklist;
+- testes;
+- alteração funcional, se houver;
+- limitações restantes.
+
+Depois do commit:
+
+**PARAR. Não iniciar TASK 68. Aguardar auditoria.**
