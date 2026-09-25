@@ -339,3 +339,37 @@ Foi definida a **TASK 65 — Melhorar Document Intelligence e RAG direcionado pa
 - reanálise controlada do imóvel 633.
 
 Nenhuma alteração de código de produto foi feita durante esse diagnóstico.
+
+
+## TASK 65 — Document Intelligence e RAG direcionado para o Checklist
+- Objetivo: aumentar a cobertura da investigação documental com evidências rastreáveis, mantendo o sistema conservador quando os documentos não suportam conclusão. Sem inventar respostas, sem alterar os 27 itens/estados do Checklist, sem novo agente/RAG paralelo, sem trocar LLM/modelo, sem migration.
+
+### Frente A — Document Intelligence (detecção de extração insuficiente + OCR opcional)
+- `backend/app/documents/normalizer.py`: nova `assess_extraction_quality(text, path)` — sinais objetivos (nº de caracteres extraídos, tamanho do arquivo em bytes, densidade chars/KB e se é binário PDF/imagem), sem número mágico único. Grava no `extraction_metadata` (JSON já existente, sem coluna nova): `char_count`, `original_bytes`, `chars_per_kb`, `is_binary`, `extraction_quality` (`SUFICIENTE|INSUFICIENTE|OCR`), `extraction_insufficient_reason`. Um PDF escaneado (grande em bytes, pouco texto) é detectado como `INSUFICIENTE`.
+- `backend/app/documents/ocr.py` (novo): OCR **local-first** opcional com import-guard (`ocr_available()` via pytesseract; PDF via pdf2image/poppler, imagem via PIL), texto por página (`## Página N`) preservando rastreabilidade; metadata `ocr=True`, `ocr_engine`, `ocr_language`, `ocr_pages`.
+- `backend/app/config.py`: `ocr_enabled` (padrão `False`), `ocr_language` (`por`), `extraction_min_chars` (200), `extraction_min_chars_per_kb` (1.0).
+- Comportamento: quando a extração é insuficiente e o OCR está habilitado E disponível, o normalizer usa o texto do OCR (marca `extraction_quality=OCR`, `ocr=True`); caso contrário registra a limitação (`ocr_pending=True`) e **segue sem quebrar**, nunca substituindo o documento original.
+
+### Frente B — RAG direcionado ao Checklist
+- `backend/app/rag/checklist_retrieval.py` (novo): `build_item_query(item)` deriva a consulta de cada item a partir de `question`/`description`/`expected_evidence`/`related_rules` + `category` (sem listas manuais gigantes). `retrieve_for_checklist(db, property_id, items)` faz uma busca por item (`PER_ITEM_LIMIT=4`) reutilizando o `HybridRetriever` existente (embeddings/pgvector/busca híbrida — nenhum RAG paralelo), **deduplica** por `chunk_id` mantendo o maior `final_score` e rastreando quais perguntas recuperaram cada chunk, e aplica teto global (`MAX_TOTAL_CHUNKS=24`). O contexto direcionado é formatado com `[checklist_keys=...]` + o formatador de chunk existente.
+- `backend/app/ai/agents.py`: `Supervisor.run` ganhou parâmetros opcionais `checklist_context`/`checklist_chunk_ids` e os entrega **apenas ao ChecklistAgent**; os demais agentes seguem com o contexto genérico (contrato inalterado).
+- `backend/app/ai/graph.py`: `run_agents` monta o retrieval direcionado quando o domínio `checklist` está presente e o repassa ao Supervisor. Em qualquer falha, faz fallback silencioso (log de aviso) para o comportamento anterior.
+
+### Contrato do Checklist preservado
+- Nenhuma alteração em `checklist.py` (27 `canonical_key`), nos estados (`CHECKLIST_STATES`), no seed (`ensure_checklist_master`) ou na persistência (`persist_checklist_agent_findings`, que continua exigindo chunk+evidência reais para qualquer conclusão positiva — nada é confirmado sem evidência).
+
+### Testes
+- `tests/test_document_intelligence.py` (7): texto suficiente não marca insuficiente; PDF com pouco texto detectado insuficiente; PDF denso suficiente; normalizer .txt; `ocr_pending` quando OCR indisponível; aplica OCR quando disponível (monkeypatch); `run_ocr` indisponível levanta RuntimeError.
+- `tests/test_checklist_retrieval.py` (5): `build_item_query` deriva e difere por item; usa `expected_evidence`/`related_rules`; retrieval direcionado com perguntas diferentes → chunks diferentes + dedup + rastreabilidade; sem evidência → contexto vazio (PENDENTE permanece possível).
+- `tests/test_orchestration_graph.py`: 3 `FakeSupervisor.run` atualizados para aceitar os novos kwargs opcionais (mock ajustado, sem enfraquecer teste).
+- Resultado: **`pytest -q` = 239 passed** (228 anteriores + 11 novos), sem regressão. Frontend não afetado. **Nenhuma migration** criada.
+
+### Validação E2E real — Imóvel 633 (COND PARQUE ARVOREDO)
+- Backend reconstruído (`docker compose up -d --build backend`, volumes preservados, `OPENAI_API_KEY configurada`). Nova análise disparada por `POST /api/imoveis/633/analisar`.
+- Preservação (nada apagado): analyses 4→5 (V1–V4 intactas, nova **V5**); document_versions 4→4; document_chunks 1089→1089; evidences 40→73; checklist_executions 5→6; checklist_results 135→162; llm_runs 20→25; verdicts→5.
+- Resposta: `versao=5`, 5 agentes `CONCLUIDO`, `llm_usada=true`, `modelo=gpt-4o-mini`. Logs confirmam o RAG direcionado ao vivo: `rag checklist direcionado: property_id=633 itens=27 chunks_distintos=4 (teto=24 por_item=4)` e `checklist_chunks=4 llm=True`.
+- Checklist V5: 27 itens; **3 CONFIRMADO** (CONSOLIDACAO_REGISTRADA, EDITAL_LIDO e agora também LEILOES_NEGATIVOS_AVERBADOS — +1 vs V4, obtido por contexto direcionado, com evidência) e 24 PENDENTE (conservador). 5 `checklist_evidences` com rastreabilidade. Veredito V5 = INCONCLUSIVO (Risk/Verdict não quebraram). O E2E real da Caixa **não** é declarado concluído.
+
+### Limitações registradas
+- **OCR não executado neste ambiente**: `pytesseract`/`tesseract`/`poppler` não estão instalados (Dockerfile do backend instala só `curl`); `ocr_available()=False`. A detecção funciona e o pipeline fica preparado; habilitar OCR exige provisionar as dependências de sistema/Python e `OCR_ENABLED=true` (documentado em código). Os `document_versions` já existentes do 633 (matrícula escaneada) foram ingeridos antes desta task e não foram reprocessados — a detecção/OCR aplicam-se a novas ingestões.
+- **Custo/latência**: o RAG direcionado gera um embedding por item (27) quando há chave de LLM; mantido conservador via `PER_ITEM_LIMIT=4` e teto de 24 chunks. Sem multiplicar chamadas de LLM dos agentes (continua 5).

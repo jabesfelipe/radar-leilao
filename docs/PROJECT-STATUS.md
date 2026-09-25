@@ -805,3 +805,19 @@ Ao finalizar:
 - informar resultado do caso Caixa 633;
 - não declarar E2E completo sem validação real;
 - aguardar auditoria antes de avançar.
+- docs/OPERATIONS.md
+- docs/LOCAL-SETUP.md
+
+
+---
+
+## TASK 65 — Document Intelligence e RAG direcionado para o Checklist
+
+- [x] CONCLUÍDA (aguardando auditoria)
+- **Frente A:** detecção objetiva de extração insuficiente em `backend/app/documents/normalizer.py` (`assess_extraction_quality`: `char_count`/`original_bytes`/`chars_per_kb`/`is_binary`/`extraction_quality` gravados no `extraction_metadata`, sem coluna nova); OCR local-first **opcional** em `backend/app/documents/ocr.py` (import-guard `pytesseract`/`pdf2image`) — **indisponível neste ambiente** (dependências de sistema não provisionadas), pipeline preparado e limitação documentada.
+- **Frente B:** RAG direcionado por item do Checklist em `backend/app/rag/checklist_retrieval.py` (query derivada de `question`/`description`/`expected_evidence`/`related_rules`), reutilizando o `HybridRetriever` existente, com dedup por `chunk_id`, rastreabilidade (perguntas por chunk) e teto de contexto. Entregue **apenas ao ChecklistAgent** via `Supervisor.run`/`graph.run_agents`; demais agentes inalterados.
+- Contrato do Checklist preservado: 27 `canonical_key`, estados e persistência (que exige chunk+evidência) intactos. **Sem migration.** Frontend não afetado.
+- **Testes:** `pytest -q` = **239 passed** (228 anteriores + 11 novos); sem regressão.
+- **E2E 633:** nova análise **V5** (V1–V4 preservadas); dados preservados (analyses 4→5, chunks 1089→1089, evidences 40→73, checklist_results 135→162, llm_runs 20→25). Checklist V5: 27 itens, 3 CONFIRMADO (+1 vs V4: LEILOES_NEGATIVOS_AVERBADOS, com evidência) e 24 PENDENTE (conservador). Risk/Verdict OK. **E2E real da Caixa não declarado concluído.**
+
+**Status global (Task 65):** 🟢 suíte automatizada verde (239 passed); 🟡 E2E real da Caixa em evolução — a matrícula escaneada ainda depende de OCR provisionado no ambiente.

@@ -16,6 +16,16 @@ class Settings(BaseSettings):
     rag_default_limit: int = 8
     rag_max_limit: int = 50
     rag_text_config: str = "portuguese"
+    # Document Intelligence: detecção de extração insuficiente + OCR opcional (local-first).
+    # ocr_enabled só tenta OCR quando um motor local estiver disponível (import-guard);
+    # se indisponível, a limitação é registrada no metadata sem quebrar o pipeline.
+    ocr_enabled: bool = False
+    ocr_language: str = "por"
+    # Sinais objetivos de extração insuficiente (sem número mágico único):
+    # documento binário (pdf/imagem) com menos de N caracteres por página estimada,
+    # ou densidade de texto muito baixa frente ao tamanho do arquivo original.
+    extraction_min_chars: int = 200
+    extraction_min_chars_per_kb: float = 1.0
     llm_api_key: str | None = None
     openai_api_key: str | None = None
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)

@@ -47,7 +47,7 @@ def test_grafo_tem_topologia_explicita_e_preserva_estado(monkeypatch):
         def __init__(self, db, gateway):
             pass
 
-        def run(self, property_id, domains, context, retrieved_chunk_ids):
+        def run(self, property_id, domains, context, retrieved_chunk_ids, checklist_context=None, checklist_chunk_ids=None):
             calls.append(("RUN_AGENTS", property_id, domains, context, retrieved_chunk_ids))
             return [fake_result(domain) for domain in domains]
 
@@ -81,7 +81,7 @@ def test_grafo_executa_somente_dominios_solicitados(monkeypatch):
     class FakeSupervisor:
         def __init__(self, db, gateway):
             pass
-        def run(self, property_id, domains, context, retrieved_chunk_ids):
+        def run(self, property_id, domains, context, retrieved_chunk_ids, checklist_context=None, checklist_chunk_ids=None):
             executed.extend(domains)
             return [fake_result(domain) for domain in domains]
 
@@ -103,7 +103,7 @@ def test_grafo_preserva_falha_de_agente_e_continua(monkeypatch):
     class FakeSupervisor:
         def __init__(self, db, gateway):
             pass
-        def run(self, property_id, domains, context, retrieved_chunk_ids):
+        def run(self, property_id, domains, context, retrieved_chunk_ids, checklist_context=None, checklist_chunk_ids=None):
             return [fake_result("juridico", "ERRO"), fake_result("mercado")]
 
     monkeypatch.setattr(graph_module, "RAGService", FakeRag)

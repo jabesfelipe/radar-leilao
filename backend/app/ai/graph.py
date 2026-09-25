@@ -8,6 +8,7 @@ from .. import models
 from ..logging_config import get_logger
 from ..rag.retriever import RetrieverFilters
 from ..rag.service import RAGService
+from ..services import latest_execution
 from .gateway import LLMGateway, build_gateway
 from ..consolidation import consolidate_agent_results
 
@@ -93,9 +94,38 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
         property_id = state["property_id"]
         domains = state.get("domains", [])
         analysis_id = state.get("analysis_id")
-        log.info("langgraph agentes iniciados: property_id=%s analysis_id=%s dominios=%s chunks=%d llm=%s",
-                 property_id, analysis_id, domains, len(state.get("retrieved_chunk_ids", [])), gateway is not None)
-        results = supervisor.run(state["property_id"], state.get("domains", []), state.get("context", ""), state.get("retrieved_chunk_ids", []))
+        # RAG direcionado para o Checklist: quando o domínio checklist está incluído,
+        # deriva uma consulta por item e monta um contexto direcionado (dedup + teto),
+        # entregue APENAS ao ChecklistAgent. Os demais agentes seguem com o genérico.
+        checklist_context: str | None = None
+        checklist_chunk_ids: list[int] | None = None
+        if "checklist" in domains:
+            try:
+                from ..rag.checklist_retrieval import retrieve_for_checklist
+                prop = db.get(models.Property, property_id)
+                execution = latest_execution(prop) if prop else None
+                items = [
+                    {
+                        "canonical_key": r.item.canonical_key,
+                        "question": r.item.question,
+                        "description": r.item.description,
+                        "category": r.item.category,
+                        "expected_evidence": r.item.expected_evidence or [],
+                        "related_rules": r.item.related_rules or [],
+                    }
+                    for r in (execution.results if execution else [])
+                ]
+                if items:
+                    directed = retrieve_for_checklist(db, property_id, items)
+                    if directed.chunk_ids:
+                        checklist_context = directed.context
+                        checklist_chunk_ids = directed.chunk_ids
+            except Exception as exc:
+                log.warning("rag direcionado do checklist indisponivel: property_id=%s erro=%s", property_id, str(exc)[:200])
+        log.info("langgraph agentes iniciados: property_id=%s analysis_id=%s dominios=%s chunks=%d checklist_chunks=%d llm=%s",
+                 property_id, analysis_id, domains, len(state.get("retrieved_chunk_ids", [])),
+                 len(checklist_chunk_ids or []), gateway is not None)
+        results = supervisor.run(state["property_id"], state.get("domains", []), state.get("context", ""), state.get("retrieved_chunk_ids", []), checklist_context=checklist_context, checklist_chunk_ids=checklist_chunk_ids)
         for result in results:
             call = result.llm_call
             log.info("agente executado: agente=%s property_id=%s analysis_id=%s status=%s provider=%s modelo=%s evidencias=%d chunks=%d%s",

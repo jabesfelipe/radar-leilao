@@ -214,7 +214,15 @@ class Supervisor:
         self.db = db
         self.gateway = gateway
 
-    def run(self, property_id: int, domains: list[str], context: str = "", retrieved_chunk_ids: list[int] | None = None) -> list[AgentResult]:
+    def run(
+        self,
+        property_id: int,
+        domains: list[str],
+        context: str = "",
+        retrieved_chunk_ids: list[int] | None = None,
+        checklist_context: str | None = None,
+        checklist_chunk_ids: list[int] | None = None,
+    ) -> list[AgentResult]:
         available = {a.name: a for a in [DocumentAgent(self.db, self.gateway), LegalAgent(self.db, self.gateway), FinancialAgent(self.db, self.gateway), MarketAgent(self.db, self.gateway), ChecklistAgent(self.db, self.gateway)]}
         results: list[AgentResult] = []
         for name in domains:
@@ -222,7 +230,13 @@ class Supervisor:
             if not agent:
                 continue
             try:
-                results.append(agent.run(property_id, context, retrieved_chunk_ids))
+                # O ChecklistAgent recebe o contexto direcionado (RAG por item) quando
+                # disponível; os demais agentes seguem com o contexto genérico. Isso
+                # não altera o contrato dos outros agentes.
+                if name == "checklist" and checklist_context is not None:
+                    results.append(agent.run(property_id, checklist_context, checklist_chunk_ids or retrieved_chunk_ids))
+                else:
+                    results.append(agent.run(property_id, context, retrieved_chunk_ids))
             except Exception as exc:
                 call = LLMCall(provider=self.gateway.provider_name if self.gateway else settings.llm_provider, model=self.gateway.model if self.gateway else settings.llm_model, status="ERRO", error_type=type(exc).__name__, error_message=str(exc)[:2000])
                 results.append(AgentResult(name, [], [], "", [call.error_message or "Falha no agente"], False, call.model, call, retrieved_chunk_ids or []))
