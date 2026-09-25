@@ -48,6 +48,9 @@ services:
       STORAGE_DIR: /app/backend/storage/documents
       # Nível de log da aplicação (DEBUG|INFO|WARNING|ERROR). Padrão: INFO.
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # OCR local (opcional). Padrão desligado; habilite com OCR_ENABLED=true no .env.
+      OCR_ENABLED: ${OCR_ENABLED:-false}
+      OCR_LANGUAGE: ${OCR_LANGUAGE:-por}
       # LLM é opcional: o projeto sobe sem OPENAI_API_KEY.
       LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}

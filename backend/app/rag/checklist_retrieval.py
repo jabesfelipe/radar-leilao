@@ -60,6 +60,8 @@ class DirectedRetrieval:
     chunks: list[dict[str, Any]]
     per_item: dict[str, list[int]] = field(default_factory=dict)
     queries: dict[str, str] = field(default_factory=dict)
+    # Telemetria de custo/recuperação (não contém conteúdo de documento nem segredos).
+    telemetry: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -67,15 +69,20 @@ class DirectedRetrieval:
             "chunk_ids": self.chunk_ids,
             "per_item": self.per_item,
             "queries": self.queries,
+            "telemetry": self.telemetry,
         }
 
 
-def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[dict[str, Any]]) -> DirectedRetrieval:
+def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[dict[str, Any]], analysis_id: int | None = None) -> DirectedRetrieval:
     """Recupera contexto direcionado por item do Checklist, deduplicado e limitado.
 
     Perguntas diferentes podem recuperar chunks diferentes. Chunks repetidos entre
     perguntas são consolidados uma única vez, mantendo o registro de quais
     perguntas os recuperaram (rastreabilidade). Reutiliza o HybridRetriever/RAG.
+
+    Mede a quantidade de embeddings solicitados/executados/falhos e de chunks
+    recuperados/distintos (telemetria de custo) — sem multiplicar chamadas de LLM
+    de geração e sem registrar conteúdo do documento ou segredos.
     """
     retriever = HybridRetriever(db)
     rag = RAGService(db)
@@ -86,19 +93,31 @@ def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[
     # Rastreabilidade reversa: quais perguntas recuperaram cada chunk.
     chunk_questions: dict[int, list[str]] = {}
 
+    # Telemetria de custo do RAG direcionado.
+    items_with_query = 0
+    embeddings_requested = 0
+    embeddings_executed = 0
+    embeddings_failed = 0
+    chunks_recuperados_total = 0
+    use_vector = bool(settings.effective_llm_api_key)
+
     for item in checklist_items:
         key = item.get("canonical_key")
         if not key:
             continue
         query = build_item_query(item)
         queries[key] = query
+        items_with_query += 1
         embedding = None
-        try:
-            if settings.effective_llm_api_key:
+        if use_vector:
+            embeddings_requested += 1
+            try:
                 from ..ai.gateway import build_gateway
                 embedding = build_gateway().embed([query])[0]
-        except Exception:
-            embedding = None  # cai no modo texto do retriever
+                embeddings_executed += 1
+            except Exception:
+                embeddings_failed += 1
+                embedding = None  # cai no modo texto do retriever
         results = retriever.search(
             query=query,
             embedding=embedding,
@@ -106,6 +125,7 @@ def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[
             limit=PER_ITEM_LIMIT,
             filters=RetrieverFilters(property_id=property_id),
         )
+        chunks_recuperados_total += len(results)
         ids_for_item: list[int] = []
         for chunk in results:
             chunk_id = chunk["chunk_id"]
@@ -131,8 +151,23 @@ def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[
         blocks.append(f"{header}\n{rag._format_chunk(chunk)}".strip())
     context = "\n\n".join(blocks)
 
-    log.info("rag checklist direcionado: property_id=%s itens=%d chunks_distintos=%d (teto=%d por_item=%d)",
-             property_id, len(checklist_items), len(ordered_ids), MAX_TOTAL_CHUNKS, PER_ITEM_LIMIT)
+    telemetry = {
+        "itens": len(checklist_items),
+        "itens_com_query": items_with_query,
+        "embeddings_solicitados": embeddings_requested,
+        "embeddings_executados": embeddings_executed,
+        "embeddings_falhos": embeddings_failed,
+        "chunks_recuperados_total": chunks_recuperados_total,
+        "chunks_distintos": len(ordered_ids),
+        "por_item": PER_ITEM_LIMIT,
+        "teto": MAX_TOTAL_CHUNKS,
+    }
+    log.info(
+        "rag checklist direcionado: property_id=%s analysis_id=%s itens=%d embeddings_solicitados=%d "
+        "embeddings_executados=%d embeddings_falhos=%d chunks_recuperados_total=%d chunks_distintos=%d (teto=%d por_item=%d)",
+        property_id, analysis_id, telemetry["itens"], embeddings_requested, embeddings_executed,
+        embeddings_failed, chunks_recuperados_total, len(ordered_ids), MAX_TOTAL_CHUNKS, PER_ITEM_LIMIT,
+    )
 
     return DirectedRetrieval(
         context=context,
@@ -140,4 +175,5 @@ def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[
         chunks=ordered,
         per_item=per_item,
         queries=queries,
+        telemetry=telemetry,
     )

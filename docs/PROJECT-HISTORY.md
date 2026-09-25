@@ -576,3 +576,34 @@ Criar um único commit.
 Atualizar `PROJECT-STATUS.md` e este histórico com os resultados reais.
 
 Depois do commit, aguardar auditoria antes de avançar.
+
+---
+
+## TASK 65.1 — Execução: OCR operacional no Docker + telemetria de embeddings do RAG direcionado
+- Objetivo: tornar o OCR local **operacional** no ambiente Docker (mantendo-o opcional e desligado por padrão), **medir** os embeddings usados pelo RAG direcionado do Checklist (telemetria, sem multiplicar chamadas de LLM) e re-analisar o imóvel 633 preservando integralmente o histórico. Sem reset de banco, sem apagar dados, sem alterar os 27 `canonical_key`/estados, sem tocar Risk/Verdict Engine, migrations históricas ou LLM/modelo. Não transformar `PENDENTE` em `CONFIRMADO` sem evidência.
+
+### OCR operacional (local-first, opcional)
+- `backend/Dockerfile`: adicionadas as dependências de sistema `tesseract-ocr`, `tesseract-ocr-por` e `poppler-utils` (antes só `curl`), para que `ocr_available()` seja `True` no container.
+- `backend/requirements.txt`: adicionadas `pytesseract==0.3.13`, `pdf2image==1.17.0`, `Pillow==11.1.0` (sem upgrade geral das demais dependências).
+- `docker-compose.yml`: serviço backend passa a expor `OCR_ENABLED` (default `false`) e `OCR_LANGUAGE` (default `por`) via `environment`, mantendo o padrão desligado e o OCR opt-in por `.env`.
+- Validação no container: `tesseract 5.5.0` (idiomas `eng osd por`), `poppler pdftoppm 25.03.0`, `ocr_available()=True`, imports `pytesseract`/`pdf2image`/`PIL` OK, `ocr_enabled=False` (default) e `ocr_language=por`. Nenhum segredo exibido.
+
+### Telemetria de embeddings do RAG direcionado
+- `backend/app/rag/checklist_retrieval.py`: `DirectedRetrieval` ganhou o campo `telemetry` (também no `to_dict()`); `retrieve_for_checklist(db, property_id, items, analysis_id=None)` contabiliza `embeddings_solicitados/executados/falhos`, `chunks_recuperados_total` e `chunks_distintos`, e loga a telemetria incluindo `property_id`/`analysis_id`.
+- `backend/app/ai/graph.py`: `run_agents` repassa `analysis_id` ao `retrieve_for_checklist`. A medição **não** aumenta o número de chamadas de LLM dos agentes (continua 5).
+
+### Reprocessamento da matrícula com OCR (preservando histórico)
+- A matrícula 25278 do imóvel 633 (PDF escaneado, ~538 KB) foi reprocessada com OCR habilitado apenas para essa operação (sem editar o `.env`), reutilizando o pipeline de ingestão existente, gerando **nova `document_version` (v2)** e **preservando** o original, a v1 e os chunks anteriores.
+- Resultado da v2: `extraction_quality=OCR`, `ocr=true`, `ocr_engine=tesseract`, `ocr_language=por`, `ocr_pages=2`, `char_count=8355`, 8 chunks. Conteúdo registral real recuperado ("REGISTRO DE IMÓVEIS 7ª Circunscrição Curitiba-Paraná", "Matrícula nº 25.278", compra/venda/mútuo). O documento original **não** foi substituído.
+
+### Validação E2E real — Imóvel 633 (V5 → V6)
+- Nova análise por `POST /api/imoveis/633/analisar`: HTTP 200 em ~61s, 5 agentes `CONCLUIDO`, `modelo=gpt-4o-mini`. Log ao vivo: `rag checklist direcionado: property_id=633 analysis_id=229 itens=27 embeddings_solicitados=27 embeddings_executados=27 embeddings_falhos=0 chunks_recuperados_total=108 chunks_distintos=4`.
+- Preservação (nada apagado): analyses 5→6 (V1–V5 intactas, nova **V6**); document_versions 4→5 (+ matrícula OCR v2); document_chunks 1089→1097 (+8 OCR; v1 intacta); evidences 73→108; checklist_executions 6→7; checklist_results 162→189 (+27); llm_runs 25→30 (+5); verdicts 5→6. 27 `canonical_key` intactos. Veredito V6 = INCONCLUSIVO.
+- Checklist V6: 27 itens, **0 CONFIRMADO / 27 PENDENTE** (conservador). `LEILOES_NEGATIVOS_AVERBADOS` = PENDENTE — correto documentalmente (a matrícula não contém averbação de leilão que sustente confirmação). Nenhuma confirmação foi forçada para melhorar cobertura.
+
+### Testes
+- `tests/test_document_intelligence.py`: +4 testes de OCR (agora 11 no arquivo), todos por `monkeypatch` (não exigem Tesseract instalado no ambiente de teste): OCR desabilitado mantém comportamento (sem OCR, `ocr_pending`); marcadores `## Página N` preservados em PDF multipágina e idioma `por` repassado ao motor; `run_ocr` usa `por` por padrão; original não é substituído nem alterado em disco.
+- Resultado: **`pytest -q` = 243 passed** (239 anteriores + 4 novos), sem regressão. Frontend não afetado. **Nenhuma migration** criada.
+
+### Limitação registrada (honesta, fora do escopo 65.1)
+- Os chunks do imóvel 633 **não possuem embedding**: a geração de embeddings não ocorre na ingestão (lacuna pré-existente da Task 65). Logo o `HybridRetriever` opera em **modo texto** e as 27 consultas direcionadas recuperam predominantemente chunks genéricos do edital; os chunks OCR da matrícula não entram no top-k e o OCR ainda não se reflete em confirmações do Checklist. A correção (gerar embeddings na ingestão) é uma mudança de pipeline que **excede o escopo desta task** e deve ser tratada separadamente. Por isso a V6 permaneceu conservadora — comportamento correto, não uma regressão.

@@ -7,9 +7,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependências de sistema mínimas (curl para health check; libs de build enxutas)
+# Dependências de sistema: curl (health check) e OCR local (Tesseract + idioma
+# português + Poppler para converter PDF em imagem). O OCR só é usado quando
+# OCR_ENABLED=true; as libs ficam disponíveis para tornar ocr_available()=True.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends \
+        curl \
+        tesseract-ocr \
+        tesseract-ocr-por \
+        poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Instala dependências primeiro (cache de camada)

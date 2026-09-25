@@ -116,7 +116,7 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
                     for r in (execution.results if execution else [])
                 ]
                 if items:
-                    directed = retrieve_for_checklist(db, property_id, items)
+                    directed = retrieve_for_checklist(db, property_id, items, analysis_id=analysis_id)
                     if directed.chunk_ids:
                         checklist_context = directed.context
                         checklist_chunk_ids = directed.chunk_ids
