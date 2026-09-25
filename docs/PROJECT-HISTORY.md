@@ -1422,3 +1422,65 @@ OK: 5   FALHAS: 0
 
 O banco e o storage persistente foram preservados durante o rebuild.
 
+
+
+---
+
+## TASK 69 — Auditoria e estado operacional
+
+- Commit: `f4fec4e11c25167675b41ebe8026dff238ea370e`
+- Endpoint: `POST /api/imoveis/{property_id}/eventos/{event_id}/reanalisar`
+- Objetivo: expor operacionalmente o `IncrementalAnalysisService.run_for_event()` sem duplicar sua lógica.
+- Validação de código: 🟢 aprovado por auditoria.
+- Testes reportados pelo commit: **263 passed**.
+
+Durante a validação manual posterior pela UI, ficou decidido não executar ainda o V8 → V9. Antes disso, o Dossiê precisa corrigir duas inconsistências identificadas no Veredito.
+
+## TASK 70 — Correção do Veredito e legibilidade das evidências
+
+**Status:** 🟡 especificada / aguardando implementação.
+
+### Problema 1 — Veredito antigo
+
+A tela do imóvel 633 exibe **Analysis V7** no Veredito enquanto o histórico já possui **Analysis V8**.
+
+Causa identificada no endpoint `GET /api/imoveis/{property_id}`:
+
+```python
+latest = prop.verdicts[-1] if prop.verdicts else None
+```
+
+A seleção deve ser determinística por:
+
+```python
+latest = db.scalar(
+    select(models.Verdict)
+    .where(models.Verdict.property_id == property_id)
+    .order_by(
+        models.Verdict.analysis_version.desc(),
+        models.Verdict.id.desc()
+    )
+)
+```
+
+### Problema 2 — Evidências incompreensíveis
+
+A seção **Evidências vinculadas** mostra somente IDs internos como `#202, #203...`.
+
+A UI deve apresentar informações derivadas das evidências reais — documento, categoria, versão, página/seção e trecho/descrição quando disponíveis — sem inventar metadados e sem remover o ID interno do backend.
+
+### Critérios de aceite da Task 70
+
+- API sempre retorna o Veredito da maior `analysis_version` para o imóvel.
+- Teste de regressão reproduz V7 + V8 e garante retorno da V8.
+- UI não apresenta IDs crus como informação principal das evidências.
+- Evidências são legíveis para usuário leigo.
+- Rastreabilidade interna por `evidence_id` permanece.
+- Nenhuma migration.
+- Nenhuma alteração no Verdict Engine.
+- Nenhuma nova análise real do imóvel 633.
+- Suíte completa verde.
+
+### Pós-Task 70
+
+Somente após a auditoria da Task 70 e nova validação manual pela UI será retomado o teste operacional **V8 → evento → ImpactAnalyzer → reanálise incremental → V9**.
