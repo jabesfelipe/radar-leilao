@@ -760,3 +760,41 @@ Atualizar `PROJECT-STATUS.md` e `PROJECT-HISTORY.md` com resultados reais.
 Informar arquivos alterados, testes, quantidade de embeddings e resultado do E2E.
 
 Depois do commit, **parar e aguardar auditoria**. Não iniciar TASK 67.
+
+---
+
+## TASK 66 — Execução: embeddings na ingestão dos DocumentChunks
+- Objetivo: corrigir a lacuna da TASK 65.1 — o pipeline criava `DocumentChunk` mas não gerava/persistia o embedding do chunk na ingestão. Correção mínima de pipeline; sem novo RAG/agente/provider, sem alterar LangGraph/Checklist/Risk/Verdict, sem migration (a coluna já existe), sem reprocessar o histórico.
+
+### Causa raiz (investigação antes de codar)
+- `DocumentPipeline.ingest` (`backend/app/documents/pipeline.py`) criava os chunks com conteúdo/página/seção/metadata, porém **não chamava nenhuma geração de embedding**.
+- Existiam dois helpers `embed_pending_chunks` (`backend/app/documents/embedding.py` e `backend/app/rag/embeddings.py`), mas **nenhum era invocado no pipeline** — só um deles era referenciado por um teste. Resultado: todo chunk nascia com `embedding = NULL`.
+- O modelo `models.DocumentChunk.embedding` já é `Vector(settings.embedding_dimensions)` (1536) — **coluna existente, sem migration**.
+- O `RAGService`/`HybridRetriever` já geram o embedding da consulta e usam `c.embedding <=> vetor` quando o chunk tem vetor; sem vetor, o score vetorial é 0 e a busca cai em modo texto — exatamente o sintoma observado no 633.
+
+### Solução (correção mínima)
+- `backend/app/documents/embedding.py`: `embed_pending_chunks(db, version_id)` reescrito para (a) retornar telemetria (`embeddings_pendentes/solicitados/executados/persistidos/falhos`, `provider_disponivel`, `dimensao`); (b) guardar em `settings.effective_llm_api_key` (sem chave → não constrói gateway); (c) ser idempotente (`embedding IS NULL`); (d) validar dimensão contra `settings.embedding_dimensions` (descarta vetor divergente); (e) tolerar falha do provider (try/except com `sanitize_error`, sem levantar); (f) `flush` apenas se persistiu.
+- `backend/app/documents/pipeline.py`: importa e chama `embed_pending_chunks(self.db, version.id)` **após o flush dos chunks**, dentro de `try/except` — falha de embedding nunca quebra a ingestão. Fica na mesma transação (o commit ocorre no endpoint, depois de `ingest`).
+- Não alterei `rag/embeddings.py` nem `knowledge_memory.py`.
+
+### Comportamento sem chave / falha
+- Sem `OPENAI_API_KEY`: ingestão segue por texto, chunks são criados, nenhum embedding é gerado (telemetria `provider_disponivel=False`).
+- Falha do provider ou dimensão incompatível: registrado com segurança, embedding não é persistido, ingestão conclui normalmente.
+
+### Testes
+- Novo `tests/test_chunk_embedding.py` (10): chunk novo recebe embedding e é persistido com dimensão correta; múltiplos chunks (uma única chamada em lote ao provider); sem API key não gera nada; falha do provider não persiste e não levanta; dimensão incompatível descartada; idempotência (chunk já vetorizado não é reprocessado); pipeline dispara o embedding para a versão criada; falha do embedding não quebra a ingestão; página/versão/metadata preservados; chunk recuperável pelo `HybridRetriever` por similaridade vetorial.
+- Ajustado `tests/test_llm_tracking.py::test_document_embedding_nao_constroi_gateway_sem_api_key` para o novo contrato de telemetria (verifica `provider_disponivel=False` e contadores zerados), preservando a intenção original (sem chave não constrói gateway nem busca chunks).
+- Resultado: **`pytest -q` = 253 passed** (243 anteriores + 10 novos), sem regressão. **Nenhuma migration.** Frontend não afetado.
+
+### E2E real — Imóvel 633 (V6 → V7)
+- Backup: `backups/radar-backup-20260924-220845`. Provider disponível no container; modelo de embedding `text-embedding-3-small`, dimensão 1536.
+- **Reingestão da matrícula** (bytes do original em disco; OCR habilitado apenas para a operação; `DocumentPipeline.ingest` reutilizado) criou a **v3** (`version_id=454`) preservando v1/v2: `extraction_quality=OCR`, `ocr_pages=2`, `char_count=8355`, **8 chunks, todos com embedding**, dimensão 1536 (min=max), página/seção/metadata preservados, conteúdo registral real (Matrícula 25278, Curitiba). Chunks ids 1752–1759.
+- **Busca semântica**: consulta `"registro de imóveis matrícula 25278 Curitiba consolidação"` retornou como top-5 **todos os chunks OCR da matrícula v3**, com `vector_score` 0,57–0,63 e `text_score = 0,0000` → recuperados **por similaridade vetorial pura** (impossível antes). `RAGService`: `vector_search=True`, `text_fallback=False`.
+- **Análise V7** (`POST /api/imoveis/633/analisar`): HTTP 200, 5 agentes `CONCLUIDO` (`gpt-4o-mini`, 27.885 tokens, 5/5 sucesso), e `chunks_recuperados = [1752..1759]` (os chunks OCR da matrícula), contra 276–283 (edital genérico) na V6. Checklist V7: **4 CONFIRMADO / 23 PENDENTE** (V6 = 0/27); `LEILOES_NEGATIVOS_AVERBADOS` = CONFIRMADO com evidência da matrícula. 27 evidências do 633 passaram a citar os chunks OCR da matrícula v3. Melhora **orgânica**, sem forçar confirmação.
+- **Métricas de embeddings (reingest v3):** criados=8, solicitados=8, executados=8, sucesso=8, falha=0, com embedding=8, dimensão=1536, modelo=`text-embedding-3-small`.
+
+### Contagens antes → depois
+- analyses 6→7 (V1–V7 preservadas); document_versions 5→6; document_chunks 1097→1105 (+8); chunks_com_embedding **0→8** (apenas os novos — sem backfill do histórico); evidences 108→142; verdicts 6→7. Matrícula versões [1,2,3] preservadas. 27 `canonical_key` intactos.
+
+### Limitação registrada (honesta)
+- Somente os chunks **novos** (ingeridos após a correção) recebem embedding. Os ~1097 chunks históricos do 633 permanecem sem vetor (sem backfill, por escopo). A recuperação semântica plena de documentos antigos exigiria reingestão/backfill controlado — fora do escopo desta task.

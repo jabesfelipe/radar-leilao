@@ -150,4 +150,8 @@ def test_document_embedding_nao_constroi_gateway_sem_api_key(monkeypatch):
     from backend.app.config import settings
     monkeypatch.setattr(settings, "openai_api_key", None)
     monkeypatch.setattr(settings, "llm_api_key", None)
-    assert embed_pending_chunks(NoQueryDb(), 1) == 0
+    telemetry = embed_pending_chunks(NoQueryDb(), 1)
+    # Sem chave: nada é buscado/gerado e a telemetria reflete provider indisponível.
+    assert telemetry["provider_disponivel"] is False
+    assert telemetry["embeddings_solicitados"] == 0
+    assert telemetry["embeddings_persistidos"] == 0

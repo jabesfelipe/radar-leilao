@@ -7,6 +7,7 @@ from ..config import settings
 from ..logging_config import get_logger
 from .normalizer import DocumentNormalizer
 from .chunker import chunk_markdown
+from .embedding import embed_pending_chunks
 
 log = get_logger("documentos")
 
@@ -51,6 +52,13 @@ class DocumentPipeline:
             version.status = "PROCESSADO"
             document.status = "PROCESSADO"
             self.db.flush()
+            # Gera/persiste o embedding dos chunks recém-criados quando houver
+            # provider/chave. Falha de embedding NÃO quebra a ingestão (o helper
+            # captura erros e retorna telemetria); sem chave, apenas segue por texto.
+            try:
+                embed_pending_chunks(self.db, version.id)
+            except Exception:  # defesa extra: nunca deixar o embedding abortar a ingestão
+                log.warning("embedding de chunks ignorado por erro inesperado: document_id=%s version=%s", document.id, version_number)
             log.info("documento processado: document_id=%s version=%s chunks=%d hash=%s", document.id, version_number, chunk_count, digest[:12])
             return version
         except Exception as exc:
