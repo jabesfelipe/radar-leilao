@@ -153,3 +153,103 @@ Novas funcionalidades fora desse objetivo continuam sendo evolução/backlog.
 - Permite o teste operacional manual (pós-auditoria): `V8 → DomainEvent → ImpactAnalyzer → reanálise incremental → V9`, preservando o histórico.
 
 **Status global (Task 69):** 🟢 suíte verde (263 passed); gatilho operacional da reanálise incremental exposto por endpoint que delega ao serviço existente; nenhuma lógica de análise duplicada ou alterada.
+
+---
+
+## 9. Validação pela UI — descoberta de inconsistências
+
+**Atualização: 25/09/2026 — validação manual pelo usuário**
+
+A validação do imóvel real **COND PARQUE ARVOREDO RESIDENCIAL CLUBE (property_id=633)** passou a ser conduzida pela interface do Radar, como usuário final.
+
+Na tela do Dossiê foi confirmado:
+
+- imóvel acessível pela rota `/imoveis/633`;
+- aba **Documentos** funcional;
+- matrícula com 3 versões processadas;
+- edital principal `EL00440226CPARE.pdf` com 2 versões processadas;
+- histórico exibindo a Análise V8;
+- Checklist exibindo **7 CONFIRMADOS / 20 PENDENTES**.
+
+### 9.1 Bug funcional identificado — Veredito selecionava versão antiga
+
+Na aba **Veredito**, a UI exibiu:
+
+- `Analysis V7`;
+- 28 pendências;
+
+enquanto o histórico já possui a **V8** e o Checklist da V8 possui 7 itens confirmados.
+
+A causa foi localizada no endpoint `GET /api/imoveis/{property_id}`:
+
+```python
+latest = prop.verdicts[-1] if prop.verdicts else None
+```
+
+O relacionamento `prop.verdicts` não possui ordenação explícita por `analysis_version`. Portanto, usar `[-1]` não garante que o último elemento seja o Veredito da análise mais recente.
+
+A correção planejada é selecionar explicitamente o maior `analysis_version`, com desempate por `id`:
+
+```python
+latest = db.scalar(
+    select(models.Verdict)
+    .where(models.Verdict.property_id == property_id)
+    .order_by(
+        models.Verdict.analysis_version.desc(),
+        models.Verdict.id.desc()
+    )
+)
+```
+
+### 9.2 Bug de usabilidade — evidências exibidas somente como IDs internos
+
+Na mesma tela, **Evidências vinculadas** apareciam como valores do tipo:
+
+```text
+#202, #203, #204, ...
+```
+
+Esses números são IDs internos de banco e não são informação útil para um usuário leigo.
+
+A apresentação esperada deve ser derivada dos dados reais de `Evidence`, `DocumentVersion` e `DocumentChunk`, quando disponíveis, exibindo:
+
+- documento;
+- tipo/categoria;
+- versão;
+- página/seção, quando disponível;
+- trecho/descrição da evidência, quando disponível;
+- rastreamento até a fonte, sem expor o ID interno como informação principal.
+
+**Não inventar descrições ou páginas.** Quando os metadados não existirem, utilizar uma descrição conservadora.
+
+### 9.3 Task 70 — correção de seleção do Veredito + evidências legíveis
+
+A Task 70 fica registrada como a próxima tarefa de correção funcional:
+
+1. selecionar deterministicamente o Veredito da maior `analysis_version`;
+2. criar teste de regressão V7/V8 para o endpoint de imóvel;
+3. transformar IDs de evidência em apresentação legível no Veredito;
+4. preservar `evidence_id` internamente para rastreabilidade;
+5. validar a suíte completa sem executar nova análise real do imóvel 633.
+
+**Status:** 🟡 especificada, aguardando implementação/auditoria.
+
+### 9.4 Regra de validação após a Task 70
+
+```text
+rebuild / health
+    ↓
+abrir /imoveis/633
+    ↓
+Veredito
+    ↓
+confirmar Analysis V8
+    ↓
+confirmar 7 CONFIRMADOS / 20 PENDENTES
+    ↓
+confirmar evidências legíveis
+    ↓
+somente depois retomar validação incremental V8 → V9
+```
+
+A Task 70 **não deve gerar V9** e não deve alterar os dados reais do imóvel 633 durante os testes automatizados.
