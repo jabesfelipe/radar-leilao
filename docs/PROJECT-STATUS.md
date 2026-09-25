@@ -1,7 +1,7 @@
 # Radar Leilão — Controle Central do Projeto
 
 > Documento operacional central do desenvolvimento.  
-> Última consolidação: 24/09/2026 — após aprovação da TASK 65.1  
+> Última consolidação: 24/09/2026 — após aprovação da TASK 66  
 > Branch principal: `main`  
 > Repositório: `jabesfelipe/radar-leilao`
 
@@ -47,13 +47,17 @@ Uma TASK só é considerada concluída quando:
 
 ## 3. Estado atual
 
-**Último commit de implementação:** `f8c21bf7f65659e580a0ab152956c6567b9d092a`  
-**Último commit de documentação:** `538f387ce5929e6cbb1c7bcf7d2ed790515863`  
-**Mensagem:** `feat: melhora document intelligence e rag direcionado do checklist`
+**Último commit de implementação:** `24e6b2b`  
+**Último commit de documentação:** `24e6b2b`  
+**Mensagem:** `TASK 66 — embeddings na ingestão dos DocumentChunks`
 
-**Última TASK aprovada:** TASK 64
+**Última TASK aprovada:** TASK 66
 
-**TASK 65:** 🟢 CONCLUÍDA — Document Intelligence + RAG direcionado, encerrada após a correção/validação da 65.1. A implementação está correta em estrutura, mas o OCR ainda não está operacional no Docker e a estratégia atual gera um embedding por item do Checklist (27 embeddings). Foi criada a TASK 65.1 para corrigir/validar esses pontos antes de encerrar a TASK 65.
+**TASK 65:** 🟢 CONCLUÍDA — Document Intelligence + RAG direcionado.
+
+**TASK 65.1:** 🟢 CONCLUÍDA E APROVADA — OCR operacional no Docker e telemetria do retrieval direcionado.
+
+**TASK 66:** 🟢 CONCLUÍDA E APROVADA — embeddings dos novos DocumentChunks integrados à ingestão, com prova real de recuperação vetorial no imóvel 633.
 
 **TASK 59:** 🟢 CONCLUÍDA — primeira falha do fluxo de análise corrigida e auditada.
 
@@ -79,7 +83,7 @@ Uma TASK só é considerada concluída quando:
 
 **Última validação:** suíte completa verde — 221 passed.
 
-**Status global:** 🟡 MVP em construção — OCR operacional; próxima lacuna técnica identificada é a geração/persistência de embeddings dos DocumentChunks durante a ingestão para que o pgvector aproveite plenamente os documentos novos.
+**Status global:** 🟡 MVP em construção — pipeline documental, OCR, embeddings de novos chunks, RAG híbrido, LangGraph, agentes, Checklist, Risk/Verdict e histórico estão operacionais. A próxima etapa é validar a qualidade e distribuição do contexto recuperado pelos agentes no E2E real, antes de adicionar novas funcionalidades.
 
 > A porcentagem de conclusão não é usada como fonte oficial. O controle por TASK abaixo é a referência.
 
@@ -878,7 +882,9 @@ Ao finalizar:
 
 ## TASK 66 — Embeddings na ingestão dos DocumentChunks
 
-- [ ] PENDENTE — próxima tarefa operacional do Kiro.
+- [x] CONCLUÍDA E APROVADA
+- Commit: `24e6b2b`
+- Auditoria: 🟢 aprovada.
 - Objetivo: corrigir a lacuna identificada na TASK 65.1: novos DocumentChunks são criados, mas o pipeline de ingestão não gera/persiste automaticamente o embedding do chunk. Sem isso, o OCR funciona e o RAG direcionado gera embeddings das consultas, porém o pgvector não consegue explorar semanticamente os novos chunks.
 - Esta TASK é uma correção de pipeline de ingestão. Não é uma nova arquitetura de RAG e não deve alterar agentes, LangGraph, Checklist, Risk ou Verdict.
 - Escopo mínimo: localizar o mecanismo de embeddings existente, reutilizá-lo na ingestão de chunks, persistir o vetor no campo/modelo já existente quando possível e garantir fallback seguro quando não houver API key.
@@ -897,7 +903,9 @@ Ao finalizar:
 
 ## TASK 66 — Execução: embeddings na ingestão dos DocumentChunks
 
-- [x] CONCLUÍDA (aguardando auditoria)
+- [x] CONCLUÍDA E APROVADA
+- Commit: `24e6b2b`
+- Auditoria: 🟢 aprovada.
 - **Causa raiz:** `DocumentPipeline.ingest` (`backend/app/documents/pipeline.py`) criava os `DocumentChunk` (conteúdo/página/seção/metadata) mas **nunca** gerava/persistia o embedding. Existiam dois helpers `embed_pending_chunks` (`documents/embedding.py` e `rag/embeddings.py`), porém **nenhum era chamado no pipeline**. Assim todo chunk nascia com `embedding = NULL` e o `HybridRetriever` operava em modo texto.
 - **Solução (correção mínima):** `backend/app/documents/embedding.py::embed_pending_chunks` foi reforçado (valida dimensão contra `settings.embedding_dimensions`, é idempotente via `embedding IS NULL`, tolera falha do provider retornando telemetria e nunca levanta) e passou a ser **chamado por `DocumentPipeline.ingest` após o flush dos chunks**, dentro de `try/except` para que falha de embedding **nunca** quebre a ingestão. Reutiliza o gateway/provider existente (`build_gateway().embed`). **Sem migration** (a coluna `document_chunks.embedding = Vector(1536)` já existia). Nenhum RAG/agente/provider novo; LangGraph, Checklist, Risk e Verdict inalterados.
 - **Sem API key / falha do provider:** a ingestão continua e os chunks são criados (fallback textual). Sem chave, o helper retorna cedo (não constrói gateway). Falha do provider é registrada com segurança (sem expor chave nem conteúdo) e a ingestão prossegue.
@@ -909,4 +917,159 @@ Ao finalizar:
 - **Contagens antes → depois:** analyses 6→7 (V1–V7 preservadas), document_versions 5→6, document_chunks 1097→1105 (+8), chunks_com_embedding **0→8** (apenas os novos; histórico não sofreu backfill), evidences 108→142, verdicts 6→7. Matrícula: versões [1,2,3] preservadas. 27 `canonical_key` intactos. Backup: `backups/radar-backup-20260924-220845`.
 - **Limitação restante (honesta):** apenas os chunks **novos** (ingeridos após a correção) recebem embedding. Os ~1097 chunks históricos do 633 permanecem sem vetor (sem backfill, por escopo). Recuperação semântica plena de documentos antigos exigiria reingestão/backfill controlado — fora do escopo desta task.
 
-**Status global (Task 66):** 🟢 suíte automatizada verde (253 passed); embedding gerado/persistido na ingestão (dimensão 1536), idempotente e tolerante a ausência de chave/falha; conteúdo OCR da matrícula 633 agora **recuperável semanticamente** pelo RAG; histórico do 633 preservado (V6→V7). 🟡 Chunks históricos anteriores à correção seguem sem embedding (sem backfill, por escopo).
+**Status global (Task 66):** 🟢 aprovada — suíte reportada 253 passed; embeddings de novos chunks gerados/persistidos na ingestão (1536), idempotentes e tolerantes a ausência de chave/falha; conteúdo OCR da matrícula 633 recuperável semanticamente; histórico V1→V7 preservado. 🟡 Chunks históricos anteriores à correção continuam sem embedding, sem backfill por escopo.
+
+---
+
+## TASK 67 — Validação de qualidade do contexto RAG no E2E real
+
+- [ ] PENDENTE — próxima tarefa operacional do Kiro.
+
+### Objetivo
+
+Agora que a cadeia documental está operacional até a busca vetorial, a próxima etapa é validar exatamente o que cada agente recebe no E2E real do imóvel 633.
+
+A TASK 66 provou que:
+
+- novos chunks recebem embedding;
+- pgvector está funcionando;
+- busca semântica recupera os chunks OCR da matrícula;
+- o E2E V7 passou a recuperar os chunks OCR 1752–1759.
+
+A TASK 67 não deve criar nova arquitetura. Ela deve responder uma pergunta objetiva:
+
+> O retrieval atual está entregando para cada agente o conjunto de evidências/documentos adequado para que a análise do imóvel seja completa, rastreável e conservadora?
+
+### Escopo obrigatório
+
+1. Auditar o retrieval real da V7:
+   - identificar os chunks efetivamente entregues a cada um dos 5 agentes;
+   - identificar quantos chunks são da matrícula, edital e outras fontes;
+   - identificar document_id, document_version_id, página e tipo/origem quando disponíveis;
+   - comparar o contexto V6 × V7;
+   - não alterar comportamento antes de entender o diagnóstico.
+
+2. Auditar o retrieval direcionado do Checklist:
+   - verificar quais chunks foram recuperados por item/pergunta;
+   - medir chunks distintos e distribuição por documento;
+   - verificar se o teto de contexto está descartando evidências relevantes;
+   - verificar se as 27 perguntas estão recebendo contexto suficiente quando há evidência disponível;
+   - verificar quantos itens continuam pendentes por ausência real de evidência versus contexto insuficiente, sem inventar respostas.
+
+3. Auditar os 5 agentes separadamente:
+   - Documental
+   - Jurídico
+   - Financeiro
+   - Mercado
+   - Checklist
+
+   Para cada agente, registrar quais chunks foram usados e se o contexto é coerente com seu domínio.
+
+4. Auditar a origem do contexto:
+   - não assumir que todos os agentes devem receber exatamente os mesmos chunks;
+   - identificar se a arquitetura atual realmente entrega contexto específico por domínio;
+   - identificar se algum agente está recebendo contexto excessivamente genérico;
+   - verificar se o OCR da matrícula chega ao Jurídico e Checklist quando necessário;
+   - verificar se edital e matrícula podem coexistir no contexto quando uma pergunta depende dos dois.
+
+5. Instrumentação mínima, se necessária:
+   - se os logs/telemetria atuais não forem suficientes, adicionar somente a instrumentação necessária para identificar a composição do contexto;
+   - registrar IDs, contagens, tipos, versões e páginas;
+   - não registrar conteúdo integral dos documentos;
+   - não registrar API keys, prompts completos ou dados sensíveis;
+   - não alterar o resultado funcional apenas para gerar logs.
+
+6. Teste com o imóvel 633:
+   - utilizar V7 como referência existente;
+   - não apagar V1–V7;
+   - não reingerir documentos sem necessidade;
+   - não criar nova análise automaticamente se a instrumentação puder ser feita sem ela;
+   - se uma nova análise for necessária para validar a instrumentação, preservar V7 e criar V8 de forma controlada.
+
+### Importante — diagnóstico antes de correção
+
+Não sair alterando o algoritmo de RAG.
+
+Primeiro produzir um diagnóstico objetivo:
+
+- contexto recebido por agente;
+- documentos representados;
+- chunks representados;
+- páginas representadas;
+- cobertura por domínio;
+- itens do Checklist sem contexto;
+- possíveis perdas por limite/deduplicação.
+
+Somente se o diagnóstico comprovar uma falha real de retrieval, implementar a menor correção necessária dentro desta TASK.
+
+### Fora do escopo
+
+Não:
+
+- criar novo agente;
+- trocar LLM/provider;
+- trocar modelo de embedding;
+- criar novo vector database;
+- substituir pgvector;
+- reescrever o RAG inteiro;
+- alterar os 27 canonical keys;
+- alterar estados do Checklist;
+- alterar Risk Engine;
+- alterar Verdict Engine;
+- alterar regras de negócio;
+- fazer backfill de todos os chunks históricos;
+- reprocessar todo o imóvel sem necessidade;
+- criar MinIO/Redis/ELK;
+- fazer otimização ampla de custo nesta etapa;
+- apagar histórico V1–V7;
+- alterar migrations históricas.
+
+### Testes
+
+Adicionar somente testes necessários para o diagnóstico/instrumentação ou para uma correção comprovada.
+
+Obrigatório executar:
+
+pytest -q
+
+Se backend não for alterado funcionalmente, não criar testes artificiais apenas para aumentar contagem.
+
+Frontend só deve ser testado se for afetado.
+
+### Critérios de aceite
+
+A TASK 67 somente será considerada concluída quando houver:
+
+1. diagnóstico real dos chunks/contextos entregues aos 5 agentes;
+2. comparação V6 × V7 do contexto recuperado;
+3. diagnóstico do retrieval direcionado das 27 perguntas do Checklist;
+4. identificação clara de quais documentos/versões/páginas estão representados;
+5. confirmação de que o chunk OCR da matrícula pode chegar aos agentes que precisam dele;
+6. identificação de eventuais gargalos de contexto, deduplicação ou limite;
+7. nenhuma confirmação artificial introduzida;
+8. suíte verde;
+9. histórico V1–V7 preservado;
+10. se houver correção, ela deve ser mínima, testada e justificada pelo diagnóstico.
+
+### Entrega
+
+Criar um único commit somente se houver alteração de código/documentação necessária.
+
+Atualizar:
+
+- docs/PROJECT-STATUS.md
+- docs/PROJECT-HISTORY.md
+
+Informar:
+
+- diagnóstico por agente;
+- chunks/documentos/páginas recuperados;
+- comparação V6 × V7;
+- Checklist: cobertura por item/grupo;
+- testes;
+- se houve alteração funcional;
+- limitações restantes.
+
+Se a investigação concluir que o código já está adequado e somente documentação/telemetria foi necessária, registrar isso claramente.
+
+**Depois do commit, PARAR e aguardar auditoria. Não iniciar TASK 68.**
