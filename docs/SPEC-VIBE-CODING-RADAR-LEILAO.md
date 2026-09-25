@@ -2364,3 +2364,134 @@ O núcleo funcional previsto para o MVP foi implementado e validado pelo conjunt
 A partir deste ponto, novas capacidades devem ser tratadas como evolução/backlog. A única exceção imediata é a **Task 69**, que não adiciona capacidade funcional nova: apenas expõe operacionalmente o serviço de reanálise incremental já implementado para permitir a validação V8 → V9.
 
 Após a validação da Task 69, o próximo marco será o E2E de um imóvel novo do zero.
+
+
+---
+
+# 44. ADDENDUM — Validação real pela UI e Task 70
+
+Esta seção registra decisões posteriores ao fechamento do núcleo funcional do MVP e tem precedência sobre qualquer descrição anterior que conflite com o estado atual de validação.
+
+## 44.1 Princípio de UX para evidências
+
+**IDs internos de banco não são uma interface adequada para o usuário final.**
+
+A rastreabilidade técnica deve permanecer, mas a apresentação deve transformar a evidência em uma referência compreensível.
+
+Cadeia obrigatória:
+
+```text
+VEREDITO
+   ↓
+EVIDÊNCIA
+   ↓
+DOCUMENTO
+   ↓
+VERSÃO
+   ↓
+PÁGINA / SEÇÃO / TRECHO
+```
+
+Quando um nível de metadado não estiver disponível, o sistema deve omiti-lo ou usar uma descrição conservadora. Nunca inventar página, seção, documento ou conteúdo.
+
+## 44.2 Regra de seleção do estado atual
+
+Para entidades versionadas, **não usar a ordem incidental de um relacionamento ORM para determinar o registro mais recente**.
+
+Exemplo incorreto:
+
+```python
+latest = prop.verdicts[-1] if prop.verdicts else None
+```
+
+Exemplo canônico para Veredito:
+
+```python
+latest = db.scalar(
+    select(models.Verdict)
+    .where(models.Verdict.property_id == property_id)
+    .order_by(
+        models.Verdict.analysis_version.desc(),
+        models.Verdict.id.desc()
+    )
+)
+```
+
+A mesma regra deve ser aplicada somente quando houver risco funcional equivalente em outras entidades versionadas: a seleção do estado atual precisa ser determinística.
+
+## 44.3 Validação manual do imóvel de referência
+
+A validação pela UI do imóvel `633` confirmou:
+
+- histórico com Análise V8;
+- Checklist com 7 itens CONFIRMADO e 20 PENDENTE;
+- documentos com versionamento visível;
+- Veredito ainda exibindo V7;
+- evidências exibidas como IDs internos.
+
+Essas duas inconsistências são requisitos explícitos de correção antes da validação operacional V8 → V9.
+
+## 44.4 Task 70 — escopo fechado
+
+A Task 70 corrige somente:
+
+1. seleção determinística do Veredito mais recente;
+2. teste de regressão dessa seleção;
+3. apresentação amigável das evidências na tela de Veredito;
+4. contrato de dados necessário para o frontend renderizar documento/categoria/versão/página/seção/trecho quando esses dados existirem;
+5. testes de regressão da apresentação/contrato.
+
+Fora do escopo:
+
+- nova regra de negócio;
+- alteração do Verdict Engine;
+- alteração do Risk Engine;
+- alteração do RAG;
+- alteração dos agentes;
+- alteração do Checklist;
+- migration;
+- nova análise real;
+- geração da V9;
+- refatoração geral do backend/frontend.
+
+## 44.5 Critério de validação visual
+
+Após a Task 70, o usuário deve conseguir abrir o imóvel 633 e entender o Veredito sem conhecer o banco de dados.
+
+Resultado esperado:
+
+```text
+Veredito
+  → Análise V8
+
+Evidências vinculadas
+  → documento legível
+  → categoria/tipo
+  → versão, quando disponível
+  → página/seção, quando disponível
+  → trecho/descrição, quando disponível
+```
+
+Os IDs internos podem continuar existindo tecnicamente, mas não devem ser a informação principal apresentada ao usuário.
+
+## 44.6 Sequência de validação
+
+```text
+TASK 70
+   ↓
+pytest
+   ↓
+auditoria do commit
+   ↓
+rebuild / health
+   ↓
+UI do imóvel 633
+   ↓
+Veredito = V8
+   ↓
+evidências legíveis
+   ↓
+retomar V8 → V9
+```
+
+A validação incremental só será considerada concluída após a execução controlada desse fluxo.
