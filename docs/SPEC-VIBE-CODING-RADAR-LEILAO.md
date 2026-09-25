@@ -1,7 +1,7 @@
 # RADAR LEILÃO — ARQUITETURA MESTRA
 
-**Versão:** 3.0 — Business + Arquitetura MVP + Estado de Implementação Consolidado  
-**Status:** Documento mestre oficial para implementação do MVP  
+**Versão:** 4.0 — Business + Arquitetura + Implementação + Encerramento do MVP  
+**Status:** Documento mestre oficial e registro final do MVP encerrado  
 **Idioma:** Português do Brasil (pt-BR)  
 **Idioma do sistema:** Português do Brasil (pt-BR)  
 **Escopo:** Leilões extrajudiciais de imóveis no Brasil
