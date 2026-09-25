@@ -1541,3 +1541,18 @@ Direção esperada:
 **Commit esperado:** fix: corrige selecao da execucao do checklist
 
 **Aceite:** V8 continua 7/20 no Checklist e o Veredito V8 deixa de considerar os 7 confirmados como pendentes.
+
+
+## TASK 71 — APROVADA 🟢
+
+**Commit:** 8f9b54d — `fix: corrige selecao da execucao do checklist`
+
+Auditoria direta do commit confirmou a correção na origem. `latest_execution()` deixou de depender da ordem incidental do relacionamento ORM e passou a usar versão + ID como ordenação determinística. `execution_for_version()` foi introduzida e `create_verdict()` passou a solicitar a execução da mesma versão da Analysis.
+
+Foram adicionados 8 testes cobrindo: maior versão fora de ordem, desempate por ID, versão nula, ausência de execuções, seleção por versão, desempate por versão, fallback e integração do `create_verdict()` com V8 (7 CONFIRMADO / 20 PENDENTE) contra V7 (27 PENDENTE).
+
+Resultado informado: **275 passed**, 0 falhas. Branch `main` está no SHA 8f9b54d e o working tree local do Kiro foi reportado limpo, exceto arquivos temporários não versionados.
+
+Nenhuma alteração fora do escopo foi identificada. V8 permanece intacta e nenhuma V9 foi gerada.
+
+**Próxima etapa:** validação operacional/UI do imóvel 633 antes de iniciar a reanálise incremental.
