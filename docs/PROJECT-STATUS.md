@@ -1,6 +1,6 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: MVP ENCERRADO**
+**Status global: MVP ENCERRADO (núcleo funcional) — validação operacional incremental pendente**
 
 **Última atualização:** 25/09/2026  
 **Última implementação:** Task 68 — commit b3a94f59f35ffb9ad546a0400dc57b05b3f817ae
@@ -124,6 +124,20 @@ A documentação deve ser atualizada junto com qualquer mudança arquitetural fu
 
 **MVP ENCERRADO — 25/09/2026**
 
-Não há Task 69 funcional prevista.
+O núcleo funcional do MVP permanece encerrado. A validação E2E real V1–V8 foi concluída e o código atual preserva o serviço de reanálise incremental.
 
-Novas necessidades devem ser abertas como evolução/backlog e somente entrar no núcleo após evidência objetiva de necessidade.
+### 8.1 Follow-up operacional de validação
+
+Durante a preparação do teste de reanálise, foi confirmado que:
+
+- `backend/app/incremental.py` implementa `IncrementalAnalysisService.run_for_event()`;
+- `ImpactAnalyzer` decide se o evento exige reanálise e quais domínios são afetados;
+- o serviço cria nova versão de `Analysis`, executa o orquestrador nos domínios afetados, persiste evidências/LLM usage/riscos/veredito e marca o evento como processado;
+- existem testes unitários específicos para esse serviço;
+- não foi encontrado, no código atual, um endpoint/worker operacional que invoque `run_for_event()`.
+
+Portanto, a próxima ação é **exclusivamente habilitar o gatilho operacional desse serviço para permitir a validação real V8 → V9**. Isso não reabre o núcleo funcional do MVP nem altera arquitetura, RAG, agentes, Checklist ou regras de negócio.
+
+A tarefa de continuidade fica registrada como **Task 69 — Gatilho operacional da reanálise incremental**, com escopo estritamente limitado à exposição do serviço já implementado.
+
+Novas funcionalidades fora desse objetivo continuam sendo evolução/backlog.
