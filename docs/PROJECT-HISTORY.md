@@ -297,8 +297,7 @@ Novo imóvel
 ### Validação (ao vivo, WSL2)
 - `docker compose config` válido; `docker compose up -d --build` reconstruiu backend/frontend; `health.sh` = 5/5 OK.
 - Dados preservados no rebuild/restart: contagem de imóveis/análises/documentos idêntica antes e depois; `alembic_version` inalterado.
-- `logs.sh status/tail/save` funcionando; arquivo gerado em `logs/`.
-- `OPENAI_API_KEY configurada` confirmado sem exibir a chave.
+- `logs.sh status/tail/save` funcionando; arquivo gerado em `logs/`.- `OPENAI_API_KEY configurada` confirmado sem exibir a chave.
 - `pytest -q` = 228 passed (sem regressão). `alembic upgrade head` sem destruir dados.
 
 ## Diagnóstico E2E real — 24/09/2026
@@ -597,8 +596,7 @@ Depois do commit, aguardar auditoria antes de avançar.
 - Resultado da v2: `extraction_quality=OCR`, `ocr=true`, `ocr_engine=tesseract`, `ocr_language=por`, `ocr_pages=2`, `char_count=8355`, 8 chunks. Conteúdo registral real recuperado ("REGISTRO DE IMÓVEIS 7ª Circunscrição Curitiba-Paraná", "Matrícula nº 25.278", compra/venda/mútuo). O documento original **não** foi substituído.
 
 ### Validação E2E real — Imóvel 633 (V5 → V6)
-- Nova análise por `POST /api/imoveis/633/analisar`: HTTP 200 em ~61s, 5 agentes `CONCLUIDO`, `modelo=gpt-4o-mini`. Log ao vivo: `rag checklist direcionado: property_id=633 analysis_id=229 itens=27 embeddings_solicitados=27 embeddings_executados=27 embeddings_falhos=0 chunks_recuperados_total=108 chunks_distintos=4`.
-- Preservação (nada apagado): analyses 5→6 (V1–V5 intactas, nova **V6**); document_versions 4→5 (+ matrícula OCR v2); document_chunks 1089→1097 (+8 OCR; v1 intacta); evidences 73→108; checklist_executions 6→7; checklist_results 162→189 (+27); llm_runs 25→30 (+5); verdicts 5→6. 27 `canonical_key` intactos. Veredito V6 = INCONCLUSIVO.
+- Nova análise por `POST /api/imoveis/633/analisar`: HTTP 200 em ~61s, 5 agentes `CONCLUIDO`, `modelo=gpt-4o-mini`. Log ao vivo: `rag checklist direcionado: property_id=633 analysis_id=229 itens=27 embeddings_solicitados=27 embeddings_executados=27 embeddings_falhos=0 chunks_recuperados_total=108 chunks_distintos=4`.- Preservação (nada apagado): analyses 5→6 (V1–V5 intactas, nova **V6**); document_versions 4→5 (+ matrícula OCR v2); document_chunks 1089→1097 (+8 OCR; v1 intacta); evidences 73→108; checklist_executions 6→7; checklist_results 162→189 (+27); llm_runs 25→30 (+5); verdicts 5→6. 27 `canonical_key` intactos. Veredito V6 = INCONCLUSIVO.
 - Checklist V6: 27 itens, **0 CONFIRMADO / 27 PENDENTE** (conservador). `LEILOES_NEGATIVOS_AVERBADOS` = PENDENTE — correto documentalmente (a matrícula não contém averbação de leilão que sustente confirmação). Nenhuma confirmação foi forçada para melhorar cobertura.
 
 ### Testes
@@ -897,7 +895,6 @@ Se não houver falha, não inventar mudança funcional.
 Usar V7 como referência.
 
 Não apagar V1–V7.
-
 Não reingerir documentos sem necessidade.
 
 Não criar V8 apenas para gerar dados se a telemetria existente for suficiente.
@@ -1005,3 +1002,264 @@ Recomendação para a próxima task (fora do escopo desta): tornar edital+matrí
 ### Preservação e testes
 - V1–V7 preservadas; nenhum dado histórico alterado; nenhuma confirmação artificial; V8 não foi criada (diagnóstico possível com dados/telemetria já persistidos).
 - `pytest -q` = 253 passed (baseline intacto; nenhum código alterado nesta task).
+
+---
+
+## 24/09/2026 — Auditoria da TASK 67 e definição da TASK 68
+
+### TASK 67 — Validação de qualidade do contexto RAG no E2E real
+
+**Commit:** `006877b61c788c30dfc4930db307bdea2854c673`  
+**Status:** 🟢 APROVADA.
+
+A auditoria confirmou que a tarefa permaneceu diagnóstica e não alterou código funcional. O diagnóstico foi considerado suficiente e consistente com o código do HybridRetriever.
+
+### Resultado validado
+
+No V7 do imóvel 633 (analysis_id=266):
+- Documental: 8 chunks, todos matrícula v3 (1752–1759), edital 0;
+- Jurídico: 8 chunks, todos matrícula v3, edital 0;
+- Financeiro: 8 chunks, todos matrícula v3, edital 0;
+- Mercado: 8 chunks, todos matrícula v3, edital 0;
+- Checklist: 8 chunks, todos matrícula v3, edital 0.
+
+A comparação com V6 mostrou inversão do problema: V6 era edital-dominado; V7 passou a ser matrícula-only. Portanto, matrícula e edital não coexistiam no contexto de nenhum agente.
+
+### Causa raiz validada
+
+Apenas os 8 chunks da matrícula v3 possuíam embedding. Os chunks históricos do edital permaneciam sem vetor porque a TASK 66 não fez backfill histórico. O ranking híbrido usa vetor com peso 0,7 e texto com peso 0,3. Os probes registrados na TASK 67 demonstraram 108/108 candidatos das 27 consultas direcionadas como matrícula e 0 edital.
+
+A auditoria também confirmou que a perda não foi causada por PER_ITEM_LIMIT, MAX_TOTAL_CHUNKS ou deduplicação. O edital é alcançável por algumas consultas textuais curtas, mas não pelas consultas atuais em quantidade suficiente.
+
+### Checklist
+
+A V7 registrou 4 CONFIRMADO e 23 PENDENTE. Os 7 itens afetados por ausência do edital foram identificados como falha de retrieval:
+- EDITAL_LIDO;
+- RESPONSABILIDADE_DEBITOS;
+- CONDOMINIO_ALTO;
+- INTIMACAO_EDITAL;
+- NOTIFICACAO_DOIS_LEILOES;
+- LANCE_MENOR_50_AVALIACAO;
+- INTIMACAO_PESSOAL.
+
+Nenhuma confirmação artificial foi introduzida. V1–V7 permanecem preservadas e não foi criada V8.
+
+### Decisão
+
+A TASK 67 foi aprovada como diagnóstico concluído. A falha descoberta não deve ser considerada encerrada: ela bloqueia a validação final da qualidade documental do E2E porque o edital é uma fonte necessária para parte do Checklist e dos agentes.
+
+A correção deve ser feita em uma única TASK controlada, sem backfill global e sem reescrita do RAG.
+
+pytest -q reportado: 253 passed. Como não houve alteração funcional nesta task, a suíte foi registrada como baseline intacto.
+
+
+## TASK 68 — Recuperação conjunta de edital + matrícula no E2E real
+
+**Status:** PENDENTE — próxima tarefa operacional do Kiro.
+
+### Objetivo
+
+Corrigir a falha de retrieval comprovada na TASK 67, fazendo com que o contexto do imóvel 633 consiga representar edital e matrícula simultaneamente quando ambos forem relevantes, sem reescrever o RAG e sem alterar as regras de negócio.
+
+A TASK 68 é a última correção funcional planejada antes da validação final do MVP, salvo surgimento de uma regressão objetiva durante a execução.
+
+### Contexto e causa raiz já comprovada
+
+A TASK 67 foi aprovada em auditoria.
+
+No E2E V7 do imóvel 633:
+- os 5 agentes receberam 8 chunks cada;
+- os 8 eram exclusivamente da matrícula v3, chunks 1752–1759;
+- o edital não apareceu em nenhum contexto;
+- 108/108 candidatos das 27 consultas direcionadas do Checklist eram matrícula e 0 edital;
+- o problema não foi causado por PER_ITEM_LIMIT, MAX_TOTAL_CHUNKS ou deduplicação;
+- a causa foi a assimetria de embeddings: a matrícula v3 tem 8 embeddings, enquanto os chunks históricos do edital permanecem sem embedding;
+- o ranking híbrido atual usa aproximadamente 70% vetor + 30% texto, permitindo que a matrícula vetorizada ocupe os slots antes dos candidatos textuais do edital;
+- o edital é recuperável por texto com termos curtos, mas as consultas atuais não o alcançam de forma suficiente.
+
+### Estratégia obrigatória
+
+A correção deve ser mínima, controlada e baseada no mecanismo já existente.
+
+1. Não criar novo mecanismo de embeddings.
+2. Reutilizar o pipeline de ingestão existente da TASK 66.
+3. Reprocessar somente os documentos necessários do imóvel 633, principalmente o edital usado no E2E.
+4. Não fazer backfill global do banco.
+5. Não apagar versões anteriores.
+6. Não apagar V1–V7.
+7. Não alterar pesos globais do ranking sem evidência objetiva de que isso é indispensável.
+8. Não reescrever o RAG.
+9. Não alterar os 27 canonical keys, estados ou regras do Checklist.
+10. Não alterar Risk Engine ou Verdict Engine.
+11. Não criar novos agentes, providers, vector DB ou infraestrutura.
+
+### Passo 1 — Identificar exatamente os documentos do edital do 633
+
+Antes de ingerir:
+- confirmar quais document_id/document_version_id correspondem ao edital usado no V7;
+- confirmar nome, tipo, versão, hash/origem e quantidade de chunks;
+- confirmar que o documento correto é o edital do imóvel 633;
+- não assumir IDs sem consultar o banco.
+
+### Passo 2 — Reingestão controlada do edital
+
+Usar o DocumentPipeline.ingest já existente, com a configuração normal de produção local.
+
+Objetivo:
+edital original → normalização/OCR se necessário → chunks → embeddings → pgvector
+
+Validar:
+- nova document_version criada somente para o documento reprocessado;
+- chunks novos criados;
+- embeddings persistidos nos novos chunks;
+- dimensão correta conforme configuração;
+- páginas/seções/metadata preservados;
+- hash/original/source preservados;
+- versão anterior intacta;
+- nenhum outro documento histórico reprocessado.
+
+Se houver mais de um arquivo que represente o edital no imóvel 633, escolher apenas os necessários para o E2E e documentar a decisão. Não fazer reprocessamento em massa.
+
+### Passo 3 — Prova isolada do retrieval
+
+Antes de executar o E2E completo, executar consultas controladas que comprovem:
+- consulta jurídica relacionada a intimação/notificação;
+- consulta financeira relacionada a débitos/IPTU/condomínio;
+- consulta relacionada ao valor do segundo leilão/avaliação;
+- consulta documental relacionada ao edital;
+- consulta relacionada à matrícula, para garantir que a correção não expulsou a matrícula.
+
+Verificar se os resultados passam a incluir chunks do edital e se a matrícula continua recuperável.
+
+O objetivo é comprovar coexistência, não maximizar número de chunks.
+
+### Passo 4 — E2E controlado
+
+Executar nova análise do imóvel 633 somente depois da prova isolada.
+
+A nova análise será a próxima versão após V7, preservando V1–V7.
+
+Registrar:
+- novo analysis_id/versão;
+- chunks recuperados por agente;
+- quantidade de chunks por documento;
+- matrícula x edital;
+- páginas e versões;
+- resultado dos 5 agentes;
+- tokens/custo reportados;
+- Checklist 27 itens;
+- evidências geradas;
+- Risk/Verdict;
+- ausência de confirmações artificiais.
+
+### Passo 5 — Validar especificamente os 7 itens afetados
+
+Verificar individualmente:
+- EDITAL_LIDO
+- RESPONSABILIDADE_DEBITOS
+- CONDOMINIO_ALTO
+- INTIMACAO_EDITAL
+- NOTIFICACAO_DOIS_LEILOES
+- LANCE_MENOR_50_AVALIACAO
+- INTIMACAO_PESSOAL
+
+Para cada item, registrar se:
+- recebeu contexto suficiente;
+- recebeu evidência do edital;
+- permaneceu PENDENTE por ausência real de informação;
+- mudou de estado somente quando houver evidência documental suficiente.
+
+Não existe meta de quantidade de CONFIRMADO. O objetivo é eliminar a ausência artificial do edital do contexto.
+
+### Passo 6 — Validar Checklist e conservadorismo
+
+Não considerar sucesso apenas porque o edital apareceu.
+
+Verificar:
+- nenhuma confirmação baseada apenas na presença do documento;
+- respostas continuam dependentes de evidência;
+- evidências apontam para documento/version/chunk/página corretos;
+- itens sem informação continuam PENDENTE;
+- não houve alteração dos 27 canonical keys;
+- não houve mudança artificial no Risk/Verdict.
+
+### Correção adicional de retrieval
+
+Somente se, após os embeddings do edital, o retrieval ainda excluir sistematicamente o edital, diagnosticar o menor ajuste possível.
+
+Qualquer ajuste adicional deve ser pequeno, justificado por dados do E2E, coberto por testes e limitado ao problema de coexistência edital + matrícula.
+
+Não alterar pesos globais ou semântica das consultas por tentativa e erro.
+
+Se os embeddings do edital forem suficientes para resolver o problema, não alterar o algoritmo de retrieval.
+
+### Testes obrigatórios
+
+Executar:
+pytest -q
+
+Se houver alteração funcional no retrieval, adicionar somente os testes necessários para proteger a correção.
+
+Não criar testes artificiais apenas para aumentar a contagem.
+
+### Fora do escopo
+
+Não:
+- fazer backfill global;
+- reprocessar todos os documentos do imóvel;
+- apagar V1–V7;
+- criar versões extras sem necessidade operacional;
+- trocar LLM/provider/modelo de embedding;
+- criar novo agente;
+- trocar pgvector/vector DB;
+- reescrever RAG;
+- alterar os 27 canonical keys;
+- alterar estados do Checklist;
+- alterar regras de negócio;
+- alterar Risk/Verdict sem evidência de regressão;
+- criar MinIO/Redis/ELK;
+- fazer otimização ampla de custo;
+- fazer refatoração arquitetural.
+
+### Critérios de aceite
+
+1. edital correto do imóvel 633 reprocessado controladamente com chunks embeddados;
+2. versão anterior preservada;
+3. consultas isoladas recuperam evidência do edital;
+4. matrícula continua recuperável;
+5. edital e matrícula coexistem no contexto quando necessários;
+6. os 5 agentes executam com sucesso;
+7. os 7 itens afetados são auditados individualmente;
+8. nenhuma confirmação artificial é introduzida;
+9. Checklist continua com 27 canonical keys e estados válidos;
+10. Risk/Verdict continuam rastreáveis;
+11. pytest -q passa sem regressão;
+12. V1–V7 permanecem preservadas;
+13. nenhuma alteração fora do escopo é introduzida;
+14. documentação registra exatamente o que foi reprocessado, quantos embeddings foram criados e o resultado do E2E.
+
+### Entrega
+
+Um único commit de implementação/documentação.
+
+Atualizar:
+- docs/PROJECT-STATUS.md
+- docs/PROJECT-HISTORY.md
+
+Informar:
+- documentos/version IDs reprocessados;
+- chunks antes/depois;
+- embeddings antes/depois;
+- provas isoladas de retrieval;
+- comparação V7 × nova análise;
+- distribuição edital/matrícula por agente;
+- Checklist dos 27 itens, com foco nos 7 afetados;
+- testes;
+- tokens/custo do E2E;
+- limitações restantes.
+
+**Depois do commit, PARAR e aguardar auditoria. Não iniciar TASK 69.**
+
+### Regra de encerramento
+
+Se a TASK 68 passar na auditoria e o E2E final estiver íntegro, o próximo passo não será criar novas funcionalidades: será a revisão final da SPEC, fechamento da documentação e declaração do MVP como concluído, registrando como backlog apenas melhorias futuras que não sejam necessárias para o fluxo principal.
