@@ -376,3 +376,16 @@ A Task 71 deve corrigir isso de forma determinística:
 ### Critério de aceite
 
 Checklist V8 do imóvel 633 permanece em **7 CONFIRMADO / 20 PENDENTE** e o Veredito V8 deixa de tratar os 7 confirmados como pendentes. Pendências financeiras legítimas continuam separadas.
+
+
+## 12. TASK 71 — APROVADA 🟢
+
+Commit funcional: **8f9b54d** — `fix: corrige selecao da execucao do checklist`.
+
+Auditoria concluída: `latest_execution()` passou a selecionar deterministicamente por `analysis_version DESC, id DESC`; `execution_for_version()` garante que `create_verdict()` use a execução correspondente à versão da Analysis. Foram adicionados 8 testes de regressão.
+
+Validação reportada pelo Kiro: **275 passed**, 0 falhas; `origin/main == HEAD`. Nenhuma análise real, LLM, reanálise ou V9 foi executada.
+
+Escopo preservado: VerdictEngine, RiskEngine, modelos, migrations, frontend, Checklist Mestre, RAG, LangGraph e agentes não foram alterados.
+
+**Próximo passo:** rebuild/health e validação visual do imóvel 633. Somente após confirmar o Veredito V8 alinhado ao Checklist V8, seguir para V8 → DomainEvent → ImpactAnalyzer → reanálise incremental → V9.
