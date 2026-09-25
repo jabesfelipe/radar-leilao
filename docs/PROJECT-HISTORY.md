@@ -1298,3 +1298,68 @@ Se a TASK 68 passar na auditoria e o E2E final estiver íntegro, o próximo pass
 ### Limitações restantes
 - Itens muito específicos da matrícula cujo texto do edital é semanticamente próximo (ex.: VAGA_MATRICULA, PENHORA_INDISPONIBILIDADE) podem não trazer a matrícula no topo do retrieval por item; a matrícula ainda coexiste no contexto compartilhado do checklist (2 chunks). Ajuste fino de recuperação por item seria tarefa própria, fora do escopo desta correção mínima.
 - O doc 195 (edital duplicado) permanece sem embedding (duplicata do doc 193).
+
+---
+
+# 25/09/2026 — ENCERRAMENTO DO MVP
+
+## TASK 68 — Auditoria e aprovação
+
+Commit: b3a94f59f35ffb9ad546a0400dc57b05b3f817ae
+
+A Task 68 foi aprovada após auditoria do commit, código, testes e documentação.
+
+### Resultado
+
+- edital doc 193 reprocessado controladamente para v2 (document_version_id=474);
+- 544 chunks novos;
+- 544 embeddings de dimensão 1536;
+- versão anterior preservada;
+- nenhum backfill global;
+- retrieval isolado passou a recuperar o edital;
+- correção mínima de diversidade por documento aplicada ao retrieval direcionado do Checklist;
+- edital + matrícula passaram a coexistir no contexto dos cinco agentes;
+- proteção defensiva para chunk_id fora do range int4;
+- pytest -q: 258 passed;
+- V1–V8 preservadas;
+- 27 canonical_key preservados;
+- nenhum agente novo criado;
+- nenhum provider/modelo alterado;
+- nenhuma migration criada.
+
+### V8 — E2E final de referência
+
+Imóvel: COND PARQUE ARVOREDO RESIDENCIAL CLUBE, Caixa, Curitiba/PR.
+
+analysis_id=280
+
+- 5/5 agentes concluídos;
+- modelo gpt-4o-mini;
+- 35.231 tokens;
+- custo aproximado US$ 0,0072;
+- Checklist: 7 CONFIRMADO / 20 PENDENTE;
+- Veredito: INCONCLUSIVO;
+- contexto:
+  - Checklist: 22 edital + 2 matrícula;
+  - Documental/Jurídico/Financeiro/Mercado: 7 edital + 1 matrícula.
+
+Os dois itens que mudaram para CONFIRMADO pela disponibilidade do edital foram EDITAL_LIDO e NOTIFICACAO_DOIS_LEILOES. Os demais itens afetados permaneceram pendentes de forma conservadora.
+
+## Fechamento
+
+A Task 68 foi considerada a última correção funcional planejada.
+
+A documentação final foi revisada para registrar:
+- arquitetura efetivamente implementada;
+- componentes que ficaram como evolução;
+- cinco agentes LLM efetivamente implementados;
+- ausência de Desocupação Agent separado no MVP;
+- storage local por filesystem;
+- MCP, Knowledge Graph dedicado, Redis e S3/MinIO como evolução;
+- RAG híbrido e retrieval direcionado do Checklist;
+- embeddings na ingestão;
+- E2E V8 e limitações conhecidas.
+
+**Decisão: MVP ENCERRADO em 25/09/2026.**
+
+A partir deste ponto, não existe Task 69 funcional. Novas ideias devem ser tratadas como backlog/evolução.

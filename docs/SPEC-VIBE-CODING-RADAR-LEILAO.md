@@ -496,8 +496,8 @@ Motivo da mudança
                               │
              ┌────────────────┼────────────────┐
              │                │                │
-          pgvector       Histórico        Knowledge
-             │                │               Graph
+          pgvector       Histórico        Memória
+             │                │            estruturada
              └────────────────┼────────────────┘
                               │
                        KNOWLEDGE BASE
@@ -1001,7 +1001,9 @@ Ele serve como contexto e evidência de similaridade.
 
 # 12. Knowledge Graph
 
-O Knowledge Graph será uma camada evolutiva.
+O Knowledge Graph é uma camada evolutiva e não faz parte da implementação do MVP encerrado.
+
+No MVP, as relações entre imóvel, documentos, evidências, processos, análises, checklist, riscos e histórico são persistidas de forma relacional em PostgreSQL e complementadas por pgvector e memória estruturada.
 
 Modelo conceitual:
 
@@ -1119,14 +1121,11 @@ Responsável por:
 - liquidez;
 - contexto de mercado.
 
-## Desocupação Agent
+## Desocupação no MVP
 
-Responsável por:
+Desocupação é um domínio funcional do Radar, mas o MVP encerrado não possui um LLM Agent separado para esse domínio.
 
-- ocupação;
-- evidências;
-- complexidade potencial;
-- impacto financeiro/temporal.
+A situação de ocupação é representada por dados e análises próprias do domínio e pode alimentar Financeiro, Checklist, Riscos e Veredito.
 
 ## Checklist Agent
 
@@ -1800,24 +1799,15 @@ Essa decisão reduz a complexidade inicial.
 
 Uma solução especializada de Vector DB poderá ser introduzida posteriormente se houver justificativa técnica.
 
-## Object Storage
+## Storage de documentos
 
-Documentos originais e artefatos derivados devem ser armazenados em storage de objetos.
+No MVP encerrado, documentos originais e artefatos derivados são armazenados em filesystem persistente do backend, montado por volume Docker.
 
-Inicialmente compatível com:
-
-- S3;
-- MinIO para ambiente local.
+S3/MinIO permanecem como evolução futura; não são dependências do fluxo principal atual.
 
 ## Redis
 
-Pode ser utilizado para:
-
-- cache;
-- estado temporário;
-- filas;
-- locks;
-- otimização.
+Redis não faz parte da implementação atual do MVP. Poderá ser introduzido futuramente somente se houver necessidade operacional comprovada.
 
 ---
 
@@ -2014,11 +2004,14 @@ A implementação será incremental e orientada a valor.
 - gateway de LLM;
 - embeddings;
 - pgvector;
-- retrieval;
+- retrieval híbrido;
 - LangChain;
 - LangGraph;
 - Document Agent;
-- Checklist Agent.
+- Jurídico Agent;
+- Financeiro Agent;
+- Mercado Agent;
+- Checklist Agent;
 
 ## Fase 5 — Financeiro e análise
 
@@ -2091,15 +2084,15 @@ O Radar estará cumprindo seu objetivo quando for possível:
 | RAG | Hybrid RAG |
 | Memória | Base externa estruturada |
 | Orquestração | LangGraph |
-| Agentes | Especializados por domínio, conforme necessidade do MVP |
-| Ferramentas | Tools / MCP |
+| Agentes LLM | Documental, Jurídico, Financeiro, Mercado e Checklist + Supervisor |
+| Ferramentas/MCP | Extensibilidade futura; não dependência do MVP |
 | Histórico | Versionado |
 | Evidências | Obrigatórias para conclusões relevantes |
 | Cálculos | Determinísticos |
 | Veredito | Explicável e rastreável |
 | Atualização | Incremental |
 | LLM | Abstraída por gateway |
-| Knowledge Graph | Evolutivo |
+| Knowledge Graph | Evolução futura; não implementado como componente dedicado no MVP |
 | Evals | Obrigatórios para evolução da IA |
 | Judicial | Fora da V1 |
 
@@ -2183,150 +2176,183 @@ O objetivo agora é colocar o Radar funcionando com imóveis reais, validar a ar
 
 ---
 
-# 43. DECISÃO FINAL — MVP
+# 43. DECISÃO FINAL — MVP ENCERRADO
 
-Esta versão consolida o entendimento atual do Radar.
+Esta seção registra o estado final do MVP e substitui os estados intermediários de implementação descritos anteriormente neste documento.
 
-## O que está fechado
+## 43.1 Escopo efetivamente encerrado
 
-### Business
+O MVP foi encerrado com o escopo de leilões extrajudiciais de imóveis no Brasil.
 
-- escopo extrajudicial;
-- imóvel como centro;
-- Due Diligence;
-- Checklist Mestre extensível;
-- jurídico;
-- processos;
-- documentação;
-- financeiro;
-- débitos;
-- custos;
-- reforma;
-- mercado;
-- comparáveis;
-- liquidez;
-- ocupação/desocupação;
-- riscos;
-- Veredito;
-- histórico;
-- reanálise incremental.
+Fluxo principal validado:
+
+    Cadastro do imóvel
+      ↓
+    Dados do leilão
+      ↓
+    Fontes e documentos
+      ↓
+    Normalização / OCR
+      ↓
+    Chunks + embeddings
+      ↓
+    RAG híbrido
+      ↓
+    Agentes especializados
+      ↓
+    Consolidação
+      ↓
+    Checklist Mestre
+      ↓
+    Risk Engine
+      ↓
+    Verdict Engine
+      ↓
+    Histórico / memória
+
+## 43.2 Implementação final
 
 ### Frontend
-
-O frontend será completo no MVP e refletirá todo o fluxo funcional do produto.
+- React 19 + TypeScript + Vite.
+- Hubs funcionais para o fluxo principal.
+- Cadastro de imóvel/leilão.
+- Upload e visualização de documentos.
+- Documentos, fontes, processos, financeiro, mercado, ocupação/desocupação, checklist, riscos/veredito e histórico integrados ao dossiê.
 
 ### Backend
-
-Python + FastAPI, modular.
-
-### IA
-
-LangChain + LangGraph + RAG.
-
-### Dados
-
-PostgreSQL + pgvector, executado localmente via Docker/WSL no MVP.
+- Python 3.12+.
+- FastAPI.
+- Pydantic.
+- SQLAlchemy.
+- Alembic.
+- PostgreSQL + pgvector no ambiente local via Docker/WSL.
 
 ### Documentos
+- Original preservado.
+- Versionamento de Document / DocumentVersion.
+- MarkItDown para normalização.
+- OCR local-first com Tesseract + Poppler quando necessário.
+- Metadata de página/seção/origem preservada.
+- Embeddings gerados na ingestão quando provider/chave estão disponíveis.
+- Falha de embedding não invalida a ingestão documental.
 
-MarkItDown + OCR quando necessário.
+### IA
+O MVP possui cinco agentes LLM especializados:
+1. Documental;
+2. Jurídico;
+3. Financeiro;
+4. Mercado;
+5. Checklist.
 
-### Histórico
+O Supervisor coordena a execução desses agentes no LangGraph.
 
-Obrigatório e transversal.
+Não existe um Desocupação Agent separado no MVP encerrado. Desocupação permanece como domínio funcional.
 
-### Evolução
+### RAG
+- Hybrid RAG com busca vetorial + texto + filtros.
+- pgvector como armazenamento vetorial.
+- Retrieval direcionado por item para o Checklist.
+- Limite de 4 chunks por item e 24 chunks distintos no contexto direcionado.
+- Seleção final com diversidade por documento para evitar que uma única fonte monopolize o contexto quando documentos relevantes coexistirem.
+- Rastreabilidade dos chunks recuperados por agente/análise.
 
-Novos critérios, documentos, processos, custos e evidências podem ser adicionados sem destruir o histórico.
+### Checklist
+- Um único Checklist Mestre.
+- 27 canonical_key de referência preservados.
+- Estados válidos: PENDENTE, EM_ANALISE, CONFIRMADO, RISCO_IDENTIFICADO, ATENCAO, NAO_IDENTIFICADO, NAO_APLICAVEL.
+- Versionamento e histórico.
+- Novos critérios podem ser adicionados futuramente sem apagar execuções anteriores.
 
-### Execução
+### Financeiro
+- Cálculos determinísticos fora da LLM.
+- Custos, dívidas, comparáveis, ocupação e demais entradas alimentam o motor financeiro.
+- A LLM interpreta resultados, mas não substitui os cálculos determinísticos.
 
-O MVP será executado localmente usando WSL + Docker, com PostgreSQL + pgvector em container.
+### Histórico e memória
+- Análises versionadas.
+- Evidências rastreáveis.
+- Histórico de entidades/eventos.
+- Memória estruturada e híbrida para casos históricos.
+- V1–V8 do E2E real de referência preservadas.
 
-## O que fica deliberadamente simples no MVP
+## 43.3 Validação final real — imóvel 633
 
-- integrações externas podem começar manuais;
-- MCP pode entrar conforme surgirem ferramentas reais;
-- Knowledge Graph dedicado fica para evolução;
-- Vector DB externo não é necessário inicialmente;
-- microsserviços não são necessários inicialmente;
-- automação completa das pesquisas externas fica para depois.
+O E2E real de referência utilizado para o fechamento foi o imóvel COND PARQUE ARVOREDO RESIDENCIAL CLUBE, da Caixa, em Curitiba/PR.
 
-## Regra de implementação
+Na V8 (analysis_id=280):
+- 5/5 agentes concluíram;
+- modelo utilizado: gpt-4o-mini;
+- 35.231 tokens reportados;
+- custo aproximado registrado: US$ 0,0072;
+- edital e matrícula coexistiram no contexto dos cinco agentes;
+- Checklist: 7 CONFIRMADO / 20 PENDENTE;
+- Veredito: INCONCLUSIVO;
+- V1–V8 preservadas.
 
-O MVP deve ser **completo funcionalmente**, mas não precisa ser completo em automação e infraestrutura.
+O objetivo do E2E não foi produzir um imóvel aprovado, mas validar o fluxo técnico e o comportamento conservador da análise diante de evidências e lacunas reais.
 
-O objetivo é colocar o Radar para analisar imóveis reais rapidamente e usar os resultados para evoluir o produto.
+## 43.4 Correção final de RAG — Task 68
 
-> **Business completo. Um único Checklist Mestre. Front completo. IA robusta com LangChain + LangGraph. Infraestrutura local simples. Histórico de tudo.**
+A Task 67 identificou que o edital não chegava ao contexto porque somente a matrícula possuía embeddings.
 
+A Task 68:
+- reprocessou controladamente o edital doc 193;
+- criou a versão 2 (document_version_id=474);
+- gerou 544 chunks com embeddings de dimensão 1536;
+- preservou a versão anterior;
+- evitou backfill global;
+- introduziu diversidade por documento na seleção final do retrieval direcionado;
+- adicionou validação defensiva de chunk_id recebido da LLM;
+- validou coexistência edital + matrícula.
 
----
+Resultado no retrieval direcionado do imóvel 633:
+- antes: 24 edital / 0 matrícula;
+- depois: 22 edital / 2 matrícula.
 
-# 44. Estado de implementação consolidado — 21/09/2026
+## 43.5 Testes e evidências de encerramento
 
-A implementação principal do MVP já percorreu as camadas de domínio, IA/RAG, histórico, reanálise incremental, frontend, hubs funcionais e integração.
+A última suíte backend registrada após a Task 68:
 
-## Validação automatizada atual
+    pytest -q
+    258 passed
 
-A suíte completa executada no runtime oficial apresentou:
+A validação real também confirmou:
+- 5 agentes concluídos;
+- V1–V8 preservadas;
+- 27 canonical_key preservados;
+- nenhuma migration introduzida pela Task 68;
+- nenhuma confirmação artificial na correção de retrieval;
+- documentação de status/histórico atualizada.
 
-```text
-pytest -q
-221 passed, 2744 warnings in 9.41s
-```
+O número de testes acima é o resultado da suíte backend registrada no fechamento; não representa, por si só, homologação de produção ou validação jurídica dos resultados.
 
-A suíte específica de integração apresentou:
+## 43.6 Limitações conhecidas e backlog
 
-```text
-pytest -q tests/test_integration_flows.py
-16 passed, 2110 warnings in 3.29s
-```
+1. Retrieval por item ainda pode favorecer uma fonte semanticamente próxima. Em perguntas muito específicas da matrícula, o chunk da matrícula pode não ocupar o topo do retrieval por item, embora a fonte continue disponível no contexto consolidado.
+2. Doc 195 do imóvel 633 permanece sem embedding, por ser duplicata do edital doc 193 reprocessado.
+3. Integrações externas continuam podendo ser manuais. O MVP não depende de automação completa de portais externos.
+4. MCP externo não é dependência do MVP e permanece como evolução.
+5. Knowledge Graph dedicado permanece como evolução.
+6. S3/MinIO não são dependências do MVP local; o storage atual usa filesystem persistente.
+7. Redis não é utilizado atualmente.
+8. Leilões judiciais continuam fora do escopo.
+9. A análise de IA não substitui validação jurídica profissional nem decisão de investimento.
+10. A suíte automatizada verde não equivale a homologação de produção.
 
-Os warnings não foram tratados como falhas e não bloqueiam a validação atual.
+## 43.7 Regra para continuidade futura
 
-## Últimas correções de integração
+Se o projeto for retomado por outro desenvolvedor, IDE, agente ou ferramenta de coding, a fonte de contexto deve ser:
+1. docs/SPEC-VIBE-CODING-RADAR-LEILAO.md — arquitetura e business canônicos;
+2. docs/PROJECT-STATUS.md — estado atual;
+3. docs/PROJECT-HISTORY.md — decisões e evolução;
+4. código atual e testes — comportamento efetivamente implementado.
 
-### TASK 59
-Commit: `92c3e44aa314fc38c402a895d64b9add17381d85`
+Nenhuma ferramenta externa deve ser considerada fonte de verdade quando divergir do código e desta documentação.
 
-Correção da serialização do resultado financeiro antes da criação do Veredito.
+## 43.8 Declaração de encerramento
 
-### TASK 60
-Commit: `1262637fa681d056f4191a8e15cbb72aefcc4038`
+**MVP ENCERRADO.**
 
-Correções das três falhas restantes da integração:
+O núcleo funcional previsto para o MVP foi implementado e validado pelo conjunto de testes automatizados e pelo E2E real de referência descrito acima.
 
-- ordenação das análises por versão no dossiê;
-- cálculo da próxima versão de análise diretamente a partir da maior versão persistida;
-- preservação correta da reanálise incremental.
-
-## Estado do produto
-
-O código está validado pela suíte automatizada atual. Isso não equivale a declarar concluído o E2E real com documentos da Caixa, OCR e LLM.
-
-O próximo marco é a validação operacional com imóveis reais, preservando a arquitetura e evitando novas expansões antes de obter evidências de uso.
-
-## Stack oficial do MVP
-
-```text
-Frontend       → React + TypeScript
-Backend        → Python + FastAPI
-Banco          → PostgreSQL
-Vetorial       → pgvector
-Storage        → S3/MinIO
-Documentos     → MarkItDown + OCR
-IA             → LangChain + LangGraph
-LLM            → Gateway desacoplado
-Histórico      → obrigatório e transversal
-Eventos        → obrigatório para mudanças relevantes
-Checklist      → Mestre, versionado e configurável
-Reanálise      → incremental
-Financeiro     → determinístico
-Evidências     → rastreáveis
-Veredito       → explicável
-Idioma         → pt-BR
-Escopo         → leilão extrajudicial
-```
-
-> A arquitetura deve permanecer estável enquanto a validação real do MVP estiver sendo realizada. Novas capacidades somente devem entrar quando houver necessidade comprovada pelo fluxo real.
+A partir deste ponto, novas capacidades devem ser tratadas como evolução/backlog, não como continuação automática do MVP.
