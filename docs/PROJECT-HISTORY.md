@@ -1484,3 +1484,25 @@ A UI deve apresentar informações derivadas das evidências reais — documento
 ### Pós-Task 70
 
 Somente após a auditoria da Task 70 e nova validação manual pela UI será retomado o teste operacional **V8 → evento → ImpactAnalyzer → reanálise incremental → V9**.
+
+
+---
+
+## TASK 70 — Correção do Veredito e evidências na UI
+
+- Commit: `7f8f62454288b96723ea15909c0c967dfbcae3d2`
+- Status: 🟢 aprovado por auditoria.
+- Causa corrigida: `prop.verdicts[-1]` dependia da ordem incidental do relacionamento ORM e podia retornar V7 quando V8 já existia.
+- Correção: consulta determinística por `analysis_version.desc(), id.desc()`.
+- Evidências: criada visão `veredito_evidencias` derivada dos registros reais de `Evidence`, `DocumentVersion` e `Document`.
+- UI: evidências agora são apresentadas por documento/categoria/versão/página/seção/fato/trecho quando disponíveis.
+- `evidence_ids` preservados para rastreabilidade.
+- Auditoria pontual de acessos `[-1]`: nenhum outro caso apresentou risco funcional equivalente que justificasse alteração nesta tarefa.
+- Backend: **267 passed**.
+- Frontend: **90 Vitest passed** + `tsc --noEmit` OK.
+- Sem migration, sem alteração de modelos, IA, RAG, Checklist, Risk/Verdict Engine ou reanálise real.
+- V8 do imóvel 633 preservada; V9 ainda não executada.
+
+### Próximo marco
+
+Validação manual da UI do imóvel 633 e, se confirmada, execução controlada da reanálise incremental V8 → V9.
