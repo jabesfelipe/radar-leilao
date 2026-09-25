@@ -416,11 +416,45 @@ def run_checklist_agent(property_id: int, analysis_id: int, db: Session = Depend
     checklist = [{"id": item.id, "checklist_item_id": item.checklist_item_id, "state": item.state, "answer": item.answer, "confidence": item.confidence, "interpretation": item.interpretation, "previous_result_id": item.previous_result_id} for item in execution.results]
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "checklist", "execution_id": execution.id, "checklist": checklist, "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
+def verdict_evidences_view(db: Session, evidence_ids: list[int] | None) -> list[dict]:
+    """Monta uma visão legível das evidências do veredito para a UI.
+
+    Para cada evidence_id, resolve documento/versão/tipo (via DocumentVersion→Document)
+    e expõe apenas os campos que realmente existem — nunca inventa informação. Mantém
+    o id para rastreabilidade; campos ausentes (page/section/source_excerpt/etc.) são
+    simplesmente omitidos.
+    """
+    view: list[dict] = []
+    for evidence_id in evidence_ids or []:
+        evidence = db.get(models.Evidence, evidence_id)
+        if not evidence:
+            continue
+        item: dict = {"id": evidence.id, "category": evidence.category}
+        version = evidence.document_version
+        document = version.document if version else None
+        if document is not None:
+            item["documento"] = document.name
+            item["document_type"] = document.document_type
+        if version is not None:
+            item["version"] = version.version
+            item["document_version_id"] = version.id
+        for field in ("page", "section", "fact", "source_excerpt", "interpretation", "hypothesis", "confidence", "chunk_id"):
+            value = getattr(evidence, field, None)
+            if value is not None and value != "":
+                item[field] = value
+        view.append(item)
+    return view
+
+
 @app.get("/api/imoveis/{property_id}")
 def get_property(property_id: int, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); execution = latest_execution(prop); latest = prop.verdicts[-1] if prop.verdicts else None
+    prop = property_or_404(db, property_id); execution = latest_execution(prop)
+    # Veredito mais recente por analysis_version (não depende da ordem incidental do
+    # relacionamento ORM). id.desc() é desempate defensivo para mesma versão.
+    latest = db.scalar(select(models.Verdict).where(models.Verdict.property_id == property_id).order_by(models.Verdict.analysis_version.desc(), models.Verdict.id.desc()))
+    veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
     checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
-    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "financeiro": serialize(build_finance(prop))}
+    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "financeiro": serialize(build_finance(prop))}
 
 @app.post("/api/imoveis/{property_id}/leilao")
 def add_auction(property_id: int, data: schemas.AuctionCreate, db: Session = Depends(get_db)):

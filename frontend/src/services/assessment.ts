@@ -28,9 +28,27 @@ export type Verdict = {
   evidence_ids?: number[] | null
 }
 
+export type VerdictEvidence = {
+  id: number
+  documento?: string | null
+  document_type?: string | null
+  version?: number | null
+  document_version_id?: number | null
+  category?: string | null
+  page?: number | null
+  section?: string | null
+  fact?: string | null
+  source_excerpt?: string | null
+  interpretation?: string | null
+  hypothesis?: string | null
+  confidence?: string | null
+  chunk_id?: number | null
+}
+
 export type Assessment = {
   risks: Risk[]
   verdict: Verdict | null
+  evidences: VerdictEvidence[]
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
@@ -52,6 +70,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getAssessment(propertyId: number): Promise<Assessment> {
-  const payload = await request<{ riscos?: Risk[]; veredito?: Verdict | null }>(`/api/imoveis/${propertyId}`)
-  return { risks: payload.riscos ?? [], verdict: payload.veredito ?? null }
+  const payload = await request<{ riscos?: Risk[]; veredito?: Verdict | null; veredito_evidencias?: VerdictEvidence[] }>(`/api/imoveis/${propertyId}`)
+  return { risks: payload.riscos ?? [], verdict: payload.veredito ?? null, evidences: payload.veredito_evidencias ?? [] }
 }

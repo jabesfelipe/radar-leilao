@@ -1,7 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BadgeCheck, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section } from '../components/ui'
-import { getAssessment, type Verdict } from '../services/assessment'
+import { getAssessment, type Verdict, type VerdictEvidence } from '../services/assessment'
+
+const categoryLabels: Record<string, string> = {
+  DOCUMENTAL: 'Documental',
+  JURIDICO: 'Jurídico',
+  FINANCEIRO: 'Financeiro',
+  MERCADO: 'Mercado',
+  CHECKLIST: 'Checklist',
+}
+
+function categoryLabel(category?: string | null) {
+  if (!category) return null
+  return categoryLabels[category] ?? category
+}
 
 type VerdictSectionProps = {
   propertyId: number
@@ -30,6 +43,7 @@ function overallLabel(overall?: string | null) {
 
 export function VerdictSection({ propertyId }: VerdictSectionProps) {
   const [verdict, setVerdict] = useState<Verdict | null>(null)
+  const [evidences, setEvidences] = useState<VerdictEvidence[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -39,6 +53,7 @@ export function VerdictSection({ propertyId }: VerdictSectionProps) {
     try {
       const assessment = await getAssessment(propertyId)
       setVerdict(assessment.verdict)
+      setEvidences(assessment.evidences)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar o veredito.')
     } finally {
@@ -97,11 +112,42 @@ export function VerdictSection({ propertyId }: VerdictSectionProps) {
           <dl className="dossier-facts verdict-facts">
             {verdict.analysis_version != null && <Fact label="Versão da análise" value={String(verdict.analysis_version)} />}
             {verdict.risk_ids && verdict.risk_ids.length > 0 && <Fact label="Riscos vinculados" value={verdict.risk_ids.map((id) => `#${id}`).join(', ')} />}
-            {verdict.evidence_ids && verdict.evidence_ids.length > 0 && <Fact label="Evidências vinculadas" value={verdict.evidence_ids.map((id) => `#${id}`).join(', ')} />}
           </dl>
+
+          {(evidences.length > 0 || (verdict.evidence_ids && verdict.evidence_ids.length > 0)) && (
+            <Card padding="lg" className="verdict-block">
+              <p className="eyebrow">EVIDÊNCIAS VINCULADAS</p>
+              {evidences.length > 0 ? (
+                <ul className="verdict-evidences">
+                  {evidences.map((evidence) => <EvidenceItem key={evidence.id} evidence={evidence} />)}
+                </ul>
+              ) : (
+                // Fallback de rastreabilidade: se a visão legível não veio, mostra os IDs.
+                <p className="verdict-evidence-ids">{verdict.evidence_ids?.map((id) => `#${id}`).join(', ')}</p>
+              )}
+            </Card>
+          )}
         </>
       )}
     </Section>
+  )
+}
+
+function EvidenceItem({ evidence }: { evidence: VerdictEvidence }) {
+  const title = evidence.documento ?? (evidence.chunk_id != null ? `Trecho #${evidence.chunk_id}` : `Evidência #${evidence.id}`)
+  const meta: string[] = []
+  const category = categoryLabel(evidence.category)
+  if (category) meta.push(category)
+  if (evidence.version != null) meta.push(`versão ${evidence.version}`)
+  if (evidence.page != null) meta.push(`Página ${evidence.page}`)
+  if (evidence.section) meta.push(evidence.section)
+  const description = evidence.fact ?? evidence.source_excerpt ?? evidence.interpretation ?? null
+  return (
+    <li className="verdict-evidence">
+      <p className="verdict-evidence-title">📄 {title}</p>
+      {meta.length > 0 && <p className="verdict-evidence-meta">{meta.join(' · ')}</p>}
+      {description && <p className="verdict-evidence-desc">{description}</p>}
+    </li>
   )
 }
 

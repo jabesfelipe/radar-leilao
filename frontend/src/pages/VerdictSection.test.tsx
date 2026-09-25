@@ -20,8 +20,8 @@ function response(body: unknown, ok = true, status = 200) {
   return Promise.resolve({ ok, status, json: () => Promise.resolve(body) }) as Promise<Response>
 }
 
-function detail(veredito: unknown) {
-  return response({ imovel: { id: 5 }, riscos: [], veredito })
+function detail(veredito: unknown, veredito_evidencias: unknown[] = []) {
+  return response({ imovel: { id: 5 }, riscos: [], veredito, veredito_evidencias })
 }
 
 describe('VerdictSection', () => {
@@ -48,6 +48,24 @@ describe('VerdictSection', () => {
     expect(screen.getByText('Documentação básica recebida.')).toBeInTheDocument()
     expect(screen.getByText('Confirmar ocupação')).toBeInTheDocument()
     expect(screen.getByText('#9, #10')).toBeInTheDocument()
+  })
+
+  it('exibe evidências vinculadas de forma legível (documento/versão/página/fato)', async () => {
+    const evidencias = [
+      { id: 202, documento: 'EL00440226CPARE.pdf', document_type: 'EDITAL', version: 2, category: 'CHECKLIST', page: 8, fact: 'Responsabilidade por débitos descrita no edital.' },
+      { id: 203, documento: '1555528765064.pdf', document_type: 'MATRICULA', version: 3, category: 'DOCUMENTAL' },
+    ]
+    vi.mocked(fetch).mockReturnValueOnce(detail(verdict, evidencias))
+    render(<VerdictSection propertyId={5} />)
+
+    expect(await screen.findByText('📄 EL00440226CPARE.pdf')).toBeInTheDocument()
+    expect(screen.getByText('Checklist · versão 2 · Página 8')).toBeInTheDocument()
+    expect(screen.getByText('Responsabilidade por débitos descrita no edital.')).toBeInTheDocument()
+    // segunda evidência sem página/fato não quebra e mostra o que existe
+    expect(screen.getByText('📄 1555528765064.pdf')).toBeInTheDocument()
+    expect(screen.getByText('Documental · versão 3')).toBeInTheDocument()
+    // não expõe o ID interno como apresentação principal
+    expect(screen.queryByText('#202, #203')).not.toBeInTheDocument()
   })
 
   it('trata erro e permite tentar novamente', async () => {
