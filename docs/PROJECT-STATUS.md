@@ -253,3 +253,77 @@ somente depois retomar validação incremental V8 → V9
 ```
 
 A Task 70 **não deve gerar V9** e não deve alterar os dados reais do imóvel 633 durante os testes automatizados.
+
+
+---
+
+## 10. TASK 70 — Veredito e evidências na UI
+
+**Commit:** `7f8f62454288b96723ea15909c0c967dfbcae3d2`  
+**Status:** 🟢 APROVADA POR AUDITORIA — 25/09/2026
+
+Correções confirmadas:
+
+- `GET /api/imoveis/{property_id}` seleciona o Veredito por `analysis_version DESC, id DESC`;
+- elimina a dependência de `prop.verdicts[-1]`;
+- imóvel 633 passa a apontar deterministicamente para a V8;
+- nova visão `veredito_evidencias` resolve as evidências reais a partir dos IDs do Veredito;
+- UI passa a mostrar documento, categoria, versão, página/seção e fato/trecho quando disponíveis;
+- campos ausentes são omitidos, sem invenção de metadados;
+- `veredito.evidence_ids` permanece preservado para rastreabilidade;
+- fallback visual para IDs existe somente quando a visão legível não estiver disponível.
+
+### Validação automatizada
+
+Backend:
+
+```text
+pytest -q
+267 passed
+0 falhas
+```
+
+Frontend:
+
+```text
+Vitest: 90 passed
+TypeScript: tsc --noEmit OK
+```
+
+### Escopo auditado
+
+Não houve alteração em:
+
+- Verdict Engine;
+- Risk Engine;
+- RAG;
+- LangGraph;
+- agentes;
+- Checklist;
+- modelos/migrations;
+- IncrementalAnalysisService;
+- ImpactAnalyzer.
+
+Também não houve nova análise real nem geração de V9.
+
+### Próximo marco
+
+A Task 70 encerra as correções necessárias identificadas na validação visual do imóvel 633.
+
+Próxima etapa, após rebuild/health e validação manual da tela:
+
+```text
+UI imóvel 633
+    ↓
+Veredito = V8
+    ↓
+evidências legíveis
+    ↓
+validar gatilho operacional
+    ↓
+V8 → DomainEvent → ImpactAnalyzer
+    ↓
+reanálise incremental
+    ↓
+V9
+```
