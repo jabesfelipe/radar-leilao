@@ -2495,3 +2495,99 @@ retomar V8 → V9
 ```
 
 A validação incremental só será considerada concluída após a execução controlada desse fluxo.
+
+
+---
+
+# 45. TASK 70 — Regra consolidada de estado atual e evidências na UI
+
+A Task 70 consolidou duas regras funcionais para a camada de apresentação.
+
+## 45.1 Estado atual de entidades versionadas
+
+Quando uma entidade possui versões, a API não deve determinar o estado atual pela posição incidental de uma coleção ORM.
+
+Regra:
+
+```text
+ESTADO ATUAL
+    ↓
+maior versão semântica
+    ↓
+desempate determinístico por ID
+```
+
+Para Veredito:
+
+```python
+select(models.Verdict)
+    .where(models.Verdict.property_id == property_id)
+    .order_by(
+        models.Verdict.analysis_version.desc(),
+        models.Verdict.id.desc()
+    )
+```
+
+## 45.2 Evidências para o usuário final
+
+A rastreabilidade interna continua baseada em `evidence_id`, porém a UI deve priorizar uma representação compreensível:
+
+```text
+EVIDENCE ID
+    ↓
+Evidence
+    ↓
+DocumentVersion
+    ↓
+Document
+    ↓
+página / seção / fato / trecho
+```
+
+Metadados ausentes não devem ser inventados.
+
+## 45.3 Validação da Task 70
+
+Commit:
+
+```text
+7f8f62454288b96723ea15909c0c967dfbcae3d2
+```
+
+Resultados:
+
+```text
+Backend: 267 passed
+Frontend: 90 Vitest passed
+TypeScript: tsc --noEmit OK
+```
+
+A V8 do imóvel 633 permanece intacta e nenhuma V9 foi gerada.
+
+## 45.4 Próxima sequência
+
+```text
+TASK 70 aprovada
+       ↓
+rebuild / health
+       ↓
+UI do imóvel 633
+       ↓
+confirmar Veredito V8
+       ↓
+confirmar evidências legíveis
+       ↓
+criar/selecionar DomainEvent de teste
+       ↓
+POST /api/imoveis/633/eventos/{event_id}/reanalisar
+       ↓
+ImpactAnalyzer
+       ↓
+reanálise incremental
+       ↓
+V9
+       ↓
+auditoria do resultado
+```
+
+A execução da V9 continua separada da Task 70 e deve ocorrer somente após a confirmação visual.
