@@ -2328,6 +2328,11 @@ O número de testes acima é o resultado da suíte backend registrada no fechame
 
 ## 43.6 Limitações conhecidas e backlog
 
+**Follow-up operacional identificado após o fechamento do núcleo:** o serviço de reanálise incremental está implementado em `backend/app/incremental.py` e possui testes unitários, mas o código atual não possui endpoint/worker operacional que invoque `IncrementalAnalysisService.run_for_event()`. O endpoint `POST /api/imoveis/{property_id}/analisar` executa uma nova análise diretamente e não substitui o fluxo incremental baseado em `DomainEvent`.
+
+A **Task 69** fica restrita à criação desse gatilho operacional para permitir a validação real V8 → V9. Ela não altera arquitetura, RAG, agentes, Checklist, ImpactAnalyzer ou o serviço incremental já implementado.
+
+
 1. Retrieval por item ainda pode favorecer uma fonte semanticamente próxima. Em perguntas muito específicas da matrícula, o chunk da matrícula pode não ocupar o topo do retrieval por item, embora a fonte continue disponível no contexto consolidado.
 2. Doc 195 do imóvel 633 permanece sem embedding, por ser duplicata do edital doc 193 reprocessado.
 3. Integrações externas continuam podendo ser manuais. O MVP não depende de automação completa de portais externos.
@@ -2337,6 +2342,7 @@ O número de testes acima é o resultado da suíte backend registrada no fechame
 7. Redis não é utilizado atualmente.
 8. Leilões judiciais continuam fora do escopo.
 9. A análise de IA não substitui validação jurídica profissional nem decisão de investimento.
+11. A reanálise incremental possui serviço e testes, mas aguarda gatilho operacional para validação E2E real V8 → V9.
 10. A suíte automatizada verde não equivale a homologação de produção.
 
 ## 43.7 Regra para continuidade futura
@@ -2351,8 +2357,10 @@ Nenhuma ferramenta externa deve ser considerada fonte de verdade quando divergir
 
 ## 43.8 Declaração de encerramento
 
-**MVP ENCERRADO.**
+**MVP ENCERRADO — núcleo funcional.**
 
 O núcleo funcional previsto para o MVP foi implementado e validado pelo conjunto de testes automatizados e pelo E2E real de referência descrito acima.
 
-A partir deste ponto, novas capacidades devem ser tratadas como evolução/backlog, não como continuação automática do MVP.
+A partir deste ponto, novas capacidades devem ser tratadas como evolução/backlog. A única exceção imediata é a **Task 69**, que não adiciona capacidade funcional nova: apenas expõe operacionalmente o serviço de reanálise incremental já implementado para permitir a validação V8 → V9.
+
+Após a validação da Task 69, o próximo marco será o E2E de um imóvel novo do zero.
