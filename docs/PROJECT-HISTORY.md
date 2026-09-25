@@ -1363,3 +1363,62 @@ A documentação final foi revisada para registrar:
 **Decisão: MVP ENCERRADO em 25/09/2026.**
 
 A partir deste ponto, não existe Task 69 funcional. Novas ideias devem ser tratadas como backlog/evolução.
+
+
+---
+
+## FOLLOW-UP PÓS-MVP — Task 69 — Gatilho operacional da reanálise incremental
+
+### Contexto
+
+Após o fechamento da Task 68 e a preparação do teste real de reanálise do imóvel Caixa 633, foi feita uma inspeção do código atual.
+
+A implementação existente em `backend/app/incremental.py` possui:
+
+- `IncrementalAnalysisService.run_for_event()`;
+- uso do `ImpactAnalyzer`;
+- decisão de `requires_reanalysis`;
+- identificação dos `affected_domains`;
+- criação de nova versão de `Analysis`;
+- execução do `AnalysisOrchestrator` somente nos domínios afetados;
+- persistência de evidências, uso de LLM, riscos e novo veredito;
+- preservação do histórico;
+- marcação do `DomainEvent` como processado;
+- testes unitários específicos em `tests/test_incremental_analysis.py`.
+
+### Lacuna operacional identificada
+
+A busca no código atual não encontrou nenhum endpoint, worker ou outro ponto operacional que invoque `IncrementalAnalysisService.run_for_event()`. O serviço é utilizado diretamente pelos testes, mas não está exposto por um gatilho de runtime.
+
+O endpoint existente `POST /api/imoveis/{property_id}/analisar` cria uma nova análise diretamente e não passa pelo `ImpactAnalyzer`; portanto, ele não deve ser usado para validar a reanálise incremental.
+
+### Decisão
+
+Criar a **Task 69 — Gatilho operacional da reanálise incremental**, com escopo mínimo:
+
+1. expor um gatilho operacional para um `DomainEvent` existente;
+2. validar que o evento pertence ao imóvel informado;
+3. delegar integralmente para `IncrementalAnalysisService.run_for_event()`;
+4. retornar o resultado já produzido pelo serviço;
+5. adicionar testes do endpoint/gatilho;
+6. não alterar o serviço incremental, `ImpactAnalyzer`, LangGraph, RAG, Checklist, agentes, modelos, migrations ou arquitetura;
+7. manter o histórico V1–V8 intacto;
+8. atualizar STATUS/HISTORY somente após implementação e validação.
+
+Esta task existe para **permitir a validação operacional V8 → V9**. Não representa reabertura do núcleo funcional do MVP.
+
+### Ambiente de validação
+
+Antes desta decisão, o ambiente local foi reconstruído pelo `scripts/restart.sh` sem remoção de volumes e validado por `scripts/health.sh`:
+
+```
+PostgreSQL       OK
+pgvector         OK
+Migrations       OK
+Backend          OK
+Frontend         OK
+OK: 5   FALHAS: 0
+```
+
+O banco e o storage persistente foram preservados durante o rebuild.
+
