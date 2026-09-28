@@ -1650,3 +1650,31 @@ O Veredito V8 histórico permanece preservado. A Task 71 já protege novas execu
 ### Próximo marco
 
 Antes da V9 real, validar/corrigir de forma mínima a disponibilidade da ChecklistExecution recém-criada na relationship durante o mesmo request. Isso será tratado separadamente na **Task 73**, sem reabrir VerdictEngine ou o Checklist Mestre.
+
+
+---
+
+## TASK 73 — Garantir seleção da ChecklistExecution recém-criada
+
+**Status:** 🟡 próxima task — especificada.
+
+A Task 72 demonstrou que a execução criada por FK pode não entrar na coleção `prop.checklist_executions` já carregada no mesmo request. Isso representa uma fragilidade para o fluxo futuro de criação do Veredito.
+
+A Task 73 deve garantir que `execution_for_version(prop, analysis.version)` encontre deterministicamente a execução corrente, sem depender da ordem incidental ou de um relationship cache desatualizado.
+
+### Escopo
+
+- investigar `create_execution()`;
+- investigar `execution_for_version()`;
+- reproduzir o cenário de mesma sessão;
+- aplicar a menor correção segura;
+- adicionar regressão;
+- executar `pytest -q`.
+
+### Proibido
+
+Não alterar VerdictEngine, Checklist Master, estados do Checklist, RAG, LangGraph, agentes, migrations ou dados históricos. Não executar LLM, análise real ou V9.
+
+**Commit esperado:** `fix: garante selecao da execucao corrente do checklist`
+
+Depois da aprovação: restart/health e então V8 → DomainEvent → reanálise incremental → V9.
