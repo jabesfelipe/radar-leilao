@@ -200,21 +200,32 @@ def recalculate_risks(db: Session, prop: models.Property, analysis_version: int)
     return persisted
 
 
+def build_verdict_decision(db: Session, prop: models.Property, analysis_version: int, evidence_ids: list[int] | None):
+    """Constrói a VerdictDecision determinística de uma versão, sem persistir.
+
+    Fonte de verdade: a ChecklistExecution da própria analysis_version (consultada
+    no banco via db) e os Risks daquela versão. Não usa LLM. Extraído para poder
+    ser reutilizado tanto pela criação (create_verdict) quanto pela reconciliação
+    histórica idempotente (reconcile_verdict), sem duplicar a regra.
+    """
+    execution = execution_for_version(prop, analysis_version, db=db)
+    risks = list(db.scalars(select(models.Risk).where(models.Risk.property_id == prop.id, models.Risk.analysis_version == analysis_version)).all())
+    return VerdictEngine().evaluate(
+        property_id=prop.id,
+        analysis_version=analysis_version,
+        risks=risks,
+        checklist_results=execution.results if execution else [],
+        evidence_ids=evidence_ids or [],
+        financial=serialize(build_finance(prop)),
+    )
+
+
 def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None):
     # Usa a execução do Checklist correspondente à versão desta análise, para o
     # Veredito não ser contaminado por uma execução de outra versão. Passamos `db`
     # para que a seleção consulte o banco (fonte de verdade) e encontre a execução
     # recém-criada no mesmo request, mesmo que a relationship esteja desatualizada.
-    execution = execution_for_version(prop, analysis.version, db=db)
-    risks = list(db.scalars(select(models.Risk).where(models.Risk.property_id == prop.id, models.Risk.analysis_version == analysis.version)).all())
-    decision = VerdictEngine().evaluate(
-        property_id=prop.id,
-        analysis_version=analysis.version,
-        risks=risks,
-        checklist_results=execution.results if execution else [],
-        evidence_ids=analysis.evidence_ids or [],
-        financial=serialize(build_finance(prop)),
-    )
+    decision = build_verdict_decision(db, prop, analysis.version, analysis.evidence_ids)
     verdict = models.Verdict(**decision.to_dict())
     db.add(verdict); db.flush(); return verdict
 
