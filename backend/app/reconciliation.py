@@ -107,13 +107,32 @@ def _reconcile_risks_if_needed(db: Session, prop: models.Property, analysis_vers
     return True
 
 
-def reconcile_verdict(db: Session, property_id: int, analysis_version: int) -> ReconcileResult:
-    """Reconciliação determinística e idempotente do Veredito de UMA versão.
+# Esta manutenção histórica é intencionalmente restrita ao único caso conhecido
+# (TASK 74). Qualquer outra combinação deve ser rejeitada — não é uma ferramenta
+# genérica de reconciliação.
+ALLOWED_PROPERTY_ID = 633
+ALLOWED_ANALYSIS_VERSION = 8
 
-    Atualiza o snapshot do Verdict existente da versão (in place), usando a
+
+def reconcile_verdict(db: Session, property_id: int, analysis_version: int) -> ReconcileResult:
+    """Reconciliação determinística e idempotente do Veredito V8 do imóvel 633.
+
+    Atualiza o snapshot do Verdict EXISTENTE da versão (in place), usando a
     ChecklistExecution correta da versão e os Risks consistentes daquela versão.
     Não cria Analysis/execução/evento; não roda LLM; não gera V9. Transacional.
+
+    Hardening (TASK 74.1):
+    - só aceita property_id=633 e analysis_version=8; qualquer outra combinação
+      é rejeitada com ValueError;
+    - se o Verdict V8 não existir, falha explicitamente (NÃO cria Verdict).
     """
+    if property_id != ALLOWED_PROPERTY_ID or analysis_version != ALLOWED_ANALYSIS_VERSION:
+        raise ValueError(
+            "reconcile_verdict é restrito à manutenção histórica do imóvel "
+            f"{ALLOWED_PROPERTY_ID}/V{ALLOWED_ANALYSIS_VERSION}; "
+            f"recusado para property_id={property_id}, analysis_version={analysis_version}"
+        )
+
     prop = db.get(models.Property, property_id)
     if prop is None:
         raise ValueError(f"Imóvel {property_id} não encontrado")
@@ -129,29 +148,28 @@ def reconcile_verdict(db: Session, property_id: int, analysis_version: int) -> R
         )
         .order_by(models.Verdict.id.desc())
     )
-    pending_before = len(verdict.pending_items) if verdict and verdict.pending_items is not None else None
+    if verdict is None:
+        # Manutenção histórica: o Verdict V8 tem de existir. Nunca criamos um novo.
+        raise ValueError(
+            f"Verdict V{analysis_version} do imóvel {property_id} não existe; "
+            "a reconciliação histórica não cria Verdict"
+        )
+    pending_before = len(verdict.pending_items) if verdict.pending_items is not None else None
 
     try:
         # 1) Garante riscos consistentes com a execução correta (idempotente).
         risks_recalculated = _reconcile_risks_if_needed(db, prop, analysis_version, execution)
 
         # 2) Recalcula a decisão determinística (mesma regra do create_verdict).
-        evidence_ids = verdict.evidence_ids if verdict else []
-        decision = build_verdict_decision(db, prop, analysis_version, evidence_ids)
+        decision = build_verdict_decision(db, prop, analysis_version, verdict.evidence_ids)
         data = decision.to_dict()
 
+        # Atualiza in place apenas os campos determinísticos do snapshot.
         changed = False
-        if verdict is None:
-            # Sem verdict para a versão: cria o snapshot correto (não cria Analysis).
-            verdict = models.Verdict(**data)
-            db.add(verdict)
-            changed = True
-        else:
-            # Atualiza in place apenas os campos determinísticos do snapshot.
-            for field, value in data.items():
-                if getattr(verdict, field) != value:
-                    setattr(verdict, field, value)
-                    changed = True
+        for field, value in data.items():
+            if getattr(verdict, field) != value:
+                setattr(verdict, field, value)
+                changed = True
         db.flush()
 
         pending_after = len(verdict.pending_items) if verdict.pending_items is not None else None

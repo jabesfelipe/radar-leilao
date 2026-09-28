@@ -1,21 +1,23 @@
-"""TASK 74 — Reconciliação histórica controlada do Veredito V8.
+"""TASK 74 / 74.1 — Reconciliação histórica controlada do Veredito V8 do 633.
 
 Testes com banco real (fixture ``db``; rollback ao final, nada persistido; SEM
 LLM, SEM análise real, SEM V9). Para manter o isolamento, o commit interno da
 reconciliação é redirecionado para flush no teste (a transação da fixture segue
 aberta e é revertida no final). A regra de negócio permanece a mesma.
 
-Cobrem:
-1. seleção da execução correta da versão (V8) mesmo com execução antiga presente;
-2. resultado do Veredito: 20 pendências de Checklist + 1 financeira legítima = 21;
-3. idempotência: rodar duas vezes produz o mesmo estado e não cria Analysis/Verdict extras;
-4. preservação histórica: V1..V7 (Analysis e seus Verdicts) permanecem intactas; não cria V9.
+Hardening (74.1): reconcile_verdict só aceita 633/V8 e exige que o Verdict V8
+exista (não cria). Os testes de comportamento determinístico continuam validando
+seleção da execução correta, 28→21 (20 checklist + 1 financeira), idempotência e
+preservação histórica — para isso, apontamos temporariamente as constantes de
+allow-list para um imóvel sintético criado no teste (via monkeypatch), sem tocar
+no fluxo normal de create_verdict.
 """
 from __future__ import annotations
 
 import pytest
 
 from backend.app import models, services
+from backend.app import reconciliation
 from backend.app.reconciliation import reconcile_verdict
 
 
@@ -46,9 +48,57 @@ def _execucao(db, prop, analysis_version, confirmados):
     return execution
 
 
-def test_reconciliacao_usa_execucao_correta_da_v8(sem_commit):
+def _permitir(monkeypatch, property_id, analysis_version):
+    """Aponta a allow-list para um caso sintético, para exercitar a lógica
+    determinística sem depender dos dados reais do 633."""
+    monkeypatch.setattr(reconciliation, "ALLOWED_PROPERTY_ID", property_id)
+    monkeypatch.setattr(reconciliation, "ALLOWED_ANALYSIS_VERSION", analysis_version)
+
+
+# --------------------------------------------------------------------------
+# Hardening 74.1 — guardas de escopo
+# --------------------------------------------------------------------------
+
+def test_rejeita_property_diferente_de_633(sem_commit):
+    db = sem_commit
+    with pytest.raises(ValueError, match="restrito"):
+        reconcile_verdict(db, 999, 8)
+
+
+def test_rejeita_version_diferente_de_8(sem_commit):
+    db = sem_commit
+    with pytest.raises(ValueError, match="restrito"):
+        reconcile_verdict(db, 633, 7)
+
+
+def test_falha_se_verdict_v8_inexistente(sem_commit, monkeypatch):
     db = sem_commit
     prop = _property(db)
+    _execucao(db, prop, 8, confirmados=7)  # existe execução, mas NENHUM verdict
+    _permitir(monkeypatch, prop.id, 8)
+    with pytest.raises(ValueError, match="não existe"):
+        reconcile_verdict(db, prop.id, 8)
+
+
+def test_nao_cria_verdict_quando_inexistente(sem_commit, monkeypatch):
+    db = sem_commit
+    prop = _property(db)
+    _execucao(db, prop, 8, confirmados=7)
+    _permitir(monkeypatch, prop.id, 8)
+    antes = db.query(models.Verdict).filter_by(property_id=prop.id).count()
+    with pytest.raises(ValueError):
+        reconcile_verdict(db, prop.id, 8)
+    assert db.query(models.Verdict).filter_by(property_id=prop.id).count() == antes == 0
+
+
+# --------------------------------------------------------------------------
+# Comportamento determinístico (mantido da Task 74)
+# --------------------------------------------------------------------------
+
+def test_reconciliacao_usa_execucao_correta_da_v8(sem_commit, monkeypatch):
+    db = sem_commit
+    prop = _property(db)
+    _permitir(monkeypatch, prop.id, 8)
     # Simula o histórico: uma execução antiga (V3, tudo pendente) e a V8 (7 CONFIRMADO).
     _ = list(prop.checklist_executions)  # relationship carregada antes (stale)
     exec_v3 = _execucao(db, prop, 3, confirmados=0)
@@ -69,9 +119,10 @@ def test_reconciliacao_usa_execucao_correta_da_v8(sem_commit):
     assert result.execution_id != exec_v3.id
 
 
-def test_reconciliacao_produz_20_checklist_mais_1_financeira(sem_commit):
+def test_reconciliacao_produz_20_checklist_mais_1_financeira(sem_commit, monkeypatch):
     db = sem_commit
     prop = _property(db)
+    _permitir(monkeypatch, prop.id, 8)
     _ = list(prop.checklist_executions)
     _execucao(db, prop, 3, confirmados=0)
     exec_v8 = _execucao(db, prop, 8, confirmados=7)
@@ -99,9 +150,10 @@ def test_reconciliacao_produz_20_checklist_mais_1_financeira(sem_commit):
     assert result.pending_after == len(atualizado.pending_items)
 
 
-def test_reconciliacao_e_idempotente(sem_commit):
+def test_reconciliacao_e_idempotente(sem_commit, monkeypatch):
     db = sem_commit
     prop = _property(db)
+    _permitir(monkeypatch, prop.id, 8)
     _ = list(prop.checklist_executions)
     _execucao(db, prop, 3, confirmados=0)
     _execucao(db, prop, 8, confirmados=7)
@@ -130,9 +182,10 @@ def test_reconciliacao_e_idempotente(sem_commit):
     assert db.query(models.Analysis).filter_by(property_id=prop.id).count() == analyses_antes
 
 
-def test_reconciliacao_preserva_historico_v1_a_v7_e_nao_cria_v9(sem_commit):
+def test_reconciliacao_preserva_historico_v1_a_v7_e_nao_cria_v9(sem_commit, monkeypatch):
     db = sem_commit
     prop = _property(db)
+    _permitir(monkeypatch, prop.id, 8)
     _ = list(prop.checklist_executions)
 
     # Cria Analyses V1..V8 e um Verdict por versão (snapshots históricos).
