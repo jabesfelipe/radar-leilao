@@ -2763,3 +2763,83 @@ definir correção somente após diagnóstico
 somente depois:
 V8 → DomainEvent → ImpactAnalyzer → V9
 ```
+
+
+---
+
+# ADDENDUM — TASK 72 APROVADA E PRÓXIMO MARCO OPERACIONAL
+
+## TASK 72 — Diagnóstico da divergência Checklist × Veredito
+
+A Task 72 foi concluída e auditada no commit **0cb346335d95110eeb1bb8b8c82b8c88ea44f1dc**.
+
+### Resultado comprovado
+
+No imóvel de referência `property_id=633`:
+
+- Checklist V8: **7 CONFIRMADO / 20 PENDENTE**;
+- Veredito V8 persistido: **28 pending_items**;
+- 27 dessas pendências correspondem às perguntas do Checklist;
+- 1 pendência é financeira e legítima.
+
+A causa raiz foi comprovada no banco real:
+
+1. `Property.checklist_executions` não possui ordenação explícita;
+2. a execução correta da V8 era a **1153**;
+3. `create_execution()` cria a execução por FK (`property_id`) e não a anexa explicitamente à relationship em memória;
+4. durante o request da V8, a nova execução não estava disponível na coleção `prop.checklist_executions` usada pelo caminho antigo;
+5. o antigo `latest_execution()`, baseado em `reversed(...)`, selecionou a execução **665 (V3)**, com 27 PENDENTE;
+6. o VerdictEngine apenas refletiu os estados recebidos e persistiu 27 pendências do Checklist;
+7. as 7 confirmações da execução 1153 já existiam antes da criação do Veredito V8.
+
+Portanto, **não foi um simples snapshot posterior às confirmações**. A divergência veio da seleção de uma execução incorreta causada pela combinação de ordem incidental da relationship e ausência da execução recém-criada na coleção em memória.
+
+A Task 71 já corrigiu a seleção futura por `analysis_version` através de `execution_for_version()`.
+
+### Validação
+
+- `pytest -q`: **279 passed**
+- alteração funcional: **nenhuma**
+- dados históricos: preservados
+- V9: não executada
+
+## Decisão após a Task 72
+
+Não corrigir o Veredito V8 histórico.
+
+Antes de executar a primeira V9 real, deve ser garantido que a execução de Checklist recém-criada esteja disponível de forma determinística no mesmo request em que o Veredito é calculado.
+
+### Próxima task — Task 73
+
+**Objetivo:** eliminar/validar a dependência da relationship ORM para localizar a ChecklistExecution recém-criada no mesmo request.
+
+Escopo esperado:
+
+- investigar `create_execution()` + `prop.checklist_executions`;
+- escolher a menor correção segura: anexar explicitamente a execução à relationship ou fazer `execution_for_version()` consultar diretamente o banco;
+- criar teste de regressão para o cenário "nova execução criada por FK + create_verdict no mesmo request";
+- garantir que a V8 existente continue intacta;
+- não alterar VerdictEngine;
+- não alterar Checklist Master;
+- não alterar RAG, LangGraph ou agentes;
+- não executar LLM;
+- não executar V9;
+- não criar migration;
+- suíte completa;
+- um único commit funcional.
+
+**Critério de aceite:** em um cenário equivalente ao fluxo real, a execução recém-criada da análise corrente deve ser encontrada deterministicamente pelo Veredito, independentemente da ordem incidental de `prop.checklist_executions`.
+
+Somente depois da aprovação da Task 73:
+
+```
+restart + health
+    ↓
+criar/usar DomainEvent controlado
+    ↓
+V8 → reanálise incremental
+    ↓
+V9
+    ↓
+auditoria completa do resultado
+```
