@@ -1,0 +1,13 @@
+# Normalização de finais de linha
+* text=auto
+
+# Scripts executados no Linux/WSL devem sempre usar LF
+*.sh text eol=lf
+
+# Arquivos de configuração executados/interpretados no ambiente Linux
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+Dockerfile text eol=lf
+docker-compose*.yml text eol=lf
