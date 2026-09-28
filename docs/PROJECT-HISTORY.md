@@ -1556,3 +1556,64 @@ Resultado informado: **275 passed**, 0 falhas. Branch `main` está no SHA 8f9b54
 Nenhuma alteração fora do escopo foi identificada. V8 permanece intacta e nenhuma V9 foi gerada.
 
 **Próxima etapa:** validação operacional/UI do imóvel 633 antes de iniciar a reanálise incremental.
+
+
+---
+
+## TASK 72 — Diagnóstico da divergência Checklist × Veredito
+
+**Status:** 🟡 especificada.
+
+Após a validação manual do imóvel 633, a UI confirmou que o Checklist V8 está em **7 CONFIRMADO / 20 PENDENTE**, enquanto o Veredito V8 persistido continua com **28 pending_items**.
+
+A Task 71 já corrigiu a seleção determinística da execução do Checklist usada pelo Veredito. O VerdictEngine atual considera somente PENDENTE e EM_ANALISE como pendências do Checklist.
+
+Portanto, antes de alterar qualquer regra, a Task 72 deve diagnosticar se o Veredito V8 é um snapshot criado antes da atualização dos sete itens ou se existe outra divergência de persistência/seleção.
+
+### Escopo
+
+- inspecionar execuções do Checklist relacionadas à V8;
+- comparar distribuição de estados, IDs, versão e origem;
+- identificar a execução efetivamente utilizada pelo create_verdict();
+- comparar com Verdict V8.pending_items;
+- adicionar apenas testes necessários para comprovar a causa;
+- sem alteração do VerdictEngine;
+- sem alteração de regras do Checklist;
+- sem migration;
+- sem LLM, nova análise ou V9;
+- sem alteração do serviço incremental, ImpactAnalyzer, RAG, LangGraph ou agentes;
+- suíte completa.
+
+**Commit esperado:** `test: diagnostica divergencia checklist e veredito`
+
+### Critério de aceite
+
+A task deve explicar com evidência técnica por que:
+
+`Checklist V8 = 7 CONFIRMADO + 20 PENDENTE`
+
+enquanto:
+
+`Verdict V8 = 28 pending_items`.
+
+Se for comprovado que o Veredito é um snapshot histórico anterior às confirmações, não corrigir nesta task. A correção, se necessária, será uma task separada.
+
+---
+
+## Estado após validação manual das Tasks 70/71
+
+Ambiente local validado com:
+
+`./scripts/restart.sh`  
+`./scripts/health.sh`
+
+Resultado:
+
+`PostgreSQL OK`  
+`pgvector OK`  
+`Migrations OK`  
+`Backend OK`  
+`Frontend OK`  
+`OK: 5   FALHAS: 0`
+
+A UI confirmou evidências legíveis e Checklist V8 em 7/20. O próximo passo é exclusivamente o diagnóstico da divergência do Veredito antes da primeira reanálise incremental real.
