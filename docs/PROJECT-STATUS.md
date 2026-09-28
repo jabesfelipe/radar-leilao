@@ -2,10 +2,10 @@
 
 **Status global: MVP ENCERRADO (núcleo funcional) — validação operacional incremental pendente**
 
-**Última atualização:** 25/09/2026  
-**Última implementação aprovada:** Task 70 — commit 7f8f62454288b96723ea15909c0c967dfbcae3d2
+**Última atualização:** 28/09/2026  
+**Última implementação aprovada:** Task 73.1 — commit 4ed9b31d8f2e08b039832fe7ce441f488c9c9046
 
-**Próxima correção:** Task 71 — seleção determinística da execução do Checklist usada pelo Veredito
+**Próximo passo:** corrigir/reconciliar o Veredito V8 histórico do imóvel 633 antes de qualquer V9
 
 ## 1. Resumo executivo
 
@@ -549,3 +549,51 @@ A execução corrente deve ser encontrada deterministicamente mesmo que a relati
 **Commit esperado:** `fix: garante selecao da execucao corrente do checklist`
 
 Após aprovação da Task 73, o próximo marco será a validação operacional controlada **V8 → DomainEvent → ImpactAnalyzer → V9**.
+
+
+---
+
+## 14. VALIDAÇÃO REAL DO IMÓVEL 633 — 28/09/2026
+
+### Estado atual
+
+Após as Tasks 70 → 73.1, foi feita nova validação manual pela UI do imóvel **COND PARQUE ARVOREDO RESIDENCIAL CLUBE (property_id=633)**.
+
+Confirmado na tela:
+
+- Histórico preserva as análises V1–V8;
+- Checklist V8: **7 CONFIRMADOS / 20 PENDENTES**;
+- evidências do Veredito estão legíveis, com documento, categoria, versão e fonte quando disponíveis;
+- Veredito exibido é **Analysis V8**.
+
+### Divergência ainda existente
+
+O Veredito V8 persistido continua apresentando **28 pendências**:
+
+- 27 correspondem às perguntas do Checklist;
+- 1 é uma pendência financeira legítima sobre a fórmula canônica de preço máximo.
+
+Portanto, os 7 itens atualmente CONFIRMADOS no Checklist V8 ainda aparecem no snapshot histórico do Veredito como pendentes.
+
+### Interpretação
+
+As Tasks 71, 73 e 73.1 corrigiram a seleção determinística da execução do Checklist para o **fluxo de novas análises**:
+
+`Analysis V8 → ChecklistExecution V8 → Risk Engine V8 → Verdict V8`
+
+A divergência observada agora é do **Veredito V8 já persistido no banco**, criado antes das correções de seleção, e não deve ser corrigida gerando V9 ou executando novamente a análise completa.
+
+### Regra de continuidade
+
+**Não executar a análise completa do imóvel 633. Não gerar V9 ainda.**
+
+A próxima task deve ser exclusivamente uma correção/reconciliação controlada do Veredito V8 histórico, sem LLM e sem alterar as regras do Checklist/Verdict Engine.
+
+### Status
+
+- Validação UI 633: 🟢 concluída;
+- Checklist V8: 🟢 7/20;
+- Evidências UI: 🟢 legíveis;
+- Seleção corrente Checklist/Risk/Verdict para novas execuções: 🟢 corrigida nas Tasks 73/73.1;
+- Veredito V8 histórico: 🔴 pendente de reconciliação;
+- V9: ⏸️ bloqueada até a reconciliação e nova validação.
