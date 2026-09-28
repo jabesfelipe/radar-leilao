@@ -2843,3 +2843,72 @@ V9
     ↓
 auditoria completa do resultado
 ```
+
+
+---
+
+# ADDENDUM — TASK 73 — SELEÇÃO DA CHECKLISTEXECUTION CORRENTE
+
+## Objetivo
+
+Antes da primeira V9 real, garantir que a execução de Checklist recém-criada seja encontrada deterministicamente pelo fluxo de criação do Veredito no mesmo request/sessão ORM.
+
+## Contexto
+
+A Task 72 comprovou que:
+
+- `create_execution()` cria a execução por `property_id`;
+- a nova execução pode não aparecer em `prop.checklist_executions` quando a relationship já estava carregada;
+- o código antigo foi afetado por essa situação;
+- a Task 71 corrigiu a seleção semântica por `analysis_version`, mas a fonte da coleção precisa ser segura para a execução corrente.
+
+## Escopo
+
+1. Investigar `create_execution()`, `execution_for_version()` e `create_verdict()`.
+2. Reproduzir o cenário em uma mesma sessão/request.
+3. Aplicar a menor correção segura.
+4. Criar teste de regressão que prove que a execução recém-criada da Analysis corrente é encontrada pelo Veredito.
+5. Manter a regra de seleção por `analysis_version`.
+6. Executar a suíte completa.
+
+## Fora do escopo
+
+- VerdictEngine;
+- Risk Engine;
+- Checklist Mestre;
+- estados/regras do Checklist;
+- RAG;
+- LangGraph;
+- agentes;
+- migrations;
+- correção retroativa do Veredito V8;
+- LLM;
+- nova análise;
+- V9;
+- refatoração geral.
+
+## Critério de aceite
+
+A execução corrente deve ser encontrada de forma determinística mesmo quando `prop.checklist_executions` foi carregada antes da criação da nova execução.
+
+## Resultado esperado
+
+```
+Task 73
+   ↓
+pytest verde
+   ↓
+auditoria do commit
+   ↓
+restart.sh + health.sh
+   ↓
+DomainEvent controlado
+   ↓
+V8 → reanálise incremental
+   ↓
+V9
+   ↓
+auditoria completa
+```
+
+**Commit esperado:** `fix: garante selecao da execucao corrente do checklist`
