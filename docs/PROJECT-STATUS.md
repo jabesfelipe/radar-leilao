@@ -444,3 +444,33 @@ A resposta deve ser sustentada pelos registros/testes encontrados, sem suposiç�
 Se o diagnóstico demonstrar que o Veredito V8 é apenas um snapshot histórico anterior às confirmações do Checklist, **não corrigir nesta task**. Nesse caso, a próxima task será definida separadamente.
 
 **Proibido:** gerar V9 ou executar reanálise real do imóvel 633.
+
+
+---
+
+## TASK 72 — DIAGNÓSTICO DA DIVERGÊNCIA CHECKLIST × VEREDITO — APROVADA 🟢
+
+**Commit:** `0cb346335d95110eeb1bb8b8c82b8c88ea44f1dc`  
+**Status:** 🟢 APROVADA — 28/09/2026  
+**Testes:** `279 passed`, 0 falhas  
+**Alteração funcional:** nenhuma; somente teste diagnóstico.
+
+A causa raiz da divergência do imóvel 633 foi comprovada no banco real, sem alteração dos dados:
+
+1. `Property.checklist_executions` não possui `order_by`; a ordem da coleção ORM em memória é incidental.
+2. Na V8, a execução correta era a **1153**, com **7 CONFIRMADO / 20 PENDENTE**.
+3. `create_execution()` cria a execução por `property_id`, sem anexá-la explicitamente à relationship `prop.checklist_executions`. Durante o request, a nova execução V8 não estava presente nessa coleção em memória.
+4. O antigo `latest_execution()`, baseado em `reversed(prop.checklist_executions)`, selecionou a execução **665 (V3)**, que possuía **27 PENDENTE**.
+5. O VerdictEngine recebeu essa execução antiga e corretamente produziu 27 pendências de Checklist + 1 pendência financeira = **28**.
+6. As 7 confirmações da execução 1153 já existiam antes da criação do Veredito V8; portanto, não era simplesmente uma edição posterior do Checklist.
+7. A Task 71 já corrigiu o caminho futuro com `execution_for_version(prop, analysis.version)`, evitando a seleção de outra versão.
+
+Os quatro testes adicionados reproduzem o mecanismo de seleção incorreta, demonstram a seleção por versão da Task 71, demonstram o efeito no VerdictEngine e registram o comportamento da relationship quando a execução é criada por FK.
+
+**Importante:** o Veredito V8 histórico não deve ser regravado. A Task 72 não alterou dados, regras de negócio, VerdictEngine, Checklist, modelos ou migrations.
+
+### Próximo passo técnico
+
+Antes de executar uma V9 real, deve ser tratada/validada a questão da **relationship `prop.checklist_executions` dentro do mesmo request**. A Task 71 seleciona a execução por versão dentro dessa coleção; portanto, é necessário garantir que uma execução recém-criada esteja disponível de forma determinística no fluxo de criação do Veredito.
+
+**Próxima task proposta: Task 73 — Garantir acesso determinístico à ChecklistExecution recém-criada no mesmo request**, com escopo mínimo, testes de regressão e sem executar V9.
