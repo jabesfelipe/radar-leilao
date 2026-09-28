@@ -88,18 +88,40 @@ def latest_execution(prop: models.Property):
     return max(executions, key=_execution_sort_key)
 
 
-def execution_for_version(prop: models.Property, analysis_version: int | None):
+def execution_for_version(prop: models.Property, analysis_version: int | None, db: Session | None = None):
     """Retorna a ChecklistExecution correspondente a uma analysis_version específica.
 
     Usado pelo Veredito para garantir que o cálculo use a execução da própria
     análise (não uma execução antiga/mais recente de outra versão). Em empate de
     versão, escolhe o maior id. Se não houver execução para a versão, cai para a
     execução mais recente (comportamento anterior seguro).
+
+    IMPORTANTE (Task 73): quando `db` é fornecido, a seleção consulta o banco por
+    property_id + analysis_version — a fonte de verdade. Isso é necessário porque
+    `create_execution` insere a nova execução por FK (property_id) e NÃO a anexa à
+    coleção `prop.checklist_executions`. Se essa coleção já foi carregada antes da
+    criação, a execução recém-criada não aparece nela (a Session mantém a lista em
+    memória sem re-consultar). No mesmo request (create_execution seguido de
+    create_verdict) a consulta ao banco encontra deterministicamente a execução da
+    versão corrente. Sem `db`, mantemos o caminho anterior sobre a relationship,
+    preservando o comportamento dos demais chamadores.
     """
     if analysis_version is not None:
-        candidates = [e for e in (prop.checklist_executions or []) if e.analysis_version == analysis_version]
-        if candidates:
-            return max(candidates, key=lambda e: e.id or -1)
+        if db is not None:
+            found = db.scalars(
+                select(models.ChecklistExecution)
+                .where(
+                    models.ChecklistExecution.property_id == prop.id,
+                    models.ChecklistExecution.analysis_version == analysis_version,
+                )
+                .order_by(models.ChecklistExecution.id.desc())
+            ).first()
+            if found is not None:
+                return found
+        else:
+            candidates = [e for e in (prop.checklist_executions or []) if e.analysis_version == analysis_version]
+            if candidates:
+                return max(candidates, key=lambda e: e.id or -1)
     return latest_execution(prop)
 
 
@@ -174,8 +196,10 @@ def recalculate_risks(db: Session, prop: models.Property, analysis_version: int)
 
 def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None):
     # Usa a execução do Checklist correspondente à versão desta análise, para o
-    # Veredito não ser contaminado por uma execução de outra versão.
-    execution = execution_for_version(prop, analysis.version)
+    # Veredito não ser contaminado por uma execução de outra versão. Passamos `db`
+    # para que a seleção consulte o banco (fonte de verdade) e encontre a execução
+    # recém-criada no mesmo request, mesmo que a relationship esteja desatualizada.
+    execution = execution_for_version(prop, analysis.version, db=db)
     risks = list(db.scalars(select(models.Risk).where(models.Risk.property_id == prop.id, models.Risk.analysis_version == analysis.version)).all())
     decision = VerdictEngine().evaluate(
         property_id=prop.id,

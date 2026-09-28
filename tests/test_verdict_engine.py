@@ -75,6 +75,10 @@ def test_create_verdict_persiste_decisao_do_engine_sem_sintese_llm(monkeypatch):
     class ScalarResult:
         def all(self):
             return [models.Risk(id=4, property_id=1, analysis_version=2, severity="CRITICA", evidence_id=9, status="ATIVO")]
+        def first(self):
+            # Sem execução no "banco" deste fake -> execution_for_version cai no
+            # fallback latest_execution (mockado para None neste teste).
+            return None
 
     class Db:
         def __init__(self):

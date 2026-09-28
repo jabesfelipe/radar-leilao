@@ -95,6 +95,10 @@ def test_create_verdict_usa_execucao_da_versao_da_analise(monkeypatch):
     class ScalarResult:
         def all(self):
             return []
+        def first(self):
+            # Sem execução no "banco" deste fake -> execution_for_version cai no
+            # caminho da relationship (FakeProperty), preservando a intenção do teste.
+            return None
 
     class Db:
         def __init__(self):
