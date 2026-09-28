@@ -25,7 +25,8 @@ RUN pip install -r /app/backend/requirements.txt
 # Código do backend
 COPY backend /app/backend
 COPY docker/backend-entrypoint.sh /app/docker/backend-entrypoint.sh
-RUN chmod +x /app/docker/backend-entrypoint.sh
+RUN sed -i 's/\r$//' /app/docker/backend-entrypoint.sh \
+    && chmod +x /app/docker/backend-entrypoint.sh
 
 # O app é importado como pacote `app` a partir de /app/backend
 WORKDIR /app/backend
