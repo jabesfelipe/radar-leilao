@@ -169,7 +169,13 @@ def create_analysis(db: Session, prop: models.Property, scope: str, domains: lis
 
 
 def recalculate_risks(db: Session, prop: models.Property, analysis_version: int):
-    execution = latest_execution(prop)
+    # Usa a execução do Checklist da própria versão (fonte de verdade no banco via
+    # db), igual ao create_verdict. Antes usava latest_execution(prop), que lê a
+    # relationship em memória e pode estar stale: create_execution insere a nova
+    # execução por FK e não a anexa à coleção já carregada, fazendo o Risk Engine
+    # avaliar uma execução antiga. Reutiliza a seleção da Task 73 (sem nova
+    # estratégia nem duplicar a consulta).
+    execution = execution_for_version(prop, analysis_version, db=db)
     candidates = RiskEngine().evaluate(
         property_id=prop.id,
         checklist_results=execution.results if execution else [],

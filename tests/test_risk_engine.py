@@ -52,9 +52,17 @@ def test_multiplos_riscos_e_determinismo():
 def test_recalculate_persiste_analysis_version_sem_apagar_anterior(monkeypatch):
     from backend.app import services
 
+    class ScalarResult:
+        def first(self):
+            # Sem execução no "banco" deste fake -> execution_for_version cai no
+            # fallback latest_execution (mockado para None neste teste).
+            return None
+
     class Db:
         def __init__(self):
             self.added = []
+        def scalars(self, statement):
+            return ScalarResult()
         def add(self, item):
             self.added.append(item)
         def flush(self):
