@@ -389,3 +389,58 @@ Validação reportada pelo Kiro: **275 passed**, 0 falhas; `origin/main == HEAD`
 Escopo preservado: VerdictEngine, RiskEngine, modelos, migrations, frontend, Checklist Mestre, RAG, LangGraph e agentes não foram alterados.
 
 **Próximo passo:** rebuild/health e validação visual do imóvel 633. Somente após confirmar o Veredito V8 alinhado ao Checklist V8, seguir para V8 → DomainEvent → ImpactAnalyzer → reanálise incremental → V9.
+
+
+## 13. TASK 72 — Diagnóstico da divergência Checklist × Veredito
+
+**Status:** 🟡 especificada — diagnóstico somente, sem correção funcional ainda.
+
+Validação manual do imóvel 633 após as Tasks 70/71 confirmou:
+
+- Checklist V8: **7 CONFIRMADOS / 20 PENDENTES**;
+- Evidências na UI agora estão legíveis e rastreáveis;
+- Veredito exibido como **Analysis V8**;
+- Veredito V8 continua registrando **28 pendências**;
+- as 28 pendências correspondem às 27 perguntas do Checklist + 1 pendência financeira legítima;
+- portanto, os 7 itens atualmente CONFIRMADOS do Checklist continuam aparecendo como pendentes no snapshot persistido do Veredito.
+
+### Hipótese a ser confirmada
+
+O VerdictEngine atual considera como pendência de Checklist somente estados PENDENTE e EM_ANALISE. A Task 71 também corrigiu a seleção determinística da ChecklistExecution correspondente à versão da Analysis.
+
+Portanto, antes de alterar qualquer regra, é necessário determinar se:
+
+1. o Veredito V8 foi criado quando a execução do Checklist ainda estava com os 27 itens PENDENTE e posteriormente os 7 foram atualizados para CONFIRMADO; ou
+2. existe outra divergência entre a execução V8 persistida, a execução usada no create_verdict() e o snapshot pending_items do Veredito.
+
+### Task 72 — escopo fechado
+
+O Kiro deve **somente diagnosticar e testar**, sem corrigir ainda:
+
+1. identificar todas as ChecklistExecution do imóvel 633 relevantes para V8;
+2. registrar id, analysis_version, triggered_by e distribuição de estados;
+3. identificar qual execução corresponde à V8 usada pelo create_verdict();
+4. comparar essa execução com o Verdict V8 persistido;
+5. determinar se pending_items é um snapshot histórico anterior às alterações do Checklist;
+6. adicionar testes de diagnóstico/regressão somente se necessários para demonstrar a causa;
+7. não alterar VerdictEngine;
+8. não alterar Checklist Master ou regras de estados;
+9. não alterar IncrementalAnalysisService, ImpactAnalyzer, RAG, LangGraph ou agentes;
+10. não criar migration;
+11. não executar LLM, nova análise ou V9;
+12. não corrigir o comportamento ainda caso a causa seja apenas snapshot histórico;
+13. executar a suíte completa.
+
+### Critério de aceite
+
+O resultado da Task 72 deve responder objetivamente:
+
+> **Por que o Checklist V8 atual está 7 CONFIRMADO / 20 PENDENTE enquanto o Veredito V8 persistido contém 28 pendências?**
+
+A resposta deve ser sustentada pelos registros/testes encontrados, sem suposição.
+
+**Commit esperado:** `test: diagnostica divergencia checklist e veredito`
+
+Se o diagnóstico demonstrar que o Veredito V8 é apenas um snapshot histórico anterior às confirmações do Checklist, **não corrigir nesta task**. Nesse caso, a próxima task será definida separadamente.
+
+**Proibido:** gerar V9 ou executar reanálise real do imóvel 633.
