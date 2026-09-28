@@ -1617,3 +1617,36 @@ Resultado:
 `OK: 5   FALHAS: 0`
 
 A UI confirmou evidências legíveis e Checklist V8 em 7/20. O próximo passo é exclusivamente o diagnóstico da divergência do Veredito antes da primeira reanálise incremental real.
+
+
+---
+
+## TASK 72 — Diagnóstico da divergência Checklist × Veredito — APROVADA
+
+**Commit:** `0cb346335d95110eeb1bb8b8c82b8c88ea44f1dc` — `test: diagnostica divergencia checklist e veredito`
+
+A Task 72 comprovou a causa da divergência no imóvel 633 sem alterar dados históricos.
+
+### Causa raiz
+
+- `Property.checklist_executions` não possui `order_by`, portanto a ordem da coleção ORM é incidental.
+- A execução V8 correta era a **1153**, com **7 CONFIRMADO / 20 PENDENTE**.
+- `create_execution()` cria a execução usando `property_id=prop.id`, sem anexá-la explicitamente à relationship em memória.
+- Na V8, a execução recém-criada não estava presente na coleção `prop.checklist_executions` utilizada pelo código antigo.
+- O antigo `latest_execution() = next(iter(reversed(prop.checklist_executions)), None)` selecionou a execução **665 (V3)**, com 27 PENDENTE.
+- O VerdictEngine recebeu os 27 resultados pendentes da execução errada e persistiu 27 perguntas + 1 pendência financeira.
+- As 7 confirmações da execução 1153 já existiam antes da criação do Veredito; não houve simples atualização posterior do Checklist.
+
+### Validação
+
+`pytest -q` → **279 passed**, 0 falhas.
+
+A alteração do commit foi exclusivamente o teste `tests/test_verdict_execution_divergence.py`; não houve alteração funcional nem V9.
+
+### Decisão
+
+O Veredito V8 histórico permanece preservado. A Task 71 já protege novas execuções ao selecionar a ChecklistExecution pela versão da Analysis.
+
+### Próximo marco
+
+Antes da V9 real, validar/corrigir de forma mínima a disponibilidade da ChecklistExecution recém-criada na relationship durante o mesmo request. Isso será tratado separadamente na **Task 73**, sem reabrir VerdictEngine ou o Checklist Mestre.
