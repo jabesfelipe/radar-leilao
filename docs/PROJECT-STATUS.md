@@ -474,3 +474,78 @@ Os quatro testes adicionados reproduzem o mecanismo de seleção incorreta, demo
 Antes de executar uma V9 real, deve ser tratada/validada a questão da **relationship `prop.checklist_executions` dentro do mesmo request**. A Task 71 seleciona a execução por versão dentro dessa coleção; portanto, é necessário garantir que uma execução recém-criada esteja disponível de forma determinística no fluxo de criação do Veredito.
 
 **Próxima task proposta: Task 73 — Garantir acesso determinístico à ChecklistExecution recém-criada no mesmo request**, com escopo mínimo, testes de regressão e sem executar V9.
+
+
+---
+
+## TASK 73 — Garantir seleção da ChecklistExecution recém-criada — PRÓXIMA TASK
+
+**Status:** 🟡 especificada — aguardando implementação/auditoria.
+
+Após o diagnóstico da Task 72, existe uma fragilidade a ser fechada antes da primeira V9 real: `create_execution()` cria a `ChecklistExecution` por FK (`property_id=prop.id`) e a execução recém-criada pode não estar presente na coleção `prop.checklist_executions` já carregada na mesma sessão ORM.
+
+A Task 71 corrigiu a regra de seleção por `analysis_version`, mas a Task 73 deve garantir que essa execução corrente seja efetivamente encontrada pelo fluxo de criação do Veredito.
+
+### Objetivo
+
+Garantir que, no mesmo request da análise/reanálise, o `create_verdict()` encontre deterministicamente a `ChecklistExecution` correspondente à `analysis.version`, independentemente da ordem incidental ou estado do cache da relationship ORM.
+
+### Escopo fechado
+
+- investigar `create_execution()`, `execution_for_version()` e `create_verdict()`;
+- reproduzir o cenário de execução criada por FK e Veredito calculado no mesmo request;
+- aplicar a menor correção segura;
+- adicionar testes de regressão;
+- manter a seleção por `analysis_version` como regra semântica;
+- preservar o comportamento do Checklist e do VerdictEngine.
+
+### Fora do escopo
+
+- VerdictEngine;
+- Risk Engine;
+- Checklist Mestre;
+- estados/regras do Checklist;
+- RAG;
+- LangGraph;
+- agentes;
+- IncrementalAnalysisService/ImpactAnalyzer, salvo leitura necessária para entender o fluxo;
+- migrations;
+- correção do Veredito V8 histórico;
+- execução de LLM;
+- nova análise real;
+- geração de V9;
+- refatoração geral.
+
+### Critério de aceite
+
+Em cenário equivalente ao fluxo real:
+
+```
+Analysis Vn
+   ↓
+create_execution()
+   ↓
+ChecklistExecution Vn criada
+   ↓
+atualizações do Checklist
+   ↓
+create_verdict()
+   ↓
+execution_for_version()
+   ↓
+encontra exatamente a ChecklistExecution Vn
+```
+
+A execução corrente deve ser encontrada deterministicamente mesmo que a relationship `prop.checklist_executions` tenha sido carregada antes da criação da nova execução.
+
+### Validação
+
+- testes novos cobrindo o cenário de mesma sessão/request;
+- `pytest -q` completo;
+- nenhum LLM;
+- nenhum V9;
+- dados do imóvel 633 preservados.
+
+**Commit esperado:** `fix: garante selecao da execucao corrente do checklist`
+
+Após aprovação da Task 73, o próximo marco será a validação operacional controlada **V8 → DomainEvent → ImpactAnalyzer → V9**.
