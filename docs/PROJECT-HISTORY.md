@@ -1678,3 +1678,84 @@ Não alterar VerdictEngine, Checklist Master, estados do Checklist, RAG, LangGra
 **Commit esperado:** `fix: garante selecao da execucao corrente do checklist`
 
 Depois da aprovação: restart/health e então V8 → DomainEvent → reanálise incremental → V9.
+
+
+---
+
+# 28/09/2026 — TASKS 73 / 73.1 E VALIDAÇÃO REAL DO 633
+
+## TASK 73 — APROVADA 🟢
+
+**Commit:** da95ec0bbfe5d5c1d44b502b8bd95c54e6a473f3  
+**Objetivo:** garantir que a ChecklistExecution correspondente à Analysis corrente seja encontrada no mesmo request, sem depender do cache/ordem incidental da relationship.
+
+### Resultado
+
+- `execution_for_version(prop, analysis_version, db=db)` consulta diretamente a tabela `ChecklistExecution`;
+- seleção semântica por `property_id + analysis_version`;
+- desempate por `id DESC`;
+- `create_verdict()` passou a usar essa seleção com a Session atual;
+- testes reproduzem o cenário de execução recém-criada por FK ausente da relationship em memória;
+- **282 passed**;
+- sem LLM, sem análise real e sem V9.
+
+## TASK 73.1 — APROVADA 🟢
+
+**Commit:** 4ed9b31d8f2e08b039832fe7ce441f488c9c9046  
+**Objetivo:** alinhar o Risk Engine à mesma ChecklistExecution corrente usada pelo Veredito.
+
+### Resultado
+
+`recalculate_risks()` passou a utilizar:
+
+`execution_for_version(prop, analysis_version, db=db)`
+
+Foram adicionados testes garantindo:
+
+- Risk Engine recebe somente os resultados da versão solicitada;
+- execução antiga presente na relationship não é usada;
+- uma execução V9 mais nova não interfere quando a análise solicitada é V8;
+- risco persistido mantém a `analysis_version` correta.
+
+**pytest -q:** 284 passed, 0 falhas.  
+Sem LLM, sem análise real e sem V9.
+
+### Estado do fluxo após 73.1
+
+`Analysis V8 → ChecklistExecution V8 → Risk Engine V8 → Verdict V8`
+
+A regra semântica passa a ser `analysis_version == ChecklistExecution.analysis_version`, com consulta ao banco quando a Session está disponível.
+
+---
+
+## VALIDAÇÃO MANUAL REAL — IMÓVEL 633
+
+Após rebuild/health, foi validada a rota:
+
+`/imoveis/633`
+
+### Confirmado
+
+- Histórico com V1–V8;
+- Checklist V8 com **7 CONFIRMADOS / 20 PENDENTES**;
+- Veredito exibindo **Analysis V8**;
+- evidências vinculadas agora legíveis e rastreáveis.
+
+### Divergência encontrada
+
+O Veredito V8 persistido ainda mostra **28 pendências**.
+
+As 28 são:
+
+- 27 perguntas do Checklist;
+- + 1 pendência financeira legítima referente à fórmula canônica de preço máximo.
+
+Assim, os 7 itens que hoje estão CONFIRMADOS no Checklist V8 ainda aparecem como pendentes no snapshot persistido do Veredito.
+
+### Decisão
+
+Não executar análise completa, não criar V9 e não alterar Verdict Engine neste momento.
+
+A próxima task deve ser uma **reconciliação controlada do Veredito V8 histórico**, sem LLM, sem nova análise e sem mudança das regras do Checklist. O objetivo é fazer o Veredito V8 refletir a ChecklistExecution V8 já persistida, preservando a pendência financeira legítima e a rastreabilidade das evidências.
+
+**Status:** Tasks 73/73.1 🟢 aprovadas; validação 633 🟢 concluída; reconciliação do Veredito V8 🔴 pendente; V9 ⏸️ bloqueada.
