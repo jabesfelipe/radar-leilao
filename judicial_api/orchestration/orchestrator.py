@@ -88,6 +88,9 @@ class _SourceTiming:
 
     started_at: float | None = None
     finished_at: float | None = None
+    # True quando o worker abortou ANTES de chamar o provider por o prazo global já
+    # ter expirado (a fonte não chegou a executar / não emitiu SOURCE_STARTED).
+    skipped_global_timeout: bool = False
 
 
 @dataclass
@@ -294,9 +297,12 @@ class SearchOrchestrator:
         pending: dict[Future, tuple[int, CatalogEntry, _SourceTiming]] = {}
         try:
             for idx, entry in enumerate(sources):
-                self._event(search_id, SearchEventType.SOURCE_STARTED, tribunal=entry.code)
+                # NÃO emitimos SOURCE_STARTED aqui (submissão != início real). O
+                # evento é emitido dentro do worker, quando a fonte efetivamente
+                # começa a executar. Passamos o prazo global para o worker abortar
+                # antes de chamar o provider caso ele já tenha expirado.
                 timing = _SourceTiming()
-                future = pool.submit(self._run_one_source, request, entry, search_id, timing)
+                future = pool.submit(self._run_one_source, request, entry, search_id, timing, global_deadline)
                 pending[future] = (idx, entry, timing)
 
             def _individual_deadline(timing: _SourceTiming) -> float | None:
@@ -325,6 +331,12 @@ class SearchOrchestrator:
                         continue
                     idx, entry, timing = pending.pop(fut)
                     harvested = True
+                    if timing.skipped_global_timeout:
+                        # O worker abortou antes de chamar o provider (prazo global
+                        # já expirado). Não houve SOURCE_STARTED; registra GLOBAL_TIMEOUT.
+                        outcomes[idx] = fut.result()
+                        self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": SourceStatus.TIMEOUT.value, "reason": "GLOBAL_TIMEOUT"})
+                        continue
                     ind = _individual_deadline(timing)
                     finished_at = timing.finished_at
                     late_individual = ind is not None and finished_at is not None and finished_at > ind
@@ -382,12 +394,23 @@ class SearchOrchestrator:
                 outcomes[idx] = self._timeout_outcome(entry)
         return [o for o in outcomes if o is not None]
 
-    def _run_one_source(self, request: SearchRequest, entry: CatalogEntry, search_id: str, timing: _SourceTiming | None = None) -> _SourceOutcome:
+    def _run_one_source(self, request: SearchRequest, entry: CatalogEntry, search_id: str, timing: _SourceTiming | None = None, global_deadline: float | None = None) -> _SourceOutcome:
         provider = self._providers.provider_for_tribunal(entry.code)
+        # Verificação de prazo global DENTRO do worker, imediatamente antes de
+        # iniciar a consulta: se o worker só foi escalonado após o prazo global
+        # (fonte que esperou na fila), NÃO chama o provider. Trata a corrida entre a
+        # liberação da thread e o encerramento do prazo global.
+        if global_deadline is not None and self._clock() >= global_deadline:
+            if timing is not None:
+                timing.skipped_global_timeout = True
+            return self._timeout_outcome(entry)
+
         started = self._clock()
         if timing is not None:
             # Marca o INÍCIO REAL da execução (a fonte saiu da fila e começou).
             timing.started_at = started
+        # SOURCE_STARTED só quando a fonte EFETIVAMENTE começa a executar.
+        self._event(search_id, SearchEventType.SOURCE_STARTED, tribunal=entry.code)
         attempts_box = {"n": 0, "retried": False}
 
         def _call() -> list[Process]:
