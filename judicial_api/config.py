@@ -33,8 +33,12 @@ class JudicialSettings(BaseSettings):
     default_source_timeout_ms: int = 8000
     global_timeout_ms: int = 60000
 
+    # Base URL do DataJud (configurável; padrão = endpoint público oficial).
+    datajud_base_url: str = "https://api-publica.datajud.cnj.jus.br"
+
     # Credencial do provider — OPCIONAL nesta fase. Nunca versionar segredo:
-    # deve vir de ambiente/secret externo. Ausente por padrão.
+    # deve vir de ambiente/secret externo. Ausente por padrão. A chave do DataJud
+    # é pública e pode mudar; por isso fica em configuração, nunca hardcoded.
     datajud_api_key: str | None = Field(default=None, repr=False)
 
     model_config = SettingsConfigDict(
