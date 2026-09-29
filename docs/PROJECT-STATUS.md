@@ -7,6 +7,8 @@
 
 **Próximo passo:** nenhum. MVP encerrado; novas mudanças entram como Fase 2/backlog
 
+> **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores. O estado atual e autoritativo está no bloco **15. FECHAMENTO FINAL — 28/09/2026** e no `docs/IMPLEMENTATION-REFERENCE.md`.
+
 ## 1. Resumo executivo
 
 O MVP do Radar Leilão está encerrado tecnicamente.
