@@ -2912,3 +2912,131 @@ auditoria completa
 ```
 
 **Commit esperado:** `fix: garante selecao da execucao corrente do checklist`
+
+
+---
+
+# ANEXO FINAL — IMPLEMENTAÇÃO EFETIVA E ENCERRAMENTO DO MVP
+
+**Data:** 28/09/2026  
+**Estado:** MVP funcionalmente encerrado  
+**Referência de implementação:** `docs/IMPLEMENTATION-REFERENCE.md`
+
+Este anexo registra o estado efetivamente entregue e deve prevalecer sobre trechos históricos anteriores deste documento quando houver diferença entre intenção arquitetural e implementação final.
+
+## 1. Implementação efetivamente entregue
+
+O MVP possui:
+
+- React + TypeScript + Vite;
+- Python + FastAPI;
+- PostgreSQL + pgvector;
+- SQLAlchemy + Alembic;
+- MarkItDown + OCR Tesseract/Poppler;
+- pipeline original → normalização → Markdown → chunks → embeddings → pgvector;
+- RAG híbrido;
+- retrieval direcionado do Checklist;
+- LangChain + LangGraph;
+- cinco agentes LLM: Documental, Jurídico, Financeiro, Mercado e Checklist;
+- Checklist Mestre versionado;
+- Financeiro determinístico;
+- Mercado determinístico + interpretação do agente;
+- domínio funcional de Ocupação/Desocupação, sem agente LLM separado;
+- Evidence com rastreabilidade;
+- Risk Engine;
+- Verdict Engine;
+- histórico e memória estruturada;
+- reanálise incremental via `ImpactAnalyzer` + `IncrementalAnalysisService`;
+- endpoint operacional de reanálise por evento;
+- frontend funcional do dossiê;
+- scripts operacionais locais;
+- suíte automatizada backend/frontend validada nas etapas de fechamento.
+
+## 2. Regra de versionamento confirmada
+
+A seleção da execução do Checklist, Risk Engine e Verdict deve ser semanticamente vinculada à mesma `analysis_version`.
+
+Quando a Session está disponível, a fonte de verdade para a execução corrente é a consulta ao banco por:
+
+`property_id + analysis_version`
+
+e desempate por ID quando necessário.
+
+Essa regra foi validada em testes e no fluxo real V9.
+
+## 3. Reconciliação histórica do imóvel 633
+
+O imóvel de referência:
+
+**COND PARQUE ARVOREDO RESIDENCIAL CLUBE — property_id 633**
+
+teve seu Veredito V8 histórico reconciliado sem criar nova Analysis.
+
+Resultado:
+
+- Checklist V8: 7 CONFIRMADOS / 20 PENDENTES;
+- Veredito V8: 21 pendências;
+- 20 pendências do Checklist + 1 financeira;
+- histórico V1–V8 preservado.
+
+A rotina de manutenção ficou estritamente limitada ao imóvel 633 e à Analysis V8 e não cria Verdict ausente.
+
+## 4. Validação E2E real V9
+
+A V9 foi executada com LLM real no imóvel 633.
+
+Resultado:
+
+- 5 agentes;
+- modelo gpt-4o-mini;
+- 5/5 runs com sucesso;
+- 8 chunks recuperados;
+- 34.045 tokens;
+- custo registrado: US$ 0,00650625;
+- Checklist V9: 10 CONFIRMADOS / 17 PENDENTES;
+- Veredito V9: INCONCLUSIVO;
+- 18 pendências totais;
+- histórico V1–V9 preservado.
+
+A V9 comprovou o fluxo completo:
+
+`documentos → RAG → agentes → evidências → Checklist → Risk Engine → Verdict Engine → histórico`
+
+## 5. Limitações que permanecem por decisão de MVP
+
+Não são componentes obrigatórios da implementação atual:
+
+- Knowledge Graph dedicado;
+- MCP externo;
+- Redis;
+- S3/MinIO;
+- pesquisa jurídica externa totalmente automática;
+- scraping irrestrito;
+- comparáveis externos automatizados;
+- fórmula canônica de preço máximo;
+- suporte a leilão judicial;
+- hardening de produção.
+
+Esses itens permanecem como evolução/Fase 2.
+
+## 6. Documento de referência da implementação
+
+Para qualquer dúvida sobre **onde uma capacidade está implementada no código**, consultar:
+
+`docs/IMPLEMENTATION-REFERENCE.md`
+
+A regra de documentação é:
+
+`SPEC = business + arquitetura`
+
+`IMPLEMENTATION-REFERENCE = código efetivamente entregue`
+
+`PROJECT-STATUS = estado atual`
+
+`PROJECT-HISTORY = histórico das decisões e correções`
+
+## 7. Encerramento
+
+**MVP FUNCIONALMENTE ENCERRADO EM 28/09/2026.**
+
+A partir deste ponto, alterações de capacidade devem ser tratadas como Fase 2/backlog. Correções críticas de defeitos continuam permitidas normalmente.
