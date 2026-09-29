@@ -37,11 +37,25 @@ def test_superiores_stj_tst_tse_stm():
     assert superiores == {"STJ", "TST", "TSE", "STM"}
 
 
-def test_eleitoral_tem_27_tres():
+def test_eleitoral_tem_27_tres_mais_tse():
     catalog = default_catalog()
     eleitorais = {e.code for e in catalog.for_justice_types([JusticeType.ELECTORAL])}
-    assert len(eleitorais) == 27
+    # 27 TREs + o TSE (que é SUPERIOR e ELECTORAL simultaneamente).
+    assert len(eleitorais) == 28
     assert "TRE-PR" in eleitorais and "TRE-SP" in eleitorais
+    assert "TSE" in eleitorais
+
+
+def test_tse_pertence_a_superior_e_eleitoral_sem_duplicar():
+    catalog = default_catalog()
+    # Uma única entrada TSE no catálogo (não duplicada).
+    assert catalog.codes().count("TSE") == 1
+    tse = catalog.get("TSE")
+    assert set(tse.justice_types) == {JusticeType.SUPERIOR, JusticeType.ELECTORAL}
+    # aparece nos dois filtros
+    superiores = {e.code for e in catalog.for_justice_types([JusticeType.SUPERIOR])}
+    eleitorais = {e.code for e in catalog.for_justice_types([JusticeType.ELECTORAL])}
+    assert "TSE" in superiores and "TSE" in eleitorais
 
 
 def test_militar_somente_fontes_disponiveis():
@@ -64,11 +78,15 @@ def test_build_search_url_helper():
     assert build_search_url("https://x/", "tjsp") == "https://x/api_publica_tjsp/_search"
 
 
-def test_capabilities_padrao_nao_assumem_pessoa():
+def test_capabilities_padrao_refletem_criterios_comprovados():
     catalog = default_catalog()
     cap = catalog.get("TJPR").capabilities
-    # comprovadas na doc oficial
+    # comprovadas na doc oficial (glossário) -> têm query correspondente
     assert cap.process_number is True
+    assert cap.class_ is True
+    assert cap.subject is True
+    assert cap.court is True
+    assert cap.grau is True
     # não comprovadas => nunca assumidas
     assert cap.name is False
     assert cap.cpf is False

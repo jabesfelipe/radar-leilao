@@ -39,6 +39,7 @@ class CatalogEntry:
     code: str
     name: str
     justice_type: JusticeType
+    justice_types: tuple[JusticeType, ...]
     uf: str | None
     alias: str
     aliases: tuple[str, ...]
@@ -51,6 +52,7 @@ class CatalogEntry:
             code=self.code,
             name=self.name,
             justice_type=self.justice_type,
+            justice_types=list(self.justice_types),
             uf=self.uf,
             enabled=self.enabled,
         )
@@ -93,7 +95,9 @@ class JudicialCatalog:
         if not justice_types:
             return self.entries()
         wanted = set(justice_types)
-        return [e for e in self._entries if e.justice_type in wanted]
+        # Um tribunal casa se QUALQUER um dos seus ramos estiver entre os pedidos
+        # (ex.: TSE casa tanto em SUPERIOR quanto em ELECTORAL).
+        return [e for e in self._entries if wanted.intersection(e.justice_types)]
 
 
 def _merge_capabilities(defaults: dict, override: dict | None) -> SearchCriteriaSupport:
@@ -108,7 +112,7 @@ def _merge_capabilities(defaults: dict, override: dict | None) -> SearchCriteria
         process_number=bool(merged.get("process_number", False)),
         subject=bool(merged.get("subject", False)),
         court=bool(merged.get("court", False)),
-        movements=bool(merged.get("movements", False)),
+        grau=bool(merged.get("grau", False)),
         **{"class": bool(merged.get("class", False))},
     )
 
@@ -120,11 +124,18 @@ def _parse(data: dict, base_url_override: str | None) -> JudicialCatalog:
     entries: list[CatalogEntry] = []
     for raw in data.get("tribunals", []):
         alias = raw["alias"]
+        primary = JusticeType(raw["justice_type"])
+        # justice_types é opcional; quando ausente, usa o ramo primário. Permite
+        # que um tribunal pertença a mais de um ramo (ex.: TSE = SUPERIOR+ELECTORAL)
+        # sem duplicar a entrada no catálogo.
+        ramos = raw.get("justice_types") or [raw["justice_type"]]
+        justice_types = tuple(JusticeType(r) for r in ramos)
         entries.append(
             CatalogEntry(
                 code=raw["code"],
                 name=raw["name"],
-                justice_type=JusticeType(raw["justice_type"]),
+                justice_type=primary,
+                justice_types=justice_types,
                 uf=raw.get("uf"),
                 alias=alias,
                 aliases=tuple(raw.get("aliases", [])),

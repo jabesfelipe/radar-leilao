@@ -24,6 +24,12 @@ class SearchRequest(BaseModel):
     cpf: str | None = None
     cnpj: str | None = None
     process_number: str | None = None
+    # Critérios comprovados na doc oficial do DataJud (glossário): filtros por
+    # código da classe processual, do assunto e do órgão julgador, além do grau.
+    class_code: int | None = None
+    subject_code: int | None = None
+    court_code: int | None = None
+    grau: str | None = None
     uf: str | None = None
     city: str | None = None
     tribunals: list[str] = Field(default_factory=list)
@@ -139,15 +145,28 @@ class HealthResponse(BaseModel):
 
 
 class TribunalInfo(BaseModel):
+    """Identidade de um tribunal no catálogo.
+
+    Um tribunal pode pertencer a mais de um ramo (ex.: o TSE é SUPERIOR e
+    ELECTORAL). ``justice_types`` é a lista canônica; ``justice_type`` é mantido
+    como o ramo primário para compatibilidade do contrato.
+    """
+
     code: str
     name: str
     justice_type: JusticeType
+    justice_types: list[JusticeType] = Field(default_factory=list)
     uf: str | None = None
     enabled: bool = True
 
 
 class SearchCriteriaSupport(BaseModel):
-    """Capacidades de pesquisa por fonte (SPEC §50). Nunca assumir suporte."""
+    """Capacidades de PESQUISA por fonte (SPEC §50). Nunca assumir suporte.
+
+    Cada flag verdadeira corresponde a um critério que o provider sabe traduzir em
+    query. ``include_movements`` não é critério de pesquisa (é filtro de conteúdo
+    de resposta), por isso não aparece aqui.
+    """
 
     name: bool = False
     cpf: bool = False
@@ -156,7 +175,7 @@ class SearchCriteriaSupport(BaseModel):
     subject: bool = False
     class_: bool = Field(default=False, alias="class")
     court: bool = False
-    movements: bool = False
+    grau: bool = False
 
     model_config = {"populate_by_name": True}
 

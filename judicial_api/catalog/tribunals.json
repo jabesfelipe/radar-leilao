@@ -7,7 +7,7 @@
     "class": true,
     "subject": true,
     "court": true,
-    "movements": true,
+    "grau": true,
     "name": false,
     "cpf": false,
     "cnpj": false
@@ -51,7 +51,7 @@
     {"code": "STJ", "name": "Superior Tribunal de Justiça", "justice_type": "SUPERIOR", "uf": null, "alias": "stj"},
     {"code": "TST", "name": "Tribunal Superior do Trabalho", "justice_type": "SUPERIOR", "uf": null, "alias": "tst"},
     {"code": "STM", "name": "Superior Tribunal Militar", "justice_type": "SUPERIOR", "uf": null, "alias": "stm"},
-    {"code": "TSE", "name": "Tribunal Superior Eleitoral", "justice_type": "SUPERIOR", "uf": null, "alias": "tse"},
+    {"code": "TSE", "name": "Tribunal Superior Eleitoral", "justice_type": "SUPERIOR", "justice_types": ["SUPERIOR", "ELECTORAL"], "uf": null, "alias": "tse"},
 
     {"code": "TRE-AC", "name": "Tribunal Regional Eleitoral do Acre", "justice_type": "ELECTORAL", "uf": "AC", "alias": "tre-ac"},
     {"code": "TRE-AL", "name": "Tribunal Regional Eleitoral de Alagoas", "justice_type": "ELECTORAL", "uf": "AL", "alias": "tre-al"},

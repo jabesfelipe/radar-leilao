@@ -102,9 +102,13 @@ class DataJudProvider(JudicialProvider):
     def build_query(self, request: SearchRequest, entry: CatalogEntry, *, page_size: int, search_after: list | None = None) -> dict:
         """Monta o corpo da query do DataJud a partir dos critérios suportados.
 
-        Só usa critérios comprovadamente suportados pela fonte (capabilities do
-        catálogo). Se nenhum critério suportado for informado, ergue
-        UNSUPPORTED_SEARCH_CRITERIA (SPEC §3) — nunca simula capacidade.
+        Só traduz critérios comprovados na doc oficial do DataJud e que a fonte
+        declare suportar (capabilities do catálogo). Campos comprovados (glossário):
+        numeroProcesso, classe.codigo, assuntos.codigo, orgaoJulgador.codigo, grau.
+
+        Se o consumidor pedir apenas critérios não suportados (ex.: nome/CPF/CNPJ),
+        ergue UNSUPPORTED_SEARCH_CRITERIA (SPEC §3) — nunca simula capacidade. Toda
+        capability declarada como suportada TEM um ramo de query correspondente aqui.
         """
         supports = entry.capabilities
         must: list[dict] = []
@@ -112,18 +116,29 @@ class DataJudProvider(JudicialProvider):
         if request.process_number and supports.process_number:
             # Campo canônico do DataJud é numeroProcesso sem máscara (só dígitos).
             must.append({"match": {"numeroProcesso": only_digits(request.process_number)}})
-
-        # Critérios pessoais (nome/cpf/cnpj) não são campos públicos pesquisáveis
-        # no DataJud: se o consumidor pedir e a fonte não suportar, é explicitamente
-        # não suportado — não inventamos filtro.
-        pediu_pessoa = any([request.name, request.cpf, request.cnpj])
-        pessoa_suportada = supports.name or supports.cpf or supports.cnpj
+        if request.class_code is not None and supports.class_:
+            must.append({"match": {"classe.codigo": request.class_code}})
+        if request.subject_code is not None and supports.subject:
+            must.append({"match": {"assuntos.codigo": request.subject_code}})
+        if request.court_code is not None and supports.court:
+            must.append({"match": {"orgaoJulgador.codigo": request.court_code}})
+        if request.grau and supports.grau:
+            must.append({"match": {"grau": request.grau}})
 
         if not must:
-            if pediu_pessoa and not pessoa_suportada:
+            # Distingue "pediu algo não suportado" de "não pediu critério algum".
+            pediu_nao_suportado = (
+                (any([request.name, request.cpf, request.cnpj]))
+                or (request.process_number and not supports.process_number)
+                or (request.class_code is not None and not supports.class_)
+                or (request.subject_code is not None and not supports.subject)
+                or (request.court_code is not None and not supports.court)
+                or (request.grau and not supports.grau)
+            )
+            if pediu_nao_suportado:
                 raise JudicialError(
                     ErrorCode.UNSUPPORTED_SEARCH_CRITERIA,
-                    "Esta fonte não suporta pesquisa por nome/CPF/CNPJ.",
+                    "Os critérios informados não são suportados por esta fonte.",
                     http_status=422,
                     provider=self.code,
                     tribunal=entry.code,
@@ -139,8 +154,9 @@ class DataJudProvider(JudicialProvider):
         body: dict = {
             "size": page_size,
             "query": {"bool": {"must": must}},
-            # Ordenação estável exigida pela paginação search_after do DataJud.
-            "sort": [{"@timestamp": {"order": "asc"}}, {"_id": {"order": "asc"}}],
+            # Ordenação por @timestamp (campo do índice, conforme glossário) — é o
+            # sort usado no exemplo oficial de paginação com search_after do DataJud.
+            "sort": [{"@timestamp": {"order": "asc"}}],
         }
         if search_after:
             body["search_after"] = search_after

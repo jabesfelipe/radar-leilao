@@ -75,7 +75,44 @@ def test_build_query_por_numero_processo():
     must = body["query"]["bool"]["must"]
     assert must == [{"match": {"numeroProcesso": "00000000000000000000"}}]
     assert "search_after" not in body
-    assert body["sort"]  # ordenação estável para search_after
+    # sort por @timestamp (padrão do exemplo oficial de paginação do DataJud).
+    assert body["sort"] == [{"@timestamp": {"order": "asc"}}]
+
+
+def test_build_query_classe_assunto_orgao_grau():
+    provider = DataJudProvider()
+    entry = default_catalog().get("TJPR")
+    body = provider.build_query(
+        SearchRequest(class_code=1116, subject_code=10375, court_code=13597, grau="G1"),
+        entry, page_size=10,
+    )
+    must = body["query"]["bool"]["must"]
+    assert {"match": {"classe.codigo": 1116}} in must
+    assert {"match": {"assuntos.codigo": 10375}} in must
+    assert {"match": {"orgaoJulgador.codigo": 13597}} in must
+    assert {"match": {"grau": "G1"}} in must
+
+
+def test_toda_capability_suportada_tem_ramo_de_query():
+    """Invariante do review: nenhuma capability é declarada como suportada sem um
+    critério/query correspondente no build_query."""
+    provider = DataJudProvider()
+    entry = default_catalog().get("TJPR")
+    cap = entry.capabilities
+    # request que preenche exatamente os critérios comprovados
+    req = SearchRequest(process_number="1", class_code=2, subject_code=3, court_code=4, grau="G2")
+    must = provider.build_query(req, entry, page_size=5)["query"]["bool"]["must"]
+    campos = {list(m["match"].keys())[0] for m in must}
+    if cap.process_number:
+        assert "numeroProcesso" in campos
+    if cap.class_:
+        assert "classe.codigo" in campos
+    if cap.subject:
+        assert "assuntos.codigo" in campos
+    if cap.court:
+        assert "orgaoJulgador.codigo" in campos
+    if cap.grau:
+        assert "grau" in campos
 
 
 def test_build_query_com_search_after():
