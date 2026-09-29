@@ -25,20 +25,15 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def real_provider():
-    import httpx
-
     from judicial_api.catalog.loader import default_catalog
     from judicial_api.providers.datajud import DataJudProvider
+    from judicial_api.providers.http_transport import HttpxTransport
 
     api_key = os.getenv("JUDICIAL_DATAJUD_API_KEY")
     if not api_key:
         pytest.skip("JUDICIAL_DATAJUD_API_KEY não configurada.")
 
-    class _HttpxTransport:
-        def post(self, url, *, json, headers, timeout):
-            return httpx.post(url, json=json, headers=headers, timeout=timeout)
-
-    return DataJudProvider(default_catalog(), api_key=api_key, transport=_HttpxTransport(), default_timeout_ms=15000)
+    return DataJudProvider(default_catalog(), api_key=api_key, transport=HttpxTransport(), default_timeout_ms=15000)
 
 
 def test_real_consulta_por_numero_processo(real_provider):

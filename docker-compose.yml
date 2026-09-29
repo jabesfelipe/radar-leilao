@@ -56,6 +56,10 @@ services:
       LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # URL-base da Judicial API consumida pelo backend (integração — Entrega 3).
+      JUDICIAL_API_BASE_URL: ${JUDICIAL_API_BASE_URL:-http://judicial_api:8010}
+      JUDICIAL_API_KEY: ${JUDICIAL_API_CONSUMER_KEY:-}
+      JUDICIAL_API_TIMEOUT_SECONDS: ${JUDICIAL_API_TIMEOUT_SECONDS:-30}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
@@ -66,6 +70,51 @@ services:
       start_period: 40s
     volumes:
       - backend_storage:/app/backend/storage
+
+  # Módulo independente Judicial API (pesquisa processual multi-tribunal via
+  # DataJud/CNJ). Reutiliza a MESMA imagem do backend (mesmo Dockerfile) e o MESMO
+  # PostgreSQL. Não aplica migrations (o serviço backend é o dono da cadeia Alembic).
+  judicial_api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: radar-leilao-judicial
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    environment:
+      # Mesmo banco do Radar; tabelas judicial_* no schema public.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD:-radar_local}@postgres:5432/${POSTGRES_DB:-radar_leilao}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-radar_leilao}
+      POSTGRES_USER: ${POSTGRES_USER:-radar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-radar_local}
+      # Ambiente: "local" mantém auth opcional; em produção use "production" e
+      # forneça JUDICIAL_API_KEYS + JUDICIAL_DATAJUD_API_KEY (falha fechada).
+      JUDICIAL_ENVIRONMENT: ${JUDICIAL_ENVIRONMENT:-local}
+      JUDICIAL_PERSISTENCE_BACKEND: postgres
+      JUDICIAL_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Credencial pública do DataJud (nunca versionada). Sem ela, a consulta real
+      # falha de forma controlada; a API sobe normalmente.
+      JUDICIAL_DATAJUD_API_KEY: ${JUDICIAL_DATAJUD_API_KEY:-}
+      # Chaves de consumidor da Judicial API (nunca versionadas). Obrigatórias fora de local.
+      JUDICIAL_API_KEYS: ${JUDICIAL_API_KEYS:-}
+    entrypoint: ["/app/docker/judicial-entrypoint.sh"]
+    command: ["uvicorn", "judicial_api.app:app", "--host", "0.0.0.0", "--port", "8010"]
+    working_dir: /app
+    ports:
+      - "${JUDICIAL_PORT:-8010}:8010"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8010/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   frontend:
     build:

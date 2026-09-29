@@ -126,6 +126,9 @@ def _custom_openapi(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    # Falha de forma segura em ambiente não-local se credenciais obrigatórias
+    # (auth do consumidor / API key do DataJud quando transporte real) faltarem.
+    settings.validate_production_ready()
     app = FastAPI(
         title="Judicial API",
         version=settings.version,

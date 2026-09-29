@@ -14,6 +14,8 @@ from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .extraction import extract_document, persist_extraction
 from .incremental import IncrementalAnalysisService
+from .judicial_client import JudicialApiError, JudicialApiUnavailable
+from .judicial_integration import JudicialIntegrationService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
@@ -517,6 +519,72 @@ def list_processes(property_id: int, db: Session = Depends(get_db)):
     processes = db.scalars(select(models.LegalProcess).where(models.LegalProcess.property_id == property_id).order_by(models.LegalProcess.created_at)).all()
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "LegalProcess").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "processos": processes, "historico": history}
+
+
+class JudicialConsultRequest(BaseModel):
+    """Critérios opcionais para a consulta judicial. Quando omitidos, o número do
+    processo pode ser informado explicitamente; CPF/CNPJ NÃO são presumidos."""
+    process_number: str | None = None
+    cpf: str | None = None
+    cnpj: str | None = None
+    name: str | None = None
+    uf: str | None = None
+    tribunals: list[str] | None = None
+    justice_types: list[str] | None = None
+
+
+@app.post("/api/imoveis/{property_id}/processos/consultar")
+def consult_judicial(property_id: int, request: JudicialConsultRequest | None = None, db: Session = Depends(get_db)):
+    """Consulta a Judicial API (DataJud) e persiste processos/sinais no imóvel.
+
+    Integração HTTP (Entrega 3): não duplica provider/orchestrator/signals. A
+    indisponibilidade/timeout da Judicial API NÃO interrompe o restante das
+    análises — retorna 200 com ``disponivel=false`` para degradação graciosa.
+    """
+    prop = property_or_404(db, property_id)
+    request = request or JudicialConsultRequest()
+    # Monta critérios com os dados disponíveis/autorizados. Não presume CPF/CNPJ:
+    # só envia o que o usuário forneceu explicitamente na requisição.
+    criteria = {
+        "process_number": request.process_number,
+        "cpf": request.cpf,
+        "cnpj": request.cnpj,
+        "name": request.name,
+        "uf": request.uf or prop.state,
+        "tribunals": request.tribunals or [],
+        "justice_types": request.justice_types or [],
+    }
+    if not any([criteria["process_number"], criteria["cpf"], criteria["cnpj"], criteria["name"]]):
+        raise HTTPException(400, "Informe ao menos um critério de pesquisa (número do processo, CPF, CNPJ ou nome).")
+
+    service = JudicialIntegrationService(db)
+    try:
+        result = service.consult_for_property(prop, criteria)
+    except JudicialApiUnavailable as exc:
+        # Degradação graciosa: não bloqueia as demais análises do imóvel.
+        db.rollback()
+        log.warning("consulta judicial indisponivel: property_id=%s motivo=%s", property_id, str(exc)[:200])
+        return {"property_id": prop.id, "disponivel": False, "status": "INDISPONIVEL", "mensagem": "Judicial API indisponível; a análise do imóvel não foi interrompida.", "processos_criados": 0, "processos_atualizados": 0, "sinais_criados": 0}
+    except JudicialApiError as exc:
+        db.rollback()
+        log.warning("consulta judicial rejeitada: property_id=%s erro=%s", property_id, str(exc)[:200])
+        raise HTTPException(502, f"Falha ao consultar a Judicial API: {str(exc)[:300]}") from exc
+
+    db.commit()
+    log.info("consulta judicial concluida: property_id=%s status=%s criados=%d atualizados=%d sinais=%d",
+             property_id, result.status, result.processes_created, result.processes_updated, result.signals_created)
+    return {
+        "property_id": prop.id,
+        "disponivel": True,
+        "search_id": result.search_id,
+        "status": result.status,
+        "processos_criados": result.processes_created,
+        "processos_atualizados": result.processes_updated,
+        "sinais_criados": result.signals_created,
+        "fontes": result.sources,
+        "avisos": result.warnings,
+        "reanalise": result.reanalyze,
+    }
 
 @app.patch("/api/imoveis/{property_id}/checklist/{item_id}")
 def update_checklist(property_id: int, item_id: int, data: schemas.ChecklistUpdate, db: Session = Depends(get_db)):

@@ -24,9 +24,17 @@ RUN pip install -r /app/backend/requirements.txt
 
 # Código do backend
 COPY backend /app/backend
+# Módulo independente Judicial API (autocontido). É necessário no backend porque
+# (a) as migrations do Radar incluem as tabelas judicial_* (env.py importa
+# judicial_api) e (b) a mesma imagem serve o serviço judicial_api no compose.
+COPY judicial_api /app/judicial_api
 COPY docker/backend-entrypoint.sh /app/docker/backend-entrypoint.sh
-RUN sed -i 's/\r$//' /app/docker/backend-entrypoint.sh \
-    && chmod +x /app/docker/backend-entrypoint.sh
+COPY docker/judicial-entrypoint.sh /app/docker/judicial-entrypoint.sh
+RUN sed -i 's/\r$//' /app/docker/backend-entrypoint.sh /app/docker/judicial-entrypoint.sh \
+    && chmod +x /app/docker/backend-entrypoint.sh /app/docker/judicial-entrypoint.sh
+
+# `app` (backend) e `judicial_api` são importáveis a partir de /app.
+ENV PYTHONPATH=/app
 
 # O app é importado como pacote `app` a partir de /app/backend
 WORKDIR /app/backend

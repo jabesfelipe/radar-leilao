@@ -3,12 +3,47 @@
 Módulo **independente** de pesquisa processual judicial nacional (fonte inicial: DataJud/CNJ).
 Não depende do Radar Leilão; será consumido por ele futuramente via uma única API REST.
 
-> Estado atual: **JUR-05 — REST completa, documentação e E2E** (última task). O módulo
-> está consumível externamente: contrato REST unificado, OpenAPI/Swagger, autenticação
-> por API key, autorização por escopo, rate limiting, métricas, auditoria e hardening.
-> A persistência em PostgreSQL permanece como fase futura (hoje o store é em memória).
+> Estado atual: **módulo consumível em produção-local**. Contrato REST unificado,
+> OpenAPI/Swagger, autenticação por API key, autorização por escopo, rate limiting,
+> métricas, auditoria e hardening (JUR-01..05); **persistência PostgreSQL durável**,
+> **transporte real do DataJud** e **integração HTTP com o Radar Leilão** (Task Final).
 > A SPEC completa está em `docs/JUDICIAL-API-SPEC.md`; a ordem de execução em
 > `docs/JUDICIAL-IMPLEMENTATION-TASKS.md`.
+
+## Persistência PostgreSQL (Task Final)
+
+O store padrão é **PostgreSQL durável** (`PostgresSearchStore`), reutilizando o MESMO
+banco do Radar (schema `public`, tabelas prefixadas `judicial_`). Não é uma segunda
+infraestrutura: a URL vem de `DATABASE_URL`/`JUDICIAL_DATABASE_URL`.
+
+- Tabelas: `judicial_searches`, `judicial_search_sources`, `judicial_processes`,
+  `judicial_process_parties`, `judicial_process_subjects`, `judicial_process_movements`,
+  `judicial_signals`, `judicial_search_events` (migration Alembic `0011`, reversível,
+  na mesma cadeia do Radar).
+- **Durabilidade**: os resultados sobrevivem ao reinício e são compartilhados por
+  múltiplas instâncias (mesmo banco).
+- **Idempotência no retry**: `save` faz UPSERT do agregado por `search_id` e substitui
+  os filhos pelo estado atual; constraints únicas (`search_id`; `search+tribunal`;
+  `search+tribunal+numeroProcesso`) impedem duplicação mesmo sob concorrência.
+- O armazenamento em memória (`InMemorySearchStore`) permanece **apenas** para
+  testes/execução efêmera explícita (`JUDICIAL_PERSISTENCE_BACKEND=memory`) — nunca é
+  fallback silencioso.
+
+## Consulta real ao DataJud (Task Final)
+
+- Transporte HTTP real (`HttpxTransport`) é injetado no `DataJudProvider` quando há
+  credencial (`JUDICIAL_DATAJUD_API_KEY`) e `JUDICIAL_DATAJUD_REAL_TRANSPORT=true`
+  (padrão). Sem credencial, a consulta real falha de forma controlada
+  (`CONFIGURATION_ERROR`) — a API sobe normalmente e a suíte roda sem rede.
+- Autenticação via header oficial `Authorization: APIKey <chave>`. A chave é pública e
+  pode mudar pelo CNJ: fica em configuração, nunca em código.
+- **Produção falha fechada**: fora de `local`/`test`, `create_app` exige
+  `JUDICIAL_API_KEYS` (auth do consumidor) e, se o transporte real estiver habilitado,
+  `JUDICIAL_DATAJUD_API_KEY`. Faltando, a aplicação não sobe.
+- Capabilities reais são preservadas: o DataJud é pesquisável por `numeroProcesso`,
+  `classe.codigo`, `assuntos.codigo`, `orgaoJulgador.codigo` e `grau`. Nome/CPF/CNPJ
+  **não** são pesquisáveis diretamente na API pública — critérios não suportados
+  resultam em `UNSUPPORTED_SEARCH_CRITERIA` (nunca simulados).
 
 ## Contrato REST (JUR-05)
 
@@ -171,8 +206,49 @@ Variáveis de ambiente (prefixo `JUDICIAL_`), todas com padrão seguro:
 | `JUDICIAL_RATE_LIMIT_WINDOW_SECONDS` | `60` | Tamanho da janela do rate limit |
 | `JUDICIAL_MAX_REQUEST_BYTES` | `1048576` | Tamanho máximo do corpo (0 desabilita) |
 | `JUDICIAL_CORS_ALLOW_ORIGINS` | *(vazio)* | Origens CORS permitidas (separadas por vírgula) |
+| `JUDICIAL_ENVIRONMENT` | `local` | `local`/`test` = auth opcional; qualquer outro = produção (auth obrigatória, falha fechada) |
+| `JUDICIAL_PERSISTENCE_BACKEND` | `postgres` | `postgres` (padrão durável) ou `memory` (só testes/efêmero explícito) |
+| `DATABASE_URL` / `JUDICIAL_DATABASE_URL` | *(banco local)* | URL do PostgreSQL compartilhado com o Radar. **Nunca versionar credencial real** |
+| `JUDICIAL_DATAJUD_REAL_TRANSPORT` | `true` | Injeta o transporte HTTP real no DataJudProvider quando há credencial |
 
-Nenhum segredo é necessário para subir a aplicação ou rodar a suíte padrão de testes.
+Nenhum segredo é necessário para subir a aplicação em modo local ou rodar a suíte
+padrão de testes. **Em produção**, `JUDICIAL_API_KEYS` é obrigatório e, com transporte
+real habilitado, `JUDICIAL_DATAJUD_API_KEY` também.
+
+## Deploy (Docker Compose)
+
+O serviço `judicial_api` roda a mesma imagem do backend (uvicorn `judicial_api.app:app`
+na porta 8010) e usa o MESMO PostgreSQL. As migrations (incluindo as tabelas
+`judicial_*`) são aplicadas pelo serviço `backend` (dono da cadeia Alembic); o serviço
+judicial não aplica migrations.
+
+```bash
+docker compose up -d            # sobe postgres, backend (migrations), judicial_api, frontend
+curl -s http://localhost:8010/health
+```
+
+## Integração com o Radar Leilão (Task Final)
+
+O Radar consome a Judicial API por HTTP — **não** duplica provider/orchestrator/sinais.
+
+- Cliente: `backend/app/judicial_client.py` (`JudicialApiClient`).
+- Integração/persistência: `backend/app/judicial_integration.py` mapeia o resultado da
+  Judicial API em `LegalProcess`/`ProcessMovement` e os sinais em `Evidence` (categoria
+  `JURIDICO`), preservando a distinção **processo × imóvel** (um sinal processual nunca
+  vira gravame confirmado na matrícula), e emite um `DomainEvent`
+  `CONSULTA_JUDICIAL_REALIZADA` (alimenta a reanálise incremental).
+- Endpoint: `POST /api/imoveis/{id}/processos/consultar`. Indisponibilidade/timeout da
+  Judicial API **não** interrompem as demais análises — o endpoint responde
+  `200 { "disponivel": false }` (degradação graciosa).
+- Configuração no backend (env): `JUDICIAL_API_BASE_URL`, `JUDICIAL_API_KEY` (chave de
+  consumidor), `JUDICIAL_API_TIMEOUT_SECONDS`.
+
+### Testes reais (opcionais) e limitações
+
+O teste real contra o DataJud (`tests/judicial/test_real_datajud.py`) permanece **fora
+da suíte padrão** e só executa com `RUN_REAL_DATAJUD_TESTS=true` e credencial válida.
+Nunca simula sucesso quando não executado. Os testes de persistência PostgreSQL exigem
+`RAG_TEST_DATABASE_URL` (pulam quando ausente).
 
 ## Testes
 

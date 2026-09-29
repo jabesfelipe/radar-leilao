@@ -280,9 +280,32 @@ A estrutura atual possui migrations para:
 - matrícula/edital;
 - extração documental;
 - cadastro completo do imóvel;
-- datas/horários do leilão.
+- datas/horários do leilão;
+- **persistência PostgreSQL da Judicial API (`0011_judicial_persistence`)** — tabelas
+  `judicial_*` no mesmo banco/schema, sem tocar no schema do Radar; reversível.
 
 Não foi criada migration específica para as correções Tasks 69–74.1.
+
+### Judicial API — persistência, DataJud real e integração (Task Final)
+
+O módulo independente `judicial_api/` (pesquisa processual multi-tribunal via
+DataJud/CNJ) passou a:
+
+- **persistir em PostgreSQL** (durável, compartilhado) via `PostgresSearchStore`
+  (`judicial_api/persistence/`), reutilizando o MESMO banco do Radar. O
+  `InMemorySearchStore` fica só para testes (`JUDICIAL_PERSISTENCE_BACKEND=memory`).
+- **consultar o DataJud real** via `HttpxTransport` (`judicial_api/providers/http_transport.py`),
+  injetado quando há `JUDICIAL_DATAJUD_API_KEY`. Fora de `local`, a API falha fechada
+  sem as credenciais obrigatórias.
+- **ser consumida pelo Radar por HTTP**: `backend/app/judicial_client.py` +
+  `backend/app/judicial_integration.py` + endpoint
+  `POST /api/imoveis/{id}/processos/consultar`. O resultado vira `LegalProcess`/
+  `ProcessMovement` + `Evidence(JURIDICO)` + `DomainEvent CONSULTA_JUDICIAL_REALIZADA`,
+  preservando a distinção processo × imóvel. Indisponibilidade da Judicial API não
+  bloqueia as demais análises.
+
+Deploy: serviço `judicial_api` no `docker-compose.yml` (mesma imagem do backend,
+uvicorn na porta 8010, mesmo PostgreSQL). O `backend` é o dono das migrations.
 
 ---
 
@@ -367,6 +390,13 @@ A V9 comprova o fluxo real:
 ---
 
 ## 15. Limitações conhecidas e evolução
+
+Sobre a Judicial API (Task Final): a persistência PostgreSQL, o transporte real do
+DataJud e a integração HTTP com o Radar estão implementados e cobertos por testes
+automatizados. A **consulta real ao DataJud** depende de credencial pública válida e
+conectividade externa; o teste real é opcional (`RUN_REAL_DATAJUD_TESTS=true`) e não
+foi executado contra o serviço real neste ambiente (sem credencial/conectividade) — a
+validação automatizada usa mocks/fakes e PostgreSQL real.
 
 Não são dependências para o MVP:
 

@@ -14,12 +14,15 @@ from functools import lru_cache
 
 from .catalog.loader import JudicialCatalog, default_catalog
 from .config import get_settings
+from .logging_config import get_logger
 from .metrics import Metrics, get_metrics
 from .orchestration.orchestrator import OrchestratorConfig, SearchOrchestrator
 from .orchestration.store import InMemorySearchStore, SearchStore
 from .providers.datajud import DataJudProvider
 from .registry.base import ProviderRegistry, TribunalRegistry
 from .registry.catalog_registry import CatalogTribunalRegistry, SimpleProviderRegistry
+
+log = get_logger("deps")
 
 
 @lru_cache
@@ -35,12 +38,20 @@ def get_tribunal_registry() -> TribunalRegistry:
 @lru_cache
 def get_datajud_provider() -> DataJudProvider:
     settings = get_settings()
-    # transport permanece None nesta composição: sem chamada real de rede por
-    # padrão (a suíte roda sem credencial). Um transporte real é injetado por
-    # configuração/composição externa quando se deseja consultar o DataJud.
+    # Transporte HTTP real (TASK FINAL — Entrega 2): injetado quando há credencial
+    # e o transporte real está habilitado. Sem credencial, o transporte permanece
+    # None e a consulta real falha de forma controlada (CONFIGURATION_ERROR) — a
+    # suíte padrão roda sem rede e sem credencial. Nunca simula sucesso sem chave.
+    transport = None
+    if settings.datajud_real_transport and settings.datajud_api_key:
+        from .providers.http_transport import HttpxTransport
+
+        transport = HttpxTransport()
+        log.info("datajud transporte real habilitado")
     return DataJudProvider(
         catalog=get_catalog(),
         api_key=settings.datajud_api_key,
+        transport=transport,
         default_timeout_ms=settings.default_source_timeout_ms,
     )
 
@@ -52,6 +63,18 @@ def get_provider_registry() -> ProviderRegistry:
 
 @lru_cache
 def get_store() -> SearchStore:
+    """Store de persistência padrão.
+
+    PostgreSQL é o padrão de produção (durável, compartilhado entre instâncias). O
+    ``InMemorySearchStore`` só é usado quando explicitamente selecionado
+    (``JUDICIAL_PERSISTENCE_BACKEND=memory``) — nunca é fallback silencioso.
+    """
+    settings = get_settings()
+    if settings.use_postgres:
+        from .persistence.postgres_store import PostgresSearchStore
+
+        return PostgresSearchStore()
+    log.warning("persistencia em memoria selecionada explicitamente (nao-duravel)")
     return InMemorySearchStore()
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from . import SERVICE_NAME, __version__
@@ -40,6 +40,25 @@ class JudicialSettings(BaseSettings):
     # deve vir de ambiente/secret externo. Ausente por padrão. A chave do DataJud
     # é pública e pode mudar; por isso fica em configuração, nunca hardcoded.
     datajud_api_key: str | None = Field(default=None, repr=False)
+
+    # ------------------------------------------------------------------
+    # Persistência (TASK FINAL — Entrega 1)
+    # ------------------------------------------------------------------
+    # Backend de persistência: "postgres" (padrão de produção) ou "memory"
+    # (apenas testes/execução efêmera explícita). Nunca cai em memory
+    # silenciosamente: se postgres estiver selecionado e a URL faltar em ambiente
+    # não-local, a inicialização falha de forma segura.
+    persistence_backend: str = "postgres"
+    # URL do PostgreSQL compartilhado com o Radar. Lê DATABASE_URL (sem prefixo,
+    # a mesma var do Radar) ou JUDICIAL_DATABASE_URL. Nunca versionar credencial
+    # real: o padrão é apenas o banco local de desenvolvimento.
+    database_url: str = Field(
+        default="postgresql+psycopg://radar:radar_local@localhost:5432/radar_leilao",
+        validation_alias=AliasChoices("JUDICIAL_DATABASE_URL", "DATABASE_URL"),
+    )
+    # Injeta transporte HTTP real no DataJudProvider quando houver credencial.
+    # Desligar (false) força o modo sem-rede mesmo com credencial (útil em testes).
+    datajud_real_transport: bool = True
 
     # ------------------------------------------------------------------
     # Segurança da API (JUR-05, SPEC §73)
@@ -117,9 +136,40 @@ class JudicialSettings(BaseSettings):
         return result
 
     @property
+    def is_local(self) -> bool:
+        return (self.environment or "").strip().lower() in ("local", "test", "testing")
+
+    @property
     def auth_enabled(self) -> bool:
-        """Auth está ativa se há chaves configuradas OU se exigida explicitamente."""
-        return self.require_auth or bool(self.parsed_api_keys())
+        """Auth está ativa se há chaves configuradas, se exigida explicitamente,
+        OU se o ambiente não é local (produção exige autenticação — SPEC §73)."""
+        return self.require_auth or bool(self.parsed_api_keys()) or not self.is_local
+
+    @property
+    def use_postgres(self) -> bool:
+        return (self.persistence_backend or "").strip().lower() == "postgres"
+
+    def validate_production_ready(self) -> None:
+        """Falha de forma segura se credenciais/configurações obrigatórias
+        estiverem ausentes em ambiente não-local (SPEC §73, Entrega 2).
+
+        - Em produção, a autenticação da API é obrigatória: precisa haver chaves
+          de consumidor configuradas.
+        - O transporte real do DataJud exige a API key pública quando habilitado.
+        Em ambiente local, nada é exigido (a suíte roda sem credenciais).
+        """
+        if self.is_local:
+            return
+        problemas: list[str] = []
+        if not self.parsed_api_keys():
+            problemas.append("JUDICIAL_API_KEYS ausente (autenticação obrigatória fora de local)")
+        if self.datajud_real_transport and not self.datajud_api_key:
+            problemas.append("JUDICIAL_DATAJUD_API_KEY ausente (transporte real do DataJud habilitado)")
+        if problemas:
+            raise RuntimeError(
+                "Configuração obrigatória ausente em ambiente '%s': %s"
+                % (self.environment, "; ".join(problemas))
+            )
 
 
 @lru_cache

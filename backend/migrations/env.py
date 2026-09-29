@@ -1,3 +1,5 @@
+import os
+import sys
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
@@ -5,11 +7,26 @@ from app.config import settings
 from app.database import Base
 from app import models
 
+# A raiz do repositório (um nível acima de backend/) precisa estar no sys.path para
+# importar o pacote autocontido `judicial_api`, cujas tabelas judicial_* vivem no
+# MESMO banco do Radar. Isso permite que o Alembic gerencie ambas as metadatas numa
+# única cadeia de migrations / único alembic_version.
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from judicial_api.db import JudicialBase  # noqa: E402
+from judicial_api.persistence import models as _judicial_models  # noqa: E402,F401
+
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 if config.config_file_name:
     fileConfig(config.config_file_name)
-target_metadata = Base.metadata
+
+# Metadata combinada: tabelas do Radar (Base) + tabelas judicial_* (JudicialBase).
+# Como as tabelas do judicial usam prefixo próprio no schema public, não há colisão
+# com o Radar. Autogenerate/consistência passam a enxergar ambos os conjuntos.
+target_metadata = [Base.metadata, JudicialBase.metadata]
 
 
 def run_migrations_offline():

@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     extraction_min_chars_per_kb: float = 1.0
     llm_api_key: str | None = None
     openai_api_key: str | None = None
+    # Integração com a Judicial API (módulo independente consumido por HTTP).
+    # URL-base, credencial e timeout vêm de ambiente/secret — nunca versionados.
+    judicial_api_base_url: str = "http://judicial_api:8010"
+    judicial_api_key: str | None = None
+    judicial_api_timeout_seconds: float = 30.0
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     @model_validator(mode="after")
