@@ -71,7 +71,6 @@ class ErrorCode(str, Enum):
 
 
 # Erros considerados transitórios (retry automático permitido — SPEC §24).
-# Nesta fase apenas declaramos o conjunto; o mecanismo de retry é da JUR-03.
 RETRYABLE_ERROR_CODES: frozenset[ErrorCode] = frozenset(
     {
         ErrorCode.PROVIDER_TIMEOUT,
@@ -80,3 +79,18 @@ RETRYABLE_ERROR_CODES: frozenset[ErrorCode] = frozenset(
         ErrorCode.PROVIDER_SERVER_ERROR,
     }
 )
+
+
+class SearchEventType(str, Enum):
+    """Eventos de auditoria de uma pesquisa (SPEC §68)."""
+
+    SEARCH_CREATED = "SEARCH_CREATED"
+    SOURCE_SELECTED = "SOURCE_SELECTED"
+    SOURCE_STARTED = "SOURCE_STARTED"
+    SOURCE_RETRY = "SOURCE_RETRY"
+    SOURCE_SUCCESS = "SOURCE_SUCCESS"
+    SOURCE_FAILED = "SOURCE_FAILED"
+    NORMALIZATION_COMPLETED = "NORMALIZATION_COMPLETED"
+    SIGNAL_ANALYSIS_COMPLETED = "SIGNAL_ANALYSIS_COMPLETED"
+    SEARCH_COMPLETED = "SEARCH_COMPLETED"
+    REANALYSIS_REQUESTED = "REANALYSIS_REQUESTED"
