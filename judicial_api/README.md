@@ -19,6 +19,35 @@ Não depende do Radar Leilão; será consumido por ele futuramente via uma únic
 - Interfaces base de `JudicialProvider` e de `TribunalRegistry` / `ProviderRegistry`.
 - DTOs/enums do contrato (request, resultado, processo, fonte, status, ramos, erros).
 
+## Orquestração (JUR-03)
+
+- `SearchOrchestrator`: pesquisa multi-fonte com execução `PARALLEL` ou `SEQUENTIAL`.
+- **Timeout efetivo**: cada fonte tem orçamento (timeout por fonte ∧ prazo global
+  restante). Uma fonte bloqueada não trava a orquestração — o pool é desligado sem
+  esperar a thread travada (`shutdown(wait=False, cancel_futures=True)`); do lado da
+  fonte, o timeout do transporte HTTP do provider encerra a chamada. Alinhe
+  `JUDICIAL_DEFAULT_SOURCE_TIMEOUT_MS` (provider) ao `source_timeout_ms` do
+  orchestrator.
+- **Retry seletivo**: reexecuta apenas erros transitórios; respeita
+  `retryable=False` explícito (um erro marcado como não recuperável nunca é
+  reexecutado nem entra na reanálise). Retry é resiliência a erro — distinto do
+  controle de taxa abaixo.
+- **Rate limiting / concorrência** (SPEC §13): `max_global_concurrency`,
+  `max_provider_concurrency` e `max_tribunal_concurrency` (padrões 20/20/1) limitam
+  o paralelismo real de consultas às fontes. É controle de taxa, não retry de 429.
+- **execution_mode**: `PARALLEL` e `SEQUENTIAL` implementados; qualquer outro valor
+  é **rejeitado explicitamente** com `BAD_REQUEST` (não é ignorado em silêncio).
+- **Idempotência operacional**: pesquisas idênticas (mesmo `request_hash`) que
+  chegam **concorrentemente** são coalescidas — a segunda aguarda e recebe o mesmo
+  `search_id`/resultado, evitando execução duplicada. Pesquisas idênticas em
+  **momentos diferentes NÃO** são deduplicadas (os dados das fontes podem ter
+  mudado): reexecutam e geram novo `search_id`.
+- **Status agregado**: `COMPLETED` / `EMPTY` / `PARTIAL` / `FAILED` (EMPTY ≠ PARTIAL).
+- **Reanálise**: `retry_failed` reprocessa somente fontes com falha recuperável.
+- **Persistência/auditoria**: store em memória com eventos (`SEARCH_CREATED`,
+  `SOURCE_*`, `SEARCH_COMPLETED`, `REANALYSIS_REQUESTED`). A persistência em
+  PostgreSQL fica para uma fase posterior.
+
 ## Requisitos
 
 - Python 3.12

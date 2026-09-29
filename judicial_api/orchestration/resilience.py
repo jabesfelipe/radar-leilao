@@ -14,7 +14,6 @@ import time
 from dataclasses import dataclass
 from typing import Callable, TypeVar
 
-from ..enums import RETRYABLE_ERROR_CODES
 from ..errors import JudicialError
 
 T = TypeVar("T")
@@ -54,8 +53,12 @@ def compute_backoff(attempt: int, policy: BackoffPolicy, jitter: float = 0.0) ->
 
 
 def _is_retryable(exc: BaseException) -> bool:
+    # Só reexecuta JudicialError e SEMPRE respeita o flag explícito ``retryable``.
+    # O ``retryable`` do JudicialError já deriva do catálogo (RETRYABLE_ERROR_CODES)
+    # quando não informado, mas quando é definido como False (ex.: um timeout que o
+    # chamador marcou como não recuperável) essa decisão prevalece.
     if isinstance(exc, JudicialError):
-        return exc.retryable or exc.code in RETRYABLE_ERROR_CODES
+        return exc.retryable
     return False
 
 

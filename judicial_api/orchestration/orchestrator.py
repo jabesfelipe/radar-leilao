@@ -2,27 +2,36 @@
 
 Transforma a consulta individual (JUR-02) numa pesquisa robusta:
 - seleciona as fontes aplicáveis (selection.select_sources);
-- executa em paralelo com concorrência limitada (ThreadPoolExecutor);
-- aplica retry (só transitórios) e timeout por fonte e timeout global;
+- executa em paralelo (com concorrência limitada) ou sequencial (execution_mode);
+- aplica retry (só transitórios) e faz valer o timeout por fonte e o prazo global;
 - isola falhas: uma fonte com erro/timeout não derruba as demais;
 - normaliza e deduplica os processos (chave provider+tribunal+numeroProcesso);
 - calcula o status agregado COMPLETED/EMPTY/PARTIAL/FAILED (EMPTY != PARTIAL);
-- registra resultado por fonte, eventos e persiste (idempotência via request_hash);
-- permite reanálise reprocessando SOMENTE as fontes que falharam.
+- registra resultado por fonte, eventos e persiste;
+- coalescê pesquisas concorrentes idênticas (idempotência operacional);
+- permite reanálise reprocessando SOMENTE as fontes com falha recuperável.
 
 Determinístico para testes: relógio (``clock``), ``sleep`` e ``jitter`` são
 injetáveis; providers são injetados. Nenhuma chamada real de rede aqui.
+
+Semântica de idempotência (documentada): duas pesquisas com os MESMOS critérios
+(request_hash igual) que chegam CONCORRENTEMENTE são coalescidas — a segunda não
+dispara execução nova, aguarda e recebe o mesmo resultado. Pesquisas idênticas
+feitas em MOMENTOS DIFERENTES NÃO são deduplicadas automaticamente: os dados das
+fontes podem ter mudado, então uma nova pesquisa reexecuta e gera novo search_id.
 """
 from __future__ import annotations
 
+import threading
 import time
 import uuid
-from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
-from dataclasses import dataclass
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
+from dataclasses import dataclass, field
 from typing import Callable
 
 from ..catalog.loader import CatalogEntry, JudicialCatalog, default_catalog
-from ..enums import ErrorCode, SearchEventType, SearchStatus, SourceStatus
+from ..enums import ErrorCode, ExecutionMode, SearchEventType, SearchStatus, SourceStatus
 from ..errors import JudicialError
 from ..models import (
     Completeness,
@@ -33,7 +42,6 @@ from ..models import (
     SourceError,
     SourceResult,
 )
-from ..providers.base import JudicialProvider
 from ..registry.base import ProviderRegistry
 from .resilience import RetryPolicy, run_with_retry
 from .selection import compute_request_hash, select_sources
@@ -41,13 +49,17 @@ from .store import InMemorySearchStore, SearchEvent, SearchRecord, SearchStore
 
 # Status por fonte que NÃO exigem reprocessamento (a fonte respondeu com sucesso).
 _SUCCESS_STATUSES = {SourceStatus.SUCCESS, SourceStatus.EMPTY}
-# Status por fonte que são falhas transitórias/indisponibilidade (reprocessáveis).
+# Status por fonte que são falhas recuperáveis (reprocessáveis na reanálise).
 _RETRYABLE_SOURCE_STATUSES = {SourceStatus.TIMEOUT, SourceStatus.UNAVAILABLE, SourceStatus.ERROR}
 
 
 @dataclass(frozen=True)
 class OrchestratorConfig:
+    # Concorrência / rate limiting (SPEC §13). São controles de TAXA/paralelismo,
+    # distintos do retry de HTTP 429 (que é resiliência a erro transitório).
     max_global_concurrency: int = 20
+    max_provider_concurrency: int = 20
+    max_tribunal_concurrency: int = 1
     source_timeout_ms: int = 8000
     global_timeout_ms: int = 60000
     retry: RetryPolicy = RetryPolicy()
@@ -70,6 +82,14 @@ class _SourceOutcome:
     retried: bool = False
 
 
+@dataclass
+class _InFlight:
+    """Controle de coalescência: pesquisa em andamento para um request_hash."""
+
+    done: threading.Event = field(default_factory=threading.Event)
+    result: SearchResult | None = None
+
+
 class SearchOrchestrator:
     def __init__(
         self,
@@ -89,40 +109,51 @@ class SearchOrchestrator:
         self._sleep = sleep
         self._jitter = jitter
         self._clock = clock
+        # Registro de pesquisas em andamento por request_hash (idempotência op.).
+        self._inflight: dict[str, _InFlight] = {}
+        self._inflight_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # API pública
     # ------------------------------------------------------------------
     def search(self, request: SearchRequest, *, correlation_id: str | None = None) -> SearchResult:
+        # execution_mode: aceitamos apenas os modos implementados; valores não
+        # suportados são rejeitados explicitamente (não são ignorados em silêncio).
+        if request.execution_mode not in (ExecutionMode.PARALLEL, ExecutionMode.SEQUENTIAL):
+            raise JudicialError(
+                ErrorCode.BAD_REQUEST,
+                f"execution_mode não suportado: {request.execution_mode}.",
+                http_status=400,
+                retryable=False,
+            )
+
         request_hash = compute_request_hash(request)
-        search_id = str(uuid.uuid4())
-        sources = select_sources(request, self._catalog)
 
-        result = SearchResult(search_id=search_id, status=SearchStatus.PENDING)
-        record = SearchRecord(
-            search_id=search_id, correlation_id=correlation_id, request_hash=request_hash,
-            result=result, request=request,
-        )
-        self._store.save(record)
-        self._event(search_id, SearchEventType.SEARCH_CREATED, detail={"request_hash": request_hash, "sources": len(sources)})
-        for entry in sources:
-            self._event(search_id, SearchEventType.SOURCE_SELECTED, tribunal=entry.code)
+        # Idempotência operacional: coalesce pesquisas idênticas CONCORRENTES.
+        leader, inflight = self._acquire_inflight(request_hash)
+        if not leader:
+            # Outro chamador idêntico já está executando: aguarda e reusa.
+            inflight.done.wait()
+            if inflight.result is not None:
+                return inflight.result
+            # Se por algum motivo não houve resultado, cai para execução própria.
 
-        outcomes = self._run_sources(request, sources, search_id)
-        self._assemble(result, outcomes)
-        self._store.save(record)
-        self._event(search_id, SearchEventType.SEARCH_COMPLETED, detail={"status": result.status.value})
-        return result
+        try:
+            result = self._execute(request, request_hash, correlation_id)
+            inflight.result = result
+            return result
+        finally:
+            self._release_inflight(request_hash, inflight)
 
     def get(self, search_id: str) -> SearchResult | None:
         record = self._store.get(search_id)
         return record.result if record else None
 
     def retry_failed(self, search_id: str) -> SearchResult | None:
-        """Reprocessa SOMENTE as fontes que falharam (SPEC §20-21).
+        """Reprocessa SOMENTE as fontes com falha recuperável (SPEC §20-21).
 
-        Fontes já concluídas (SUCCESS/EMPTY) e não suportadas (UNSUPPORTED) não
-        são reconsultadas. Mantém idempotência: o mesmo search_id é atualizado.
+        Fontes concluídas (SUCCESS/EMPTY) e não recuperáveis (UNSUPPORTED e erros
+        definitivos como AUTH/CONFIG/BAD_REQUEST) não são reconsultadas.
         """
         record = self._store.get(search_id)
         if record is None:
@@ -130,26 +161,19 @@ class SearchOrchestrator:
         self._event(search_id, SearchEventType.REANALYSIS_REQUESTED)
 
         result = record.result
-        failed_codes = [s.tribunal for s in result.sources if s.status in _RETRYABLE_SOURCE_STATUSES]
+        failed_codes = [s.tribunal for s in result.sources if self._is_source_reprocessable(s)]
         entries = [e for e in (self._catalog.get(code) for code in failed_codes) if e is not None]
         if not entries:
             return result
-
-        # A request original foi preservada no registro para permitir a reconsulta
-        # exata das fontes que falharam.
         request = record.request
         if request is None:
             return result
 
         outcomes = self._run_sources(request, entries, search_id)
-        # Mescla: substitui os SourceResult reprocessados e adiciona novos processos.
         by_tribunal = {o.result.tribunal: o for o in outcomes}
         merged_sources: list[SourceResult] = []
         for source in result.sources:
-            if source.tribunal in by_tribunal:
-                merged_sources.append(by_tribunal[source.tribunal].result)
-            else:
-                merged_sources.append(source)
+            merged_sources.append(by_tribunal[source.tribunal].result if source.tribunal in by_tribunal else source)
         merged_processes = list(result.processes)
         for outcome in outcomes:
             merged_processes.extend(outcome.processes)
@@ -162,30 +186,114 @@ class SearchOrchestrator:
         return result
 
     # ------------------------------------------------------------------
-    # Execução paralela + resiliência
+    # Idempotência operacional (coalescência de concorrentes)
     # ------------------------------------------------------------------
-    def _run_sources(self, request: SearchRequest, sources: list[CatalogEntry], search_id: str) -> list[_SourceOutcome]:
+    def _acquire_inflight(self, request_hash: str) -> tuple[bool, _InFlight]:
+        with self._inflight_lock:
+            existing = self._inflight.get(request_hash)
+            if existing is not None:
+                return False, existing
+            created = _InFlight()
+            self._inflight[request_hash] = created
+            return True, created
+
+    def _release_inflight(self, request_hash: str, inflight: _InFlight) -> None:
+        with self._inflight_lock:
+            # Só o líder remove o próprio registro.
+            if self._inflight.get(request_hash) is inflight:
+                del self._inflight[request_hash]
+        inflight.done.set()
+
+    # ------------------------------------------------------------------
+    # Execução de uma pesquisa
+    # ------------------------------------------------------------------
+    def _execute(self, request: SearchRequest, request_hash: str, correlation_id: str | None) -> SearchResult:
+        search_id = str(uuid.uuid4())
+        sources = select_sources(request, self._catalog)
+
+        result = SearchResult(search_id=search_id, status=SearchStatus.PENDING)
+        record = SearchRecord(
+            search_id=search_id, correlation_id=correlation_id, request_hash=request_hash,
+            result=result, request=request,
+        )
+        self._store.save(record)
+        self._event(search_id, SearchEventType.SEARCH_CREATED, detail={"request_hash": request_hash, "sources": len(sources), "mode": request.execution_mode.value})
+        for entry in sources:
+            self._event(search_id, SearchEventType.SOURCE_SELECTED, tribunal=entry.code)
+
+        outcomes = self._run_sources(request, sources, search_id, mode=request.execution_mode)
+        self._assemble(result, outcomes)
+        self._store.save(record)
+        self._event(search_id, SearchEventType.SEARCH_COMPLETED, detail={"status": result.status.value})
+        return result
+
+    # ------------------------------------------------------------------
+    # Execução das fontes: paralela ou sequencial, com timeout efetivo
+    # ------------------------------------------------------------------
+    def _run_sources(
+        self,
+        request: SearchRequest,
+        sources: list[CatalogEntry],
+        search_id: str,
+        *,
+        mode: ExecutionMode = ExecutionMode.PARALLEL,
+    ) -> list[_SourceOutcome]:
         if not sources:
             return []
-        workers = max(1, min(self._config.max_global_concurrency, len(sources)))
         deadline = self._clock() + self._config.global_timeout_ms / 1000.0
-        outcomes: list[_SourceOutcome] = []
+        if mode == ExecutionMode.SEQUENTIAL:
+            return self._run_sequential(request, sources, search_id, deadline)
+        return self._run_parallel(request, sources, search_id, deadline)
 
-        with ThreadPoolExecutor(max_workers=workers) as pool:
+    def _effective_workers(self, n_sources: int) -> int:
+        # Concorrência efetiva respeita global e provider (tribunal=1 é inerente:
+        # há no máximo uma tarefa por tribunal). Nunca menos que 1.
+        limit = min(self._config.max_global_concurrency, self._config.max_provider_concurrency)
+        return max(1, min(limit, n_sources))
+
+    def _run_sequential(self, request, sources, search_id, deadline) -> list[_SourceOutcome]:
+        outcomes: list[_SourceOutcome] = []
+        for entry in sources:
+            self._event(search_id, SearchEventType.SOURCE_STARTED, tribunal=entry.code)
+            if self._clock() >= deadline:
+                # Prazo global estourado: marca as fontes restantes como TIMEOUT.
+                outcomes.append(self._timeout_outcome(entry))
+                self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": SourceStatus.TIMEOUT.value, "reason": "GLOBAL_TIMEOUT"})
+                continue
+            outcomes.append(self._run_one_source(request, entry, search_id))
+        return outcomes
+
+    def _run_parallel(self, request, sources, search_id, deadline) -> list[_SourceOutcome]:
+        workers = self._effective_workers(len(sources))
+        outcomes: list[_SourceOutcome] = []
+        # NÃO usamos o pool como context manager: o __exit__ chama shutdown(wait=True),
+        # que bloquearia até a thread travada terminar — anulando o timeout. Em vez
+        # disso, coletamos por orçamento e desligamos sem esperar (cancel_futures),
+        # garantindo que a orquestração retorne dentro do prazo mesmo com uma fonte
+        # bloqueada. A thread abandonada é encerrada pelo timeout do transporte HTTP.
+        pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="judicial-src")
+        try:
             future_map: dict[Future, CatalogEntry] = {}
             for entry in sources:
                 self._event(search_id, SearchEventType.SOURCE_STARTED, tribunal=entry.code)
                 future_map[pool.submit(self._run_one_source, request, entry, search_id)] = entry
 
             for future, entry in future_map.items():
+                # Orçamento observado pelo chamador: mínimo entre timeout da fonte e
+                # o que resta do prazo global.
                 remaining = deadline - self._clock()
                 per_source = self._config.source_timeout_ms / 1000.0
-                budget = per_source if remaining <= 0 else min(per_source, remaining)
+                budget = max(0.0, min(per_source, remaining) if remaining > 0 else 0.0)
                 try:
-                    outcomes.append(future.result(timeout=max(0.0, budget)))
+                    outcomes.append(future.result(timeout=budget))
                 except FutureTimeout:
+                    future.cancel()
                     outcomes.append(self._timeout_outcome(entry))
                     self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": SourceStatus.TIMEOUT.value})
+        finally:
+            # Não espera threads travadas (wait=False). cancel_futures descarta as
+            # que ainda não iniciaram.
+            pool.shutdown(wait=False, cancel_futures=True)
         return outcomes
 
     def _run_one_source(self, request: SearchRequest, entry: CatalogEntry, search_id: str) -> _SourceOutcome:
@@ -259,6 +367,16 @@ class SearchOrchestrator:
     # ------------------------------------------------------------------
     # Montagem do resultado / status agregado / dedup
     # ------------------------------------------------------------------
+    @staticmethod
+    def _is_source_reprocessable(source: SourceResult) -> bool:
+        # Recuperável por status E respeitando o flag do erro (não reprocessa o que
+        # foi marcado explicitamente como não recuperável).
+        if source.status not in _RETRYABLE_SOURCE_STATUSES:
+            return False
+        if source.error is not None and source.error.retryable is False:
+            return False
+        return True
+
     def _assemble(self, result: SearchResult, outcomes: list[_SourceOutcome]) -> None:
         result.sources = [o.result for o in outcomes]
         processes: list[Process] = []
@@ -297,18 +415,15 @@ class SearchOrchestrator:
         if total == 0:
             result.status = SearchStatus.EMPTY
         elif failed == total:
-            # Nenhuma fonte respondeu com confiabilidade.
             result.status = SearchStatus.FAILED
         elif failed > 0 or unsupported > 0:
-            # Ao menos uma respondeu, mas houve falhas/timeout/não suportado.
             result.status = SearchStatus.PARTIAL
         elif result.processes:
             result.status = SearchStatus.COMPLETED
         else:
-            # Todas as fontes responderam corretamente e nada foi encontrado.
             result.status = SearchStatus.EMPTY
 
-        affected = [s.tribunal for s in sources if s.status in _RETRYABLE_SOURCE_STATUSES]
+        affected = [s.tribunal for s in sources if self._is_source_reprocessable(s)]
         result.reanalyze = ReanalyzeHint(
             recommended=bool(affected),
             reason="TRIBUNAL_UNAVAILABLE" if affected else None,
