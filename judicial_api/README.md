@@ -3,10 +3,55 @@
 Módulo **independente** de pesquisa processual judicial nacional (fonte inicial: DataJud/CNJ).
 Não depende do Radar Leilão; será consumido por ele futuramente via uma única API REST.
 
-> Estado atual: **JUR-01 — Fundação**. Ainda **não** há integração real com o DataJud,
-> consulta a tribunais, persistência completa, sinais, retry, paginação ou concorrência.
+> Estado atual: **JUR-05 — REST completa, documentação e E2E** (última task). O módulo
+> está consumível externamente: contrato REST unificado, OpenAPI/Swagger, autenticação
+> por API key, autorização por escopo, rate limiting, métricas, auditoria e hardening.
+> A persistência em PostgreSQL permanece como fase futura (hoje o store é em memória).
 > A SPEC completa está em `docs/JUDICIAL-API-SPEC.md`; a ordem de execução em
 > `docs/JUDICIAL-IMPLEMENTATION-TASKS.md`.
+
+## Contrato REST (JUR-05)
+
+Todos os endpoints de negócio ficam sob `/api/v1/judicial`. O consumidor nunca
+conhece URLs do DataJud nem endpoints de tribunais individuais.
+
+| Método | Rota | Escopo | Descrição |
+|---|---|---|---|
+| `GET` | `/health` | — (público) | Saúde do serviço |
+| `GET` | `/metrics` | — (público) | Métricas agregadas (SPEC §72) |
+| `POST` | `/api/v1/judicial/search` | `search` | Cria e executa uma pesquisa multi-fonte |
+| `GET` | `/api/v1/judicial/search/{search_id}` | `read` | Recupera o resultado de uma pesquisa |
+| `GET` | `/api/v1/judicial/search/{search_id}/sources` | `read` | Resultado individual por fonte |
+| `POST` | `/api/v1/judicial/search/{search_id}/retry` | `search` | Reprocessa fontes com falha recuperável |
+| `GET` | `/api/v1/judicial/tribunals` | `read` | Catálogo de tribunais habilitados |
+| `GET` | `/api/v1/judicial/capabilities` | `read` | Capacidades de pesquisa por tribunal |
+| `GET` | `/api/v1/judicial/providers/status` | `read` | Saúde dos providers |
+
+OpenAPI/Swagger em `/docs` e `/openapi.json` (esquema de segurança `ApiKeyAuth`).
+
+## Segurança (JUR-05, SPEC §73)
+
+- **Autenticação por API key** do consumidor no header `X-API-Key` (configurável).
+  As chaves vêm de `JUDICIAL_API_KEYS` (ambiente/secret), **nunca versionadas**.
+  Sem chaves configuradas, a auth fica desligada (modo local/dev); com chaves, é
+  obrigatória. A credencial do DataJud é assunto separado.
+- **Autorização por escopo**: `search` (disparar/reprocessar) e `read` (consultar).
+  Chave sem escopo declarado tem acesso total.
+- **Rate limiting** por consumidor (janela deslizante em memória), com resposta
+  `429 RATE_LIMITED` e header `Retry-After`.
+- **Hardening**: limite de tamanho de payload (`413`), headers de segurança
+  (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Cache-Control`),
+  CORS opcional.
+- **Mascaramento**: CPF/CNPJ nunca são registrados por inteiro em log/auditoria.
+
+## Observabilidade (JUR-05, SPEC §69, §71-72)
+
+- **Auditoria HTTP**: cada requisição gera uma linha estruturada (método, rota,
+  status, duração, principal, correlation id) — sem dados sensíveis. Complementa a
+  auditoria de domínio por pesquisa (`SearchEvent`).
+- **Métricas** (`GET /metrics`): `searches_total/completed/empty/partial/failed`,
+  `provider_errors/timeouts`, `processes_found`, `signals_found`, `retries_total`,
+  `unsupported_queries` e latência média por provider.
 
 ## O que já existe (JUR-01)
 
@@ -91,6 +136,22 @@ curl -s http://localhost:8010/health
 O correlation id é devolvido no header `X-Correlation-ID`. Se o cliente enviar esse
 header, ele é reutilizado; caso contrário, um UUID novo é gerado por requisição.
 
+Verificar o health check:
+
+```bash
+curl -s http://localhost:8010/health
+# {"status":"UP","service":"judicial-api","version":"0.1.0"}
+```
+
+Exemplo de pesquisa (com auth ligada, envie o header da API key):
+
+```bash
+curl -s -X POST http://localhost:8010/api/v1/judicial/search \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: minha-chave" \
+  -d '{"cpf": "12345678900", "uf": "PR"}'
+```
+
 ## Configuração
 
 Variáveis de ambiente (prefixo `JUDICIAL_`), todas com padrão seguro:
@@ -99,11 +160,19 @@ Variáveis de ambiente (prefixo `JUDICIAL_`), todas com padrão seguro:
 |---|---|---|
 | `JUDICIAL_LOG_LEVEL` | `INFO` | Nível de log estruturado |
 | `JUDICIAL_CORRELATION_ID_HEADER` | `X-Correlation-ID` | Header do correlation id |
-| `JUDICIAL_DEFAULT_SOURCE_TIMEOUT_MS` | `8000` | Timeout base por fonte (uso futuro) |
-| `JUDICIAL_GLOBAL_TIMEOUT_MS` | `60000` | Timeout global (uso futuro) |
-| `JUDICIAL_DATAJUD_API_KEY` | *(vazio)* | Credencial do DataJud — **nunca versionar**; opcional na JUR-01 |
+| `JUDICIAL_DEFAULT_SOURCE_TIMEOUT_MS` | `8000` | Timeout base por fonte |
+| `JUDICIAL_GLOBAL_TIMEOUT_MS` | `60000` | Timeout global |
+| `JUDICIAL_DATAJUD_API_KEY` | *(vazio)* | Credencial do DataJud — **nunca versionar** |
+| `JUDICIAL_API_KEYS` | *(vazio)* | Chaves do consumidor: `chave` ou `chave:search\|read`, separadas por vírgula. **Nunca versionar** |
+| `JUDICIAL_API_KEY_HEADER` | `X-API-Key` | Header de autenticação do consumidor |
+| `JUDICIAL_REQUIRE_AUTH` | `false` | Exige auth mesmo sem chaves configuradas (falha fechada) |
+| `JUDICIAL_RATE_LIMIT_ENABLED` | `true` | Liga/desliga o rate limiting HTTP |
+| `JUDICIAL_RATE_LIMIT_REQUESTS` | `120` | Máx. de requisições por janela, por consumidor |
+| `JUDICIAL_RATE_LIMIT_WINDOW_SECONDS` | `60` | Tamanho da janela do rate limit |
+| `JUDICIAL_MAX_REQUEST_BYTES` | `1048576` | Tamanho máximo do corpo (0 desabilita) |
+| `JUDICIAL_CORS_ALLOW_ORIGINS` | *(vazio)* | Origens CORS permitidas (separadas por vírgula) |
 
-Nenhum segredo é necessário para subir a aplicação ou rodar os testes desta fase.
+Nenhum segredo é necessário para subir a aplicação ou rodar a suíte padrão de testes.
 
 ## Testes
 
@@ -111,4 +180,13 @@ Nenhum segredo é necessário para subir a aplicação ou rodar os testes desta 
 pytest -q tests/judicial
 ```
 
-Os testes desta fase não exigem banco de dados nem chamada real ao DataJud.
+A suíte padrão **não** exige banco de dados nem chamada real ao DataJud (usa fakes/mocks).
+
+### Testes reais (opcionais)
+
+Os testes contra o DataJud real ficam fora da suíte padrão e exigem configuração
+explícita (SPEC §84):
+
+```bash
+RUN_REAL_DATAJUD_TESTS=true JUDICIAL_DATAJUD_API_KEY=<chave> pytest -q tests/judicial/test_real_datajud.py
+```

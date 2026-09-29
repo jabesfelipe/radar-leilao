@@ -220,3 +220,33 @@ class TribunalCapabilities(BaseModel):
 class ProviderStatus(BaseModel):
     provider: str
     status: str  # AVAILABLE | UNAVAILABLE | ...
+
+
+# --------------------------------------------------------------------------
+# Envelopes de resposta dos endpoints de catálogo/metadados (SPEC §49-55)
+# --------------------------------------------------------------------------
+
+class TribunalsResponse(BaseModel):
+    """Resposta de GET /api/v1/judicial/tribunals (SPEC §49)."""
+
+    items: list[TribunalInfo] = Field(default_factory=list)
+
+
+class CapabilitiesResponse(BaseModel):
+    """Resposta de GET /api/v1/judicial/capabilities (SPEC §50)."""
+
+    provider: str
+    tribunals: list[TribunalCapabilities] = Field(default_factory=list)
+
+
+class ProvidersStatusResponse(BaseModel):
+    """Resposta de GET /api/v1/judicial/providers/status (SPEC §55)."""
+
+    providers: list[ProviderStatus] = Field(default_factory=list)
+
+
+class SourcesResponse(BaseModel):
+    """Resposta de GET /api/v1/judicial/search/{search_id}/sources (SPEC §53)."""
+
+    search_id: str
+    sources: list[SourceResult] = Field(default_factory=list)
