@@ -76,6 +76,21 @@ def _error_to_source_status(code: ErrorCode) -> SourceStatus:
 
 
 @dataclass
+class _SourceTiming:
+    """Instantes reais de execução de uma fonte, compartilhados entre o worker e
+    o coletor. Permite decidir SUCCESS/TIMEOUT pelo instante de conclusão, não
+    apenas por ``future.done()``.
+
+    - ``started_at``: quando a fonte REALMENTE começou a executar (None enquanto
+      enfileirada). O timeout individual é contado a partir daqui.
+    - ``finished_at``: quando a execução terminou (None se ainda não terminou).
+    """
+
+    started_at: float | None = None
+    finished_at: float | None = None
+
+
+@dataclass
 class _SourceOutcome:
     result: SourceResult
     processes: list[Process]
@@ -256,12 +271,15 @@ class SearchOrchestrator:
         """Executa as fontes em um pool com timeout individual E prazo global.
 
         Pontos-chave da correção de prazos:
-        - o timeout individual de cada fonte é contado a partir do INSTANTE DE
-          SUBMISSÃO da própria fonte (source_deadline = submit_time + source_timeout),
-          não do momento em que o orquestrador começa a aguardar o Future;
-        - a coleta faz polling curto respeitando o menor entre o deadline individual
-          de cada fonte pendente e o prazo global — assim uma fonte lenta NÃO
-          posterga o timeout das demais nem lhes concede um novo orçamento;
+        - o timeout individual de cada fonte é contado a partir do INÍCIO REAL da
+          execução (timing.started_at + source_timeout). Enquanto a fonte está
+          ENFILEIRADA (ainda não começou), ela consome apenas o prazo global, não o
+          timeout individual — importante no modo SEQUENTIAL (workers=1);
+        - a aceitação de um resultado usa o INSTANTE DE CONCLUSÃO (timing.finished_at),
+          não apenas future.done(): um resultado que só ficou pronto DEPOIS do
+          deadline individual ou do prazo global é rejeitado e marcado TIMEOUT;
+        - uma fonte lenta NÃO posterga o timeout das demais nem lhes concede novo
+          orçamento; resultados concluídos dentro dos prazos são preservados;
         - ao final, o pool é desligado sem esperar threads bloqueadas
           (shutdown(wait=False, cancel_futures=True)); Python não permite matar a
           thread, então a chamada travada só termina pelo timeout do transporte HTTP.
@@ -272,59 +290,88 @@ class SearchOrchestrator:
         pool = ThreadPoolExecutor(max_workers=max(1, workers), thread_name_prefix="judicial-src")
         # Preserva a ordem das fontes no resultado (índice -> outcome).
         outcomes: list[_SourceOutcome | None] = [None] * len(sources)
-        pending: dict[Future, tuple[int, CatalogEntry, float]] = {}
+        # Cada fonte pendente carrega sua timing (início/fim reais), o índice e a entry.
+        pending: dict[Future, tuple[int, CatalogEntry, _SourceTiming]] = {}
         try:
             for idx, entry in enumerate(sources):
                 self._event(search_id, SearchEventType.SOURCE_STARTED, tribunal=entry.code)
-                future = pool.submit(self._run_one_source, request, entry, search_id)
-                # Deadline individual medido desde a submissão desta fonte.
-                source_deadline = self._clock() + per_source
-                pending[future] = (idx, entry, source_deadline)
+                timing = _SourceTiming()
+                future = pool.submit(self._run_one_source, request, entry, search_id, timing)
+                pending[future] = (idx, entry, timing)
+
+            def _individual_deadline(timing: _SourceTiming) -> float | None:
+                # Só existe quando a fonte REALMENTE começou (saiu da fila). Enquanto
+                # enfileirada, não há deadline individual — só o prazo global corre.
+                return None if timing.started_at is None else timing.started_at + per_source
+
+            def _mark_timeout(idx, entry, fut, reason=None):
+                fut.cancel()
+                outcomes[idx] = self._timeout_outcome(entry)
+                detail = {"status": SourceStatus.TIMEOUT.value}
+                if reason:
+                    detail["reason"] = reason
+                self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail=detail)
 
             while pending:
                 now = self._clock()
-                # Se o prazo global já estourou, marca todas as pendentes como TIMEOUT.
-                if now >= global_deadline:
-                    for fut, (idx, entry, _sd) in list(pending.items()):
-                        fut.cancel()
+                global_expired = now >= global_deadline
+
+                # 1) Colhe fontes concluídas, decidindo pelo INSTANTE DE CONCLUSÃO
+                #    (não só por future.done()): um resultado tardio (após o deadline
+                #    individual ou o global) é rejeitado e marcado TIMEOUT.
+                harvested = False
+                for fut in list(pending.keys()):
+                    if not fut.done():
+                        continue
+                    idx, entry, timing = pending.pop(fut)
+                    harvested = True
+                    ind = _individual_deadline(timing)
+                    finished_at = timing.finished_at
+                    late_individual = ind is not None and finished_at is not None and finished_at > ind
+                    late_global = finished_at is not None and finished_at > global_deadline
+                    if late_individual or late_global:
+                        # Concluiu, mas fora do orçamento: não aceita como sucesso.
                         outcomes[idx] = self._timeout_outcome(entry)
-                        self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": SourceStatus.TIMEOUT.value, "reason": "GLOBAL_TIMEOUT"})
+                        self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": SourceStatus.TIMEOUT.value, "reason": "GLOBAL_TIMEOUT" if late_global else "SOURCE_TIMEOUT"})
+                    else:
+                        outcomes[idx] = fut.result()
+                if harvested:
+                    continue
+
+                # 2) Prazo global estourou: fontes ainda pendentes (rodando ou na
+                #    fila) viram TIMEOUT. Threads que já rodam são abandonadas.
+                if global_expired:
+                    for fut, (idx, entry, _t) in list(pending.items()):
+                        _mark_timeout(idx, entry, fut, reason="GLOBAL_TIMEOUT")
                     pending.clear()
                     break
 
-                # Primeiro, colhe qualquer fonte cujo deadline individual já expirou.
-                expiradas = [fut for fut, (_i, _e, sd) in pending.items() if now >= sd and not fut.done()]
+                # 3) Fontes que já iniciaram e estouraram o deadline individual.
+                expiradas = [
+                    fut for fut, (_i, _e, timing) in pending.items()
+                    if (d := _individual_deadline(timing)) is not None and now >= d and not fut.done()
+                ]
                 for fut in expiradas:
-                    idx, entry, _sd = pending.pop(fut)
-                    fut.cancel()
-                    outcomes[idx] = self._timeout_outcome(entry)
-                    self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": SourceStatus.TIMEOUT.value})
+                    idx, entry, _t = pending.pop(fut)
+                    _mark_timeout(idx, entry, fut, reason="SOURCE_TIMEOUT")
                 if expiradas:
                     continue
 
-                # Próximo instante relevante: o menor entre os deadlines individuais
-                # pendentes e o prazo global. Espera no máximo até lá.
-                next_source_deadline = min(sd for (_i, _e, sd) in pending.values())
-                wait_until = min(next_source_deadline, global_deadline)
+                # 4) Calcula o próximo instante relevante: menor entre os deadlines
+                #    individuais das fontes JÁ INICIADAS e o prazo global. Fontes
+                #    enfileiradas (sem início) só respondem ao prazo global.
+                proximos = [d for (_i, _e, timing) in pending.values() if (d := _individual_deadline(timing)) is not None]
+                wait_until = min([global_deadline, *proximos]) if proximos else global_deadline
                 timeout = max(0.0, wait_until - now)
-
-                done_any = False
-                for fut in list(pending.keys()):
-                    if fut.done():
-                        idx, entry, _sd = pending.pop(fut)
-                        outcomes[idx] = fut.result()
-                        done_any = True
-                if done_any:
+                if timeout <= 0:
+                    # Já há algo a colher/expirar: reavalia imediatamente.
                     continue
-
-                # Aguarda o primeiro Future concluir dentro da janela calculada.
-                # Se estourar (nenhum concluiu), o laço reavalia deadlines individuais/global.
                 try:
-                    finished = next(as_completed(list(pending.keys()), timeout=timeout))
-                    idx, entry, _sd = pending.pop(finished)
-                    outcomes[idx] = finished.result()
+                    # Acorda quando QUALQUER Future concluir, ou quando a janela expirar.
+                    next(as_completed(list(pending.keys()), timeout=timeout))
                 except FutureTimeout:
-                    continue
+                    pass
+                # Volta ao topo para reavaliar conclusões/deadlines com o relógio atual.
         finally:
             # Não espera threads travadas; descarta as que ainda não iniciaram.
             pool.shutdown(wait=False, cancel_futures=True)
@@ -335,9 +382,12 @@ class SearchOrchestrator:
                 outcomes[idx] = self._timeout_outcome(entry)
         return [o for o in outcomes if o is not None]
 
-    def _run_one_source(self, request: SearchRequest, entry: CatalogEntry, search_id: str) -> _SourceOutcome:
+    def _run_one_source(self, request: SearchRequest, entry: CatalogEntry, search_id: str, timing: _SourceTiming | None = None) -> _SourceOutcome:
         provider = self._providers.provider_for_tribunal(entry.code)
         started = self._clock()
+        if timing is not None:
+            # Marca o INÍCIO REAL da execução (a fonte saiu da fila e começou).
+            timing.started_at = started
         attempts_box = {"n": 0, "retried": False}
 
         def _call() -> list[Process]:
@@ -355,7 +405,10 @@ class SearchOrchestrator:
                 _call, self._config.retry, sleep=self._sleep, jitter=self._jitter, on_retry=_on_retry,
             )
         except JudicialError as exc:
-            duration = int((self._clock() - started) * 1000)
+            finished = self._clock()
+            if timing is not None:
+                timing.finished_at = finished
+            duration = int((finished - started) * 1000)
             status = _error_to_source_status(exc.code)
             self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": status.value, "code": exc.code.value})
             return _SourceOutcome(
@@ -372,7 +425,10 @@ class SearchOrchestrator:
                 retried=attempts_box["retried"],
             )
 
-        duration = int((self._clock() - started) * 1000)
+        finished = self._clock()
+        if timing is not None:
+            timing.finished_at = finished
+        duration = int((finished - started) * 1000)
         status = SourceStatus.SUCCESS if processes else SourceStatus.EMPTY
         self._event(search_id, SearchEventType.SOURCE_SUCCESS, tribunal=entry.code, detail={"count": len(processes)})
         return _SourceOutcome(
