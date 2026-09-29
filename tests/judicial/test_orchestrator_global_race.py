@@ -165,3 +165,113 @@ def test_retry_reverifica_prazo_e_impede_segunda_chamada_apos_deadline():
     assert provider.called == ["TJPR"]
     assert timing.skipped_global_timeout is True
     assert outcome.result.status == SourceStatus.TIMEOUT
+
+
+class StepClock:
+    """Relógio determinístico controlado por um marco (Event).
+
+    Enquanto o marco não é atingido, devolve ``before`` (antes do deadline).
+    Depois de ``advance()`` ser chamado, devolve ``after`` (após o deadline).
+    Não depende de tempo real nem de contagem de chamadas — é dirigido por evento,
+    permitindo posicionar o "agora" exatamente na borda desejada."""
+
+    def __init__(self, before: float, after: float):
+        self._before = before
+        self._after = after
+        self._advanced = False
+        self._lock = threading.Lock()
+
+    def advance(self) -> None:
+        with self._lock:
+            self._advanced = True
+
+    def __call__(self) -> float:
+        with self._lock:
+            return self._after if self._advanced else self._before
+
+
+class AdvanceOnCallProvider(JudicialProvider):
+    """Ao ser chamado, avança o relógio para DEPOIS do prazo global (simulando que
+    o prazo venceu após a autorização, porém a chamada — já autorizada — prossegue)
+    e então conclui com sucesso. O resultado tardio deve ser rejeitado pelo
+    orquestrador como GLOBAL_TIMEOUT."""
+
+    code = "DATAJUD"
+
+    def __init__(self, clock: "StepClock"):
+        self._clock = clock
+        self.called: list[str] = []
+
+    def search(self, request, tribunal):
+        self.called.append(tribunal)
+        # A chamada foi AUTORIZADA antes do deadline; agora o prazo global vence
+        # (após a autorização) e a chamada — já em andamento — prossegue até concluir.
+        self._clock.advance()
+        return [_proc(tribunal, tribunal)]
+
+    def get_capabilities(self, tribunal):
+        raise NotImplementedError
+
+    def health_check(self):
+        raise NotImplementedError
+
+    def normalize(self, raw, tribunal):
+        return []
+
+
+def test_chamada_autorizada_prossegue_mas_resultado_tardio_e_rejeitado_como_global_timeout():
+    # before=0.0 (autorização ok, pois deadline = 0.0 + 1.0 = 1.0);
+    # after=2.0 (a conclusão ocorre após o deadline 1.0) -> resultado rejeitado.
+    clock = StepClock(before=0.0, after=2.0)
+    provider = AdvanceOnCallProvider(clock)
+    store = InMemorySearchStore()
+    orch = SearchOrchestrator(
+        _Registry(provider), catalog=default_catalog(), store=store,
+        config=OrchestratorConfig(
+            source_timeout_ms=60000,   # timeout individual folgado: isola o efeito do GLOBAL
+            global_timeout_ms=1000,    # global_deadline = 0.0 + 1.0 = 1.0
+            retry=RetryPolicy(max_attempts=1, backoff=BackoffPolicy(base_ms=0, jitter_ms=0)),
+        ),
+        sleep=lambda _: None, clock=clock,
+    )
+    res = orch.search(SearchRequest(process_number="x", tribunals=["TJPR"]))
+
+    # 1) A chamada previamente autorizada PROSSEGUIU (provider foi efetivamente invocado).
+    assert provider.called == ["TJPR"]
+    # 2) Como concluiu após o prazo global, o resultado é REJEITADO como TIMEOUT.
+    tjpr = next(s for s in res.sources if s.tribunal == "TJPR")
+    assert tjpr.status == SourceStatus.TIMEOUT
+    assert tjpr.error is not None and tjpr.error.code == ErrorCode.PROVIDER_TIMEOUT.value
+    # e não entrou como processo aceito
+    assert res.processes == []
+
+    # 3) A auditoria reflete a rejeição por prazo global.
+    rec = store.get(res.search_id)
+    global_timeout_events = [
+        e for e in rec.events
+        if e.type == SearchEventType.SOURCE_FAILED and e.detail.get("reason") == "GLOBAL_TIMEOUT" and e.tribunal == "TJPR"
+    ]
+    assert global_timeout_events, "esperado SOURCE_FAILED/GLOBAL_TIMEOUT para TJPR"
+
+
+def test_chamada_impedida_pela_autorizacao_nao_emite_source_started():
+    # Preserva o comportamento: quando a autorização IMPEDE a chamada (deadline já
+    # vencido antes de invocar o provider), não há provider.search nem SOURCE_STARTED.
+    provider = RecordingProvider()
+    clock = ScriptedClock([5.0, 5.0])  # autorização em 5.0 >= deadline 1.0 => impede
+    orch = _make(provider, clock)
+    store = orch._store
+    from judicial_api.orchestration.store import SearchRecord
+    from judicial_api.models import SearchResult
+    from judicial_api.enums import SearchStatus
+    store.save(SearchRecord(search_id="sid2", correlation_id=None, request_hash="h",
+                            result=SearchResult(search_id="sid2", status=SearchStatus.PENDING)))
+    entry = default_catalog().get("TJPR")
+    timing = _SourceTiming()
+    orch._run_one_source(SearchRequest(process_number="x"), entry, "sid2", timing, global_deadline=1.0)
+
+    rec = store.get("sid2")
+    started = {e.tribunal for e in rec.events if e.type == SearchEventType.SOURCE_STARTED}
+    assert "TJPR" not in started
+    assert provider.called == []
+    assert timing.skipped_global_timeout is True
