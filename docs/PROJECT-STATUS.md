@@ -1,11 +1,11 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: MVP ENCERRADO (núcleo funcional) — validação operacional incremental pendente**
+**Status global: MVP ENCERRADO — validação E2E real V9 concluída**
 
 **Última atualização:** 28/09/2026  
-**Última implementação aprovada:** Task 73.1 — commit 4ed9b31d8f2e08b039832fe7ce441f488c9c9046
+**Última implementação aprovada:** Task 74.1 — commit 40c648d586ebb1a0beaef19ae7c4aa230fff7688
 
-**Próximo passo:** corrigir/reconciliar o Veredito V8 histórico do imóvel 633 antes de qualquer V9
+**Próximo passo:** nenhum. MVP encerrado; novas mudanças entram como Fase 2/backlog
 
 ## 1. Resumo executivo
 
@@ -13,7 +13,7 @@ O MVP do Radar Leilão está encerrado tecnicamente.
 
 O fluxo principal foi implementado em Python/FastAPI + React/TypeScript, com PostgreSQL/pgvector, processamento documental com MarkItDown/OCR, RAG híbrido, LangChain/LangGraph, cinco agentes LLM especializados, Checklist Mestre, Risk Engine, Verdict Engine, histórico e memória estruturada.
 
-A validação final utilizou o imóvel real COND PARQUE ARVOREDO RESIDENCIAL CLUBE, referência Caixa, e chegou à análise V8 (analysis_id=280).
+A validação final utilizou o imóvel real COND PARQUE ARVOREDO RESIDENCIAL CLUBE, referência Caixa, e foi concluída com a Analysis V9 real, após a reconciliação controlada da V8.
 
 ## 2. Estado final por capacidade
 
@@ -40,8 +40,8 @@ A validação final utilizou o imóvel real COND PARQUE ARVOREDO RESIDENCIAL CLU
 | Histórico | OK | Análises, eventos e versões |
 | Memória histórica | OK | Estruturada + busca híbrida |
 | Frontend | OK | Hubs do fluxo principal |
-| E2E real Caixa | OK | V8 executada com 5 agentes |
-| Testes backend | OK | 258 passed |
+| E2E real Caixa | OK | V9 executada com 5 agentes e LLM real |
+| Testes backend | OK | 292 passed na Task 74.1 |
 | MCP externo | FUTURO | Não é dependência do MVP |
 | Knowledge Graph dedicado | FUTURO | Não implementado como componente dedicado |
 | Redis | FUTURO | Não utilizado no MVP |
@@ -597,3 +597,64 @@ A próxima task deve ser exclusivamente uma correção/reconciliação controlad
 - Seleção corrente Checklist/Risk/Verdict para novas execuções: 🟢 corrigida nas Tasks 73/73.1;
 - Veredito V8 histórico: 🔴 pendente de reconciliação;
 - V9: ⏸️ bloqueada até a reconciliação e nova validação.
+
+
+---
+
+## 15. FECHAMENTO FINAL — 28/09/2026
+
+### Tasks 73 → 74.1
+
+- Task 73 — 🟢 aprovada: seleção da ChecklistExecution corrente por banco e `analysis_version`.
+- Task 73.1 — 🟢 aprovada: Risk Engine alinhado à mesma execução semântica da Analysis.
+- Task 74 — 🟢 concluída: reconciliação determinística do Veredito V8 histórico do imóvel 633.
+- Task 74.1 — 🟢 aprovada: reconciliação estritamente limitada a `property_id=633` e `analysis_version=8`, sem criação de Verdict ausente.
+
+### Reconciliação V8
+
+O Verdict V8 histórico foi corrigido in place:
+
+`28 pendências → 21 pendências`
+
+Resultado validado na UI:
+
+- Checklist V8: **7 CONFIRMADOS / 20 PENDENTES**;
+- Veredito V8: **21 pendências**;
+- histórico V1–V8 preservado;
+- nenhum V9 criado pela manutenção.
+
+### V9 real
+
+Após a reconciliação, o imóvel 633 foi submetido à análise completa real pela UI.
+
+Resultado:
+
+- Analysis V9 criada;
+- 5 agentes executados;
+- LLM real ativo;
+- 5/5 runs com sucesso;
+- 8 chunks recuperados;
+- 34.045 tokens;
+- custo registrado: **US$ 0,00650625**;
+- Checklist V9: **10 CONFIRMADOS / 17 PENDENTES**;
+- Veredito V9: **INCONCLUSIVO**;
+- 18 pendências totais: 17 do Checklist + 1 financeira;
+- histórico V1–V9 preservado.
+
+### Coerência documentação × implementação
+
+Foi criada a referência:
+
+`docs/IMPLEMENTATION-REFERENCE.md`
+
+Ela mapeia os módulos efetivamente existentes do backend, pipeline documental/RAG, IA, domínio, frontend, migrations, scripts operacionais, testes, reconciliação histórica e critérios de encerramento.
+
+A SPEC permanece como documento mestre de arquitetura/business. A nova referência documenta a implementação efetiva e suas limitações, evitando que arquitetura futura seja confundida com código já entregue.
+
+### Estado final
+
+**MVP FUNCIONALMENTE ENCERRADO.**
+
+Não há Task 75 funcional planejada.
+
+Qualquer nova capacidade — MCP externo, Knowledge Graph dedicado, integrações externas, comparáveis automatizados, fórmula de preço máximo, produção/hardening ou leilão judicial — deve ser tratada como **Fase 2 / backlog**.
