@@ -53,6 +53,12 @@ _SUCCESS_STATUSES = {SourceStatus.SUCCESS, SourceStatus.EMPTY}
 _RETRYABLE_SOURCE_STATUSES = {SourceStatus.TIMEOUT, SourceStatus.UNAVAILABLE, SourceStatus.ERROR}
 
 
+class _GlobalDeadlineExceeded(Exception):
+    """Sinal interno: a autorização para chamar o provider foi negada porque o
+    prazo global já havia expirado. Não é um JudicialError (logo run_with_retry
+    NÃO o reexecuta) e nunca vaza para fora do worker."""
+
+
 @dataclass(frozen=True)
 class OrchestratorConfig:
     # Concorrência / rate limiting (SPEC §13). São controles de TAXA/paralelismo,
@@ -332,8 +338,10 @@ class SearchOrchestrator:
                     idx, entry, timing = pending.pop(fut)
                     harvested = True
                     if timing.skipped_global_timeout:
-                        # O worker abortou antes de chamar o provider (prazo global
-                        # já expirado). Não houve SOURCE_STARTED; registra GLOBAL_TIMEOUT.
+                        # O worker negou a autorização por prazo global expirado.
+                        # Se foi na 1ª tentativa, não houve SOURCE_STARTED; se foi num
+                        # retry, a fonte chegou a iniciar antes. Em ambos os casos o
+                        # desfecho é GLOBAL_TIMEOUT.
                         outcomes[idx] = fut.result()
                         self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": SourceStatus.TIMEOUT.value, "reason": "GLOBAL_TIMEOUT"})
                         continue
@@ -396,42 +404,68 @@ class SearchOrchestrator:
 
     def _run_one_source(self, request: SearchRequest, entry: CatalogEntry, search_id: str, timing: _SourceTiming | None = None, global_deadline: float | None = None) -> _SourceOutcome:
         provider = self._providers.provider_for_tribunal(entry.code)
-        # Verificação de prazo global DENTRO do worker, imediatamente antes de
-        # iniciar a consulta: se o worker só foi escalonado após o prazo global
-        # (fonte que esperou na fila), NÃO chama o provider. Trata a corrida entre a
-        # liberação da thread e o encerramento do prazo global.
-        if global_deadline is not None and self._clock() >= global_deadline:
-            if timing is not None:
-                timing.skipped_global_timeout = True
-            return self._timeout_outcome(entry)
 
-        started = self._clock()
-        if timing is not None:
-            # Marca o INÍCIO REAL da execução (a fonte saiu da fila e começou).
-            timing.started_at = started
-        # SOURCE_STARTED só quando a fonte EFETIVAMENTE começa a executar.
-        self._event(search_id, SearchEventType.SOURCE_STARTED, tribunal=entry.code)
-        attempts_box = {"n": 0, "retried": False}
+        # Semântica de corrida (documentada):
+        # - A AUTORIZAÇÃO para chamar o provider é decidida imediatamente antes de
+        #   CADA tentativa (inclusive retries), sob um lock curto que também marca
+        #   started_at e emite SOURCE_STARTED. O lock é liberado ANTES da chamada de
+        #   rede (nunca seguramos lock durante I/O de rede).
+        # - Se o prazo global já expirou no instante da autorização, a chamada é
+        #   IMPEDIDA: não há provider.search, não há SOURCE_STARTED. É o mais próximo
+        #   possível da chamada real, fechando a janela entre a checagem e o disparo.
+        # - Garantia oferecida: nenhuma chamada é AUTORIZADA após o prazo global.
+        #   Uma chamada autorizada um instante antes do deadline ainda pode, por
+        #   escalonamento do SO, executar pouco depois dele — não é possível evitar
+        #   isso sem segurar um lock durante a rede. O orquestrador, por sua vez,
+        #   já rejeita resultados concluídos após o deadline (marca TIMEOUT), então
+        #   essa borda não contamina o status agregado.
+        auth_lock = threading.Lock()
+        # start_instant: instante da PRIMEIRA autorização (início real da execução);
+        # base para started_at e para a duração. None enquanto não autorizado.
+        state = {"n": 0, "retried": False, "started_emitted": False, "start_instant": None}
 
-        def _call() -> list[Process]:
-            attempts_box["n"] += 1
+        def _authorize_and_call() -> list[Process]:
+            state["n"] += 1
             if provider is None:
                 raise JudicialError(ErrorCode.CONFIGURATION_ERROR, "Sem provider para a fonte.", http_status=500, tribunal=entry.code)
+            with auth_lock:
+                # Reverifica o prazo global o mais próximo possível da chamada real,
+                # a cada tentativa. Impede início (e retry) após o deadline.
+                if global_deadline is not None and self._clock() >= global_deadline:
+                    raise _GlobalDeadlineExceeded()
+                if not state["started_emitted"]:
+                    # started_at e SOURCE_STARTED só na PRIMEIRA chamada autorizada.
+                    now_auth = self._clock()
+                    state["start_instant"] = now_auth
+                    if timing is not None and timing.started_at is None:
+                        timing.started_at = now_auth
+                    self._event(search_id, SearchEventType.SOURCE_STARTED, tribunal=entry.code)
+                    state["started_emitted"] = True
+            # Lock liberado: a chamada de rede ocorre FORA da seção crítica.
             return provider.search(request, entry.code)
 
         def _on_retry(attempt: int, exc: BaseException) -> None:
-            attempts_box["retried"] = True
+            state["retried"] = True
             self._event(search_id, SearchEventType.SOURCE_RETRY, tribunal=entry.code, detail={"attempt": attempt})
+
+        attempts_box = state  # alias para reutilizar nos retornos abaixo
 
         try:
             processes = run_with_retry(
-                _call, self._config.retry, sleep=self._sleep, jitter=self._jitter, on_retry=_on_retry,
+                _authorize_and_call, self._config.retry, sleep=self._sleep, jitter=self._jitter, on_retry=_on_retry,
             )
+        except _GlobalDeadlineExceeded:
+            # Impedida pela guarda de prazo global antes de qualquer chamada de rede.
+            # Nunca emitiu SOURCE_STARTED. Marca como pulada por timeout global.
+            if timing is not None:
+                timing.skipped_global_timeout = True
+            return self._timeout_outcome(entry)
         except JudicialError as exc:
             finished = self._clock()
             if timing is not None:
                 timing.finished_at = finished
-            duration = int((finished - started) * 1000)
+            start_ref = state["start_instant"] if state["start_instant"] is not None else finished
+            duration = int((finished - start_ref) * 1000)
             status = _error_to_source_status(exc.code)
             self._event(search_id, SearchEventType.SOURCE_FAILED, tribunal=entry.code, detail={"status": status.value, "code": exc.code.value})
             return _SourceOutcome(
@@ -451,7 +485,8 @@ class SearchOrchestrator:
         finished = self._clock()
         if timing is not None:
             timing.finished_at = finished
-        duration = int((finished - started) * 1000)
+        start_ref = state["start_instant"] if state["start_instant"] is not None else finished
+        duration = int((finished - start_ref) * 1000)
         status = SourceStatus.SUCCESS if processes else SourceStatus.EMPTY
         self._event(search_id, SearchEventType.SOURCE_SUCCESS, tribunal=entry.code, detail={"count": len(processes)})
         return _SourceOutcome(
