@@ -1759,3 +1759,91 @@ Não executar análise completa, não criar V9 e não alterar Verdict Engine nes
 A próxima task deve ser uma **reconciliação controlada do Veredito V8 histórico**, sem LLM, sem nova análise e sem mudança das regras do Checklist. O objetivo é fazer o Veredito V8 refletir a ChecklistExecution V8 já persistida, preservando a pendência financeira legítima e a rastreabilidade das evidências.
 
 **Status:** Tasks 73/73.1 🟢 aprovadas; validação 633 🟢 concluída; reconciliação do Veredito V8 🔴 pendente; V9 ⏸️ bloqueada.
+
+
+---
+
+# 28/09/2026 — FECHAMENTO FINAL DO MVP
+
+## TASK 74 — RECONCILIAÇÃO DO VEREDITO V8 — 🟢 CONCLUÍDA
+
+**Commit:** `71a23a86d02755052ced6033b8a6791fbf8505ae`
+
+O Veredito V8 histórico do imóvel 633 foi reconciliado de forma determinística e in place:
+
+- mesmo `verdict_id=229`;
+- ChecklistExecution correta: `1153`;
+- 28 pendências → 21 pendências;
+- 20 pendências do Checklist + 1 pendência financeira legítima;
+- idempotência confirmada;
+- sem LLM;
+- sem Analysis nova;
+- sem V9;
+- V1–V7 preservadas.
+
+## TASK 74.1 — HARDENING — 🟢 APROVADA
+
+**Commit:** `40c648d586ebb1a0beaef19ae7c4aa230fff7688`
+
+A manutenção histórica passou a ter allow-list estrita:
+
+- `property_id = 633`;
+- `analysis_version = 8`.
+
+Também deixou de existir qualquer caminho para criar um Verdict ausente. A reconciliação falha explicitamente se o Verdict V8 não existir.
+
+**pytest:** 292 passed, 0 falhas.
+
+## VALIDAÇÃO FINAL REAL — V9
+
+Após a reconciliação, foi executada a primeira análise completa real do imóvel 633 com LLM.
+
+Resultado:
+
+- Analysis V9 criada;
+- 5 agentes;
+- modelo `gpt-4o-mini`;
+- 5/5 runs bem-sucedidos;
+- 8 chunks recuperados;
+- 34.045 tokens;
+- custo registrado: US$ 0,00650625;
+- Checklist V9: **10 CONFIRMADOS / 17 PENDENTES**;
+- Veredito V9: **INCONCLUSIVO**;
+- 18 pendências totais = 17 do Checklist + 1 financeira;
+- histórico V1–V9 preservado.
+
+A V9 foi executada pela própria UI/API do sistema e comprovou o fluxo:
+
+`documentos → RAG → agentes → evidências → Checklist → Risk Engine → Verdict Engine → histórico`
+
+## FECHAMENTO DOCUMENTAÇÃO × IMPLEMENTAÇÃO
+
+Foi criada:
+
+`docs/IMPLEMENTATION-REFERENCE.md`
+
+O documento mapeia a implementação efetiva do repositório e complementa a SPEC, cobrindo:
+
+- backend/domínio;
+- API;
+- pipeline documental;
+- OCR/MarkItDown;
+- embeddings/RAG;
+- agentes/LangGraph;
+- Checklist;
+- Risk Engine;
+- Verdict Engine;
+- evidências;
+- reanálise incremental;
+- frontend;
+- migrations;
+- scripts operacionais;
+- testes;
+- reconciliação histórica;
+- limitações e evolução.
+
+### Estado final
+
+**MVP FUNCIONALMENTE ENCERRADO EM 28/09/2026.**
+
+A partir deste ponto, novas capacidades devem entrar como **Fase 2 / backlog**, salvo correção de defeito crítico identificado posteriormente.
