@@ -13,6 +13,7 @@ A validação E2E final foi executada com o imóvel real **COND PARQUE ARVOREDO 
 - [Status do Projeto](docs/PROJECT-STATUS.md) — estado atual e critérios de encerramento.
 - [Histórico do Projeto](docs/PROJECT-HISTORY.md) — decisões, correções, commits e validações.
 - [Workflow de Desenvolvimento](docs/DEVELOPMENT-WORKFLOW.md) — processo Kiro → commit → auditoria.
+- [Backlog de Evolução](docs/EVOLUTION-BACKLOG.md) — roadmap pós-MVP, pilares de análise e divisão do módulo Jurídico em 5 tasks.
 
 ### Regra após o fechamento
 
