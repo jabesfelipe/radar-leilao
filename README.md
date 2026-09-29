@@ -1,75 +1,77 @@
 # Radar Leilão
 
-MVP em português do Brasil para análise rastreável de imóveis em leilões extrajudiciais, alinhado à `SPEC-VIBE-CODING-RADAR-LEILAO.md`.
+MVP em português do Brasil para análise rastreável de imóveis em leilões extrajudiciais.
 
-## Controle do projeto
+**Estado:** 🟢 MVP FUNCIONALMENTE ENCERRADO — 28/09/2026
 
-**Próxima TASK:** TASK 44 — Mercado + Ocupação no Hub do Imóvel  
-**Última TASK aprovada:** TASK 43 — Financeiro no Hub do Imóvel
+A validação E2E final foi executada com o imóvel real **COND PARQUE ARVOREDO RESIDENCIAL CLUBE (property_id=633)**, chegando à Analysis V9 com LLM real, cinco agentes, Checklist, Risk Engine, Verdict Engine e histórico versionado.
 
-Acompanhe o desenvolvimento por estes documentos:
+## Documentação oficial
 
-- [Controle central de andamento](docs/PROJECT-STATUS.md) — TASKs concluídas, pendentes, próxima TASK e regras de continuidade.
-- [Histórico de implementação](docs/PROJECT-HISTORY.md) — histórico técnico e commits relevantes.
-- [Workflow de desenvolvimento](docs/DEVELOPMENT-WORKFLOW.md) — ciclo Kiro → commit → revisão → aprovação → próxima TASK.
-- [SPEC oficial](SPEC-VIBE-CODING-RADAR-LEILAO.md) — arquitetura e requisitos do produto.
+- [SPEC — Arquitetura e Business](docs/SPEC-VIBE-CODING-RADAR-LEILAO.md) — documento mestre.
+- [Referência de Implementação](docs/IMPLEMENTATION-REFERENCE.md) — onde cada capacidade está implementada no código.
+- [Status do Projeto](docs/PROJECT-STATUS.md) — estado atual e critérios de encerramento.
+- [Histórico do Projeto](docs/PROJECT-HISTORY.md) — decisões, correções, commits e validações.
+- [Workflow de Desenvolvimento](docs/DEVELOPMENT-WORKFLOW.md) — processo Kiro → commit → auditoria.
 
-### Regra de continuidade
+### Regra após o fechamento
 
-Uma TASK por vez.
+O MVP não possui uma próxima TASK funcional planejada.
 
-1. Kiro lê a próxima TASK pendente em `docs/PROJECT-STATUS.md`.
-2. Implementa somente o escopo definido.
-3. Cria o commit.
-4. Usuário solicita **"da pull"**.
-5. O commit é auditado contra a SPEC, contratos e escopo da TASK.
-6. Após aprovação, o controle é atualizado e a próxima TASK é liberada.
+Novas capacidades devem ser tratadas como **Fase 2 / backlog**, salvo correção de defeito crítico.
 
 ## Arquitetura local
 
-- React + TypeScript
-- FastAPI + SQLAlchemy
+- React + TypeScript + Vite
+- FastAPI + SQLAlchemy + Pydantic
 - PostgreSQL + pgvector no Docker/WSL
-- Alembic para migrations
-- Documentos: original imutável + MarkItDown + Markdown + chunks
-- RAG híbrido: pgvector + full-text + metadata
+- Alembic
+- MarkItDown + OCR Tesseract/Poppler
+- RAG híbrido e retrieval direcionado do Checklist
 - LangChain + LangGraph
-- LLM Gateway com OpenAI inicial e provider extensível
+- LLM Gateway + provider OpenAI
+- cinco agentes LLM: Documental, Jurídico, Financeiro, Mercado e Checklist
+
+## Pipeline
+
+Imóvel → documentos → normalização/OCR → chunks/embeddings → RAG → agentes → evidências → Checklist → Risk Engine → Verdict Engine → histórico
+
+## Operação
+
+Scripts principais:
+
+./scripts/setup.sh  
+./scripts/start.sh  
+./scripts/restart.sh  
+./scripts/health.sh  
+./scripts/logs.sh  
+./scripts/backup.sh  
+./scripts/restore.sh  
+./scripts/stop.sh
+
+O restart.sh preserva os volumes nomeados; não deve ser confundido com reset.sh, que é uma operação destrutiva explícita.
 
 ## Executar
 
-Pré-requisitos: Docker Desktop com integração WSL habilitada, Python 3.12+ e Node.js 20+.
+Pré-requisitos: Docker Desktop com integração WSL habilitada.
 
-```powershell
-Copy-Item .env.example .env
-docker compose up -d
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r backend\requirements.txt
-alembic -c backend\alembic.ini -x config=backend upgrade head
-uvicorn app.main:app --app-dir backend --reload --port 8000
-```
-
-Em outro terminal:
-
-```powershell
-npm.cmd install --prefix frontend
-npm.cmd run dev --prefix frontend
-```
+    ./scripts/setup.sh
+    ./scripts/restart.sh
+    ./scripts/health.sh
 
 Frontend: http://localhost:5173  
 API/documentação: http://localhost:8000/docs
 
 ## LLM
 
-A API funciona sem a chave para os fluxos determinísticos e recuperação full-text. Para embeddings e interpretação OpenAI, configure `OPENAI_API_KEY` no `.env`. Nenhuma chamada do provider fica espalhada na aplicação: use `LLM Gateway`.
+Os fluxos determinísticos e de recuperação podem funcionar sem LLM. Para embeddings/interpretação OpenAI, configure OPENAI_API_KEY no .env.
+
+O provider é acessado pelo LLM Gateway; chamadas não ficam espalhadas pelo domínio.
 
 ## Migrations
 
-Nunca use `Base.metadata.create_all` no runtime. Para aplicar o schema:
+Nunca use Base.metadata.create_all no runtime. O schema é controlado por Alembic:
 
-```powershell
-alembic -c backend/alembic.ini upgrade head
-```
+    alembic -c backend/alembic.ini upgrade head
 
-A extensão `vector` é habilitada pelo init do PostgreSQL e pela migration. Não há SQLite nem banco vetorial externo.
+A extensão vector é habilitada no PostgreSQL. Não há SQLite nem banco vetorial externo no MVP.
