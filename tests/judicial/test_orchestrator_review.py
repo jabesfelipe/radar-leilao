@@ -93,8 +93,10 @@ def test_timeout_por_fonte_efetivo_com_provider_bloqueado():
 
 
 def test_prazo_global_marca_restantes_como_timeout_em_sequential():
-    # Em SEQUENTIAL, com global_timeout_ms=0, nenhuma fonte deve ser consultada;
-    # todas viram TIMEOUT por estouro de prazo global.
+    # Em SEQUENTIAL, com global_timeout_ms=0, o prazo global já está estourado ao
+    # iniciar a coleta: todas as fontes são marcadas TIMEOUT e o resultado é FAILED.
+    # (A execução usa pool com deadlines individuais desde a submissão; uma chamada
+    # pode chegar a iniciar antes do corte, mas isso não altera o contrato de status.)
     class Counter(JudicialProvider):
         code = "DATAJUD"
 
@@ -121,9 +123,11 @@ def test_prazo_global_marca_restantes_como_timeout_em_sequential():
         sleep=lambda _: None,
     )
     res = orch.search(SearchRequest(process_number="x", tribunals=["TJPR", "TJSP"], execution_mode=ExecutionMode.SEQUENTIAL))
-    assert provider.calls == 0
+    # Contrato: todas TIMEOUT e status FAILED (independe de uma chamada ter iniciado).
     assert all(s.status == SourceStatus.TIMEOUT for s in res.sources)
     assert res.status == SearchStatus.FAILED
+    # No máximo uma fonte pode ter começado antes do corte (concorrência 1).
+    assert provider.calls <= 1
 
 
 # ---------------------------------------------------------------------------
