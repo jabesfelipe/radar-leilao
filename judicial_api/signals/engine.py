@@ -43,6 +43,27 @@ def _only_digits(value: str | None) -> str:
     return "".join(ch for ch in (value or "") if ch.isdigit())
 
 
+def _names_match(searched: str, party_name: str) -> bool:
+    """Compara nome pesquisado e nome da parte de forma robusta (caixa/acentos já
+    normalizados por normalize_text). Considera correspondente quando os nomes são
+    iguais ou quando o conjunto de tokens de um contém o do outro (ex.: nome
+    parcial vs. nome completo). Não confirma identidade — é só correspondência de
+    nome para fins de possível homônimo."""
+    a = normalize_text(searched)
+    b = normalize_text(party_name)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    tokens_a = set(a.split())
+    tokens_b = set(b.split())
+    if len(tokens_a) < 2 or len(tokens_b) < 2:
+        # Com um único token o risco de correspondência espúria é alto: exige
+        # igualdade exata (já tratada acima).
+        return False
+    return tokens_a.issubset(tokens_b) or tokens_b.issubset(tokens_a)
+
+
 class SignalEngine:
     """Motor puro de sinais: recebe processos normalizados e devolve sinais.
 
@@ -150,6 +171,15 @@ class SignalEngine:
         if pesquisou_documento or not pesquisou_nome:
             # Com documento não é homônimo por definição; sem nome não aplica.
             return False
-        # Só é "possível homônimo" se nenhuma parte traz documento que confirme.
-        algum_documento_de_parte = any(_only_digits(p.document) for p in process.parties)
-        return not algum_documento_de_parte
+
+        # Só avalia possível homônimo se houver uma PARTE cujo nome corresponde ao
+        # nome pesquisado (comparação normalizada por caixa/acento). Sem parte
+        # correspondente, não há homônimo a sinalizar.
+        partes_correspondentes = [p for p in process.parties if _names_match(request.name, p.name)]
+        if not partes_correspondentes:
+            return False
+
+        # É possível homônimo quando ALGUMA parte correspondente NÃO traz CPF/CNPJ
+        # que confirme identidade. O documento é avaliado NA PRÓPRIA parte
+        # correspondente — documento de partes não relacionadas não suprime o sinal.
+        return any(not _only_digits(p.document) for p in partes_correspondentes)

@@ -123,6 +123,73 @@ def test_sem_request_nao_avalia_homonimo():
 
 
 # ---------------------------------------------------------------------------
+# Homônimos — correspondência de nome por parte (correção de falsos positivos)
+# ---------------------------------------------------------------------------
+
+def test_homonimo_nome_correspondente_sem_documento():
+    proc = _process(parties=[Party(name="MARIA SOUZA LIMA")])
+    req = SearchRequest(name="Maria Souza Lima")
+    codes = {s.signal_code for s in SignalEngine().analyze_process(proc, req)}
+    assert "HOMONYM_POSSIBLE" in codes
+
+
+def test_sem_homonimo_quando_nome_nao_corresponde():
+    # Nenhuma parte tem nome parecido com o pesquisado, mesmo sem documento.
+    proc = _process(parties=[Party(name="EMPRESA XPTO LTDA")])
+    req = SearchRequest(name="João da Silva")
+    codes = {s.signal_code for s in SignalEngine().analyze_process(proc, req)}
+    assert "HOMONYM_POSSIBLE" not in codes
+
+
+def test_homonimo_avalia_documento_na_parte_correspondente_nao_em_outras():
+    # A parte correspondente (mesmo nome) NÃO tem documento; outra parte tem.
+    # O documento da parte não relacionada não pode suprimir o sinal.
+    proc = _process(parties=[
+        Party(name="JOÃO DA SILVA"),  # correspondente, sem documento
+        Party(name="BANCO CREDOR S.A.", document="11222333000181", document_type="CNPJ"),  # não relacionada
+    ])
+    req = SearchRequest(name="João da Silva")
+    codes = {s.signal_code for s in SignalEngine().analyze_process(proc, req)}
+    assert "HOMONYM_POSSIBLE" in codes
+
+
+def test_sem_homonimo_quando_parte_correspondente_tem_documento():
+    proc = _process(parties=[
+        Party(name="JOÃO DA SILVA", document="12345678900", document_type="CPF"),
+        Party(name="OUTRA PESSOA QUALQUER"),  # sem documento, mas não corresponde
+    ])
+    req = SearchRequest(name="João da Silva")
+    codes = {s.signal_code for s in SignalEngine().analyze_process(proc, req)}
+    assert "HOMONYM_POSSIBLE" not in codes
+
+
+def test_homonimo_ignora_acentuacao_e_caixa_na_correspondencia():
+    proc = _process(parties=[Party(name="joao da silva")])   # sem acento, minúsculo
+    req = SearchRequest(name="JOÃO DA SÍLVA")                  # com acento, maiúsculo
+    codes = {s.signal_code for s in SignalEngine().analyze_process(proc, req)}
+    assert "HOMONYM_POSSIBLE" in codes
+
+
+def test_homonimo_nome_parcial_corresponde_a_nome_completo():
+    # Nome pesquisado é subconjunto do nome completo da parte (tokens) => corresponde.
+    proc = _process(parties=[Party(name="João Carlos da Silva")])
+    req = SearchRequest(name="João da Silva")
+    codes = {s.signal_code for s in SignalEngine().analyze_process(proc, req)}
+    assert "HOMONYM_POSSIBLE" in codes
+
+
+def test_evidencia_de_homonimo_nao_afirma_identidade():
+    proc = _process(parties=[Party(name="JOÃO DA SILVA")])
+    req = SearchRequest(name="João da Silva")
+    sinal = next(s for s in SignalEngine().analyze_process(proc, req) if s.signal_code == "HOMONYM_POSSIBLE")
+    texto = sinal.evidence_text.lower()
+    # é EVIDÊNCIA de POSSÍVEL homônimo, não confirmação de identidade/homonímia
+    assert "nome semelhante" in texto
+    assert "não há evidência suficiente" in texto
+    assert "confirmado" not in texto
+
+
+# ---------------------------------------------------------------------------
 # Regras versionadas
 # ---------------------------------------------------------------------------
 
