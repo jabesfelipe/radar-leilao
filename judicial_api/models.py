@@ -8,7 +8,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from .enums import ExecutionMode, JusticeType, SearchStatus, SourceStatus
+from .enums import (
+    ExecutionMode,
+    JusticeType,
+    SearchStatus,
+    SignalCategory,
+    SignalEvidenceType,
+    SignalSeverity,
+    SourceStatus,
+)
 
 
 # --------------------------------------------------------------------------
@@ -88,6 +96,30 @@ class Process(BaseModel):
 
 
 # --------------------------------------------------------------------------
+# Sinais jurídicos (SPEC §34-39, §66)
+# --------------------------------------------------------------------------
+
+class Signal(BaseModel):
+    """Evidência processual estruturada detectada pelo Signal Engine.
+
+    Representa EVIDÊNCIA, não parecer nem conclusão jurídica (SPEC §35-36, §39). A
+    correlação definitiva com o imóvel e a decisão jurídica são responsabilidade do
+    módulo Jurídico do Radar — fora do escopo deste módulo.
+    """
+
+    signal_code: str
+    category: SignalCategory
+    severity: SignalSeverity
+    confidence: float = 0.5
+    evidence_text: str
+    evidence_type: SignalEvidenceType
+    process_number: str | None = None
+    tribunal: str | None = None
+    source_identifier: str | None = None
+    rule_version: int = 1
+
+
+# --------------------------------------------------------------------------
 # Resultado por fonte e agregado (SPEC §17-19)
 # --------------------------------------------------------------------------
 
@@ -129,7 +161,7 @@ class SearchResult(BaseModel):
     completeness: Completeness = Field(default_factory=Completeness)
     sources: list[SourceResult] = Field(default_factory=list)
     processes: list[Process] = Field(default_factory=list)
-    signals: list[dict] = Field(default_factory=list)
+    signals: list[Signal] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     reanalyze: ReanalyzeHint = Field(default_factory=ReanalyzeHint)
 

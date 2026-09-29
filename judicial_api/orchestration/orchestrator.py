@@ -43,6 +43,7 @@ from ..models import (
     SourceResult,
 )
 from ..registry.base import ProviderRegistry
+from ..signals import SignalEngine
 from .resilience import RetryPolicy, run_with_retry
 from .selection import compute_request_hash, select_sources
 from .store import InMemorySearchStore, SearchEvent, SearchRecord, SearchStore
@@ -122,6 +123,7 @@ class SearchOrchestrator:
         store: SearchStore | None = None,
         config: OrchestratorConfig | None = None,
         *,
+        signal_engine: "SignalEngine | None" = None,
         sleep: Callable[[float], None] = time.sleep,
         jitter: Callable[[], float] = lambda: 0.0,
         clock: Callable[[], float] = time.monotonic,
@@ -130,6 +132,8 @@ class SearchOrchestrator:
         self._catalog = catalog or default_catalog()
         self._store = store or InMemorySearchStore()
         self._config = config or OrchestratorConfig()
+        # Motor de sinais (JUR-04): gera evidências processuais após a normalização.
+        self._signal_engine = signal_engine or SignalEngine()
         self._sleep = sleep
         self._jitter = jitter
         self._clock = clock
@@ -205,6 +209,7 @@ class SearchOrchestrator:
         result.sources = merged_sources
         result.processes = self._dedupe(merged_processes)
         self._recompute_aggregate(result)
+        self._apply_signals(result, request, search_id)
         self._store.save(record)
         self._event(search_id, SearchEventType.SEARCH_COMPLETED, detail={"status": result.status.value, "reanalysis": True})
         return result
@@ -247,6 +252,7 @@ class SearchOrchestrator:
 
         outcomes = self._run_sources(request, sources, search_id, mode=request.execution_mode)
         self._assemble(result, outcomes)
+        self._apply_signals(result, request, search_id)
         self._store.save(record)
         self._event(search_id, SearchEventType.SEARCH_COMPLETED, detail={"status": result.status.value})
         return result
@@ -529,6 +535,16 @@ class SearchOrchestrator:
         if source.error is not None and source.error.retryable is False:
             return False
         return True
+
+    def _apply_signals(self, result: SearchResult, request: SearchRequest, search_id: str) -> None:
+        # Gera as evidências/sinais a partir dos processos já normalizados/deduplicados.
+        # Não altera status/dedup nem emite parecer; apenas anexa os sinais.
+        result.signals = self._signal_engine.analyze(result.processes, request)
+        self._event(
+            search_id,
+            SearchEventType.SIGNAL_ANALYSIS_COMPLETED,
+            detail={"signals": len(result.signals)},
+        )
 
     def _assemble(self, result: SearchResult, outcomes: list[_SourceOutcome]) -> None:
         result.sources = [o.result for o in outcomes]

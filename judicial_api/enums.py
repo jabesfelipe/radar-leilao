@@ -94,3 +94,35 @@ class SearchEventType(str, Enum):
     SIGNAL_ANALYSIS_COMPLETED = "SIGNAL_ANALYSIS_COMPLETED"
     SEARCH_COMPLETED = "SEARCH_COMPLETED"
     REANALYSIS_REQUESTED = "REANALYSIS_REQUESTED"
+
+
+class SignalSeverity(str, Enum):
+    """Severidade de um sinal jurídico (SPEC §38)."""
+
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
+
+
+class SignalCategory(str, Enum):
+    """Categoria conceitual do sinal (SPEC §37-38)."""
+
+    PATRIMONIAL = "PATRIMONIAL"        # penhora, arresto, indisponibilidade, hipoteca...
+    EXECUCAO = "EXECUCAO"              # execução, execução fiscal, cumprimento de sentença
+    INSOLVENCIA = "INSOLVENCIA"        # falência, recuperação judicial, insolvência
+    COBRANCA = "COBRANCA"             # cobrança
+    REAL = "REAL"                     # usucapião, desapropriação, alienação fiduciária
+    SUCESSAO = "SUCESSAO"             # inventário, partilha
+    TRABALHISTA = "TRABALHISTA"        # ação trabalhista
+    EMBARGOS = "EMBARGOS"             # embargos à execução / de terceiro
+    IDENTIDADE = "IDENTIDADE"         # sinais de identificação (ex.: homônimo)
+
+
+class SignalEvidenceType(str, Enum):
+    """De onde a evidência do sinal foi extraída (SPEC §35, §79)."""
+
+    MOVEMENT = "MOVEMENT"
+    SUBJECT = "SUBJECT"
+    CLASS = "CLASS"
+    PARTY = "PARTY"

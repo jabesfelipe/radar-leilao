@@ -1,0 +1,24 @@
+{
+  "$comment": "Regras de sinais jurídicos — FONTE DE VERDADE VERSIONADA (JUR-04). Cada regra detecta uma EVIDÊNCIA processual por correspondência de termos (matching_type=terms) em movimentos/assuntos/classe. severity/category/version conforme SPEC §37-38. NÃO representa conclusão jurídica; a correlação com imóvel é do módulo Jurídico do Radar. base_confidence é a confiança da evidência (0..1).",
+  "version": 1,
+  "rules": [
+    {"signal_code": "PENHORA", "name": "Penhora", "category": "PATRIMONIAL", "severity": "HIGH", "base_confidence": 0.85, "terms": ["penhora", "penhorado", "penhorada", "penhorados", "penhoradas"], "enabled": true, "version": 1},
+    {"signal_code": "ARRESTO", "name": "Arresto", "category": "PATRIMONIAL", "severity": "HIGH", "base_confidence": 0.8, "terms": ["arresto", "arrestado", "arrestada"], "enabled": true, "version": 1},
+    {"signal_code": "INDISPONIBILIDADE", "name": "Indisponibilidade", "category": "PATRIMONIAL", "severity": "HIGH", "base_confidence": 0.8, "terms": ["indisponibilidade", "indisponivel", "indisponível", "bloqueio de bens", "tornar indisponivel"], "enabled": true, "version": 1},
+    {"signal_code": "HIPOTECA", "name": "Hipoteca", "category": "PATRIMONIAL", "severity": "MEDIUM", "base_confidence": 0.7, "terms": ["hipoteca", "hipotecario", "hipotecário", "hipotecada"], "enabled": true, "version": 1},
+    {"signal_code": "ALIENACAO_FIDUCIARIA", "name": "Alienação fiduciária", "category": "REAL", "severity": "MEDIUM", "base_confidence": 0.7, "terms": ["alienacao fiduciaria", "alienação fiduciária", "propriedade fiduciaria"], "enabled": true, "version": 1},
+    {"signal_code": "USUCAPIAO", "name": "Usucapião", "category": "REAL", "severity": "MEDIUM", "base_confidence": 0.7, "terms": ["usucapiao", "usucapião"], "enabled": true, "version": 1},
+    {"signal_code": "DESAPROPRIACAO", "name": "Desapropriação", "category": "REAL", "severity": "MEDIUM", "base_confidence": 0.7, "terms": ["desapropriacao", "desapropriação", "desapropriado"], "enabled": true, "version": 1},
+    {"signal_code": "EXECUCAO", "name": "Execução", "category": "EXECUCAO", "severity": "MEDIUM", "base_confidence": 0.75, "terms": ["execucao", "execução", "cumprimento de sentenca", "cumprimento de sentença"], "enabled": true, "version": 1},
+    {"signal_code": "EXECUCAO_FISCAL", "name": "Execução fiscal", "category": "EXECUCAO", "severity": "HIGH", "base_confidence": 0.8, "terms": ["execucao fiscal", "execução fiscal", "divida ativa", "dívida ativa"], "enabled": true, "version": 1},
+    {"signal_code": "COBRANCA", "name": "Cobrança", "category": "COBRANCA", "severity": "LOW", "base_confidence": 0.6, "terms": ["cobranca", "cobrança", "monitoria", "acao de cobranca", "ação de cobrança"], "enabled": true, "version": 1},
+    {"signal_code": "FALENCIA", "name": "Falência", "category": "INSOLVENCIA", "severity": "HIGH", "base_confidence": 0.8, "terms": ["falencia", "falência", "falido"], "enabled": true, "version": 1},
+    {"signal_code": "RECUPERACAO_JUDICIAL", "name": "Recuperação judicial", "category": "INSOLVENCIA", "severity": "HIGH", "base_confidence": 0.8, "terms": ["recuperacao judicial", "recuperação judicial"], "enabled": true, "version": 1},
+    {"signal_code": "INSOLVENCIA", "name": "Insolvência", "category": "INSOLVENCIA", "severity": "MEDIUM", "base_confidence": 0.7, "terms": ["insolvencia", "insolvência", "insolvente"], "enabled": true, "version": 1},
+    {"signal_code": "EMBARGOS_A_EXECUCAO", "name": "Embargos à execução", "category": "EMBARGOS", "severity": "LOW", "base_confidence": 0.6, "terms": ["embargos a execucao", "embargos à execução"], "enabled": true, "version": 1},
+    {"signal_code": "EMBARGOS_DE_TERCEIRO", "name": "Embargos de terceiro", "category": "EMBARGOS", "severity": "MEDIUM", "base_confidence": 0.65, "terms": ["embargos de terceiro", "embargos de terceiros"], "enabled": true, "version": 1},
+    {"signal_code": "INVENTARIO", "name": "Inventário", "category": "SUCESSAO", "severity": "LOW", "base_confidence": 0.6, "terms": ["inventario", "inventário"], "enabled": true, "version": 1},
+    {"signal_code": "PARTILHA", "name": "Partilha", "category": "SUCESSAO", "severity": "LOW", "base_confidence": 0.6, "terms": ["partilha", "sobrepartilha"], "enabled": true, "version": 1},
+    {"signal_code": "ACAO_TRABALHISTA", "name": "Ação trabalhista", "category": "TRABALHISTA", "severity": "LOW", "base_confidence": 0.6, "terms": ["reclamacao trabalhista", "reclamação trabalhista", "acao trabalhista", "ação trabalhista"], "enabled": true, "version": 1}
+  ]
+}

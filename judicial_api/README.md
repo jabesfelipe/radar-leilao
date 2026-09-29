@@ -45,8 +45,28 @@ Não depende do Radar Leilão; será consumido por ele futuramente via uma únic
 - **Status agregado**: `COMPLETED` / `EMPTY` / `PARTIAL` / `FAILED` (EMPTY ≠ PARTIAL).
 - **Reanálise**: `retry_failed` reprocessa somente fontes com falha recuperável.
 - **Persistência/auditoria**: store em memória com eventos (`SEARCH_CREATED`,
-  `SOURCE_*`, `SEARCH_COMPLETED`, `REANALYSIS_REQUESTED`). A persistência em
-  PostgreSQL fica para uma fase posterior.
+  `SOURCE_*`, `SIGNAL_ANALYSIS_COMPLETED`, `SEARCH_COMPLETED`, `REANALYSIS_REQUESTED`).
+  A persistência em PostgreSQL fica para uma fase posterior.
+
+## Sinais jurídicos (JUR-04)
+
+- `SignalEngine` detecta **evidências** processuais (não parecer nem decisão) a
+  partir de movimentos, assuntos e classe dos processos normalizados.
+- Regras **versionadas** em dados (`judicial_api/signals/signal_rules.json`):
+  penhora, arresto, indisponibilidade, hipoteca, execução, execução fiscal,
+  cobrança, falência, recuperação judicial, insolvência, embargos, usucapião,
+  desapropriação, alienação fiduciária, inventário, partilha, ação trabalhista.
+  Cada sinal tem `signal_code`, `category`, `severity`, `confidence`,
+  `evidence_text`, `evidence_type` e `rule_version`.
+- **Distinção processo × imóvel** (SPEC §35, §39): uma evidência patrimonial (ex.:
+  penhora) gera também um sinal `PROPERTY_<X>_EVIDENCE` que deixa explícito que a
+  confirmação de que a medida recai sobre determinado imóvel exige validação
+  registral/documental — **nunca** afirma "imóvel penhorado".
+- **Homônimos**: quando a pesquisa é por nome sem CPF/CNPJ e as partes não trazem
+  documento que confirme identidade, emite `HOMONYM_POSSIBLE`.
+- Os sinais são anexados ao `SearchResult.signals` pelo orquestrador e persistidos
+  no store. A correlação com o imóvel e o risco jurídico são responsabilidade do
+  módulo Jurídico do Radar (fora do escopo deste módulo).
 
 ## Requisitos
 
