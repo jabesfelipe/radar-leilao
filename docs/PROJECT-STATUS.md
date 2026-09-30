@@ -7,7 +7,7 @@
 
 **Próximo passo:** atualizar a cópia local, executar E2E manual pela UI (premissas → cálculo → persistência → resultado/veredito) e registrar evidências. Até lá, o MVP NÃO é declarado encerrado.
 
-> **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está no cabeçalho e na seção da Task 4 (última implementação registrada); as seções anteriores preservam o histórico. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
+> **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está no cabeçalho e na seção da Task 4 (última implementação registrada); as seções anteriores preservam o histórico. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
 
 ## 1. Resumo executivo
 
