@@ -1,7 +1,7 @@
 # EVOLUÇÃO DO BACKLOG — RADAR LEILÃO
 
-**Data:** 28/09/2026  
-**Estado de referência:** MVP funcionalmente encerrado após E2E real V9  
+**Data:** 30/09/2026  
+**Estado de referência:** Task 4 integrada; validação E2E financeira pendente; Fase 2 ainda não iniciada  
 **Escopo:** evolução do Radar Leilão para aprofundar a qualidade da análise de imóveis em leilões extrajudiciais.
 
 ---
