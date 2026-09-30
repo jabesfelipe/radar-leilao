@@ -715,6 +715,17 @@ reescrito. Esta seção registra o resultado da auditoria baseada em evidências
 
 ### 16.4 Backlog priorizado de correções (com critério de aceite)
 
+> **Reconciliação (Tasks 2–5):** esta lista é o registro histórico da auditoria de
+> 30/09/2026. Os P1 financeiros abaixo foram posteriormente endereçados: a **fórmula
+> canônica de preço máximo** e o **financeiro de venda** (tributação, corretagem,
+> lucro líquido, ROI da operação, margem) foram definidos na SPEC (ADDENDUM Task 2) e
+> implementados em `finance.py` (Tasks 2–4); os **cenários** passaram a usar premissas
+> explícitas (Task 2); as **premissas** passaram a ser coletadas por endpoint/UI e
+> persistidas (Task 3, migration `0012`); o **preço máximo definitivo × provisório**
+> foi tratado na Task 4; e o **E2E financeiro** foi validado por testes HTTP na Task 5
+> (§20). Permanece aberto apenas o **P1 de validação E2E visual pela UI (navegador)**.
+> Ver §17, §18, §19 e §20. Os itens P2 (mercado, DataJud real) seguem como Fase 2.
+
 **P0 — impedem decisão segura / corrompem dados:** nenhum P0 identificado nesta auditoria.
 
 **P1 — parte essencial do MVP incompleta:**
