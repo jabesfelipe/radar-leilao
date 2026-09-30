@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Literal
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 class PropertyCreate(BaseModel):
     title: str = Field(min_length=2)
@@ -24,6 +24,81 @@ class PropertyOut(PropertyCreate):
     id: int; status: str; created_at: datetime; model_config = ConfigDict(from_attributes=True)
 class AuctionCreate(BaseModel):
     auction_date: date | None = None; auction_stage: str = "2º leilão"; appraisal_value: Decimal = 0; bid_value: Decimal = 0; first_auction_date: datetime | None = None; first_auction_value: Decimal | None = None; second_auction_date: datetime | None = None; second_auction_value: Decimal | None = None; acquisition_value: Decimal | None = None; commission_percent: Decimal | None = None; commission_fixed: Decimal | None = None; auctioneer: str = ""; notice_url: str = ""
+class ScenarioAssumptionInput(BaseModel):
+    """Premissas explícitas de um cenário financeiro (base/otimista/pessimista)."""
+    nome: Literal["BASE", "OTIMISTA", "PESSIMISTA"]
+    valor_venda: Decimal | None = None
+    reforma: Decimal | None = None
+    desocupacao: Decimal | None = None
+    carregamento: Decimal | None = None
+    prazo_meses: int | None = None
+    justificativa: str = ""
+
+    @field_validator("valor_venda", "reforma", "desocupacao", "carregamento")
+    @classmethod
+    def _nao_negativo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("valores não podem ser negativos")
+        return v
+
+    @field_validator("prazo_meses")
+    @classmethod
+    def _prazo_valido(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("prazo_meses não pode ser negativo")
+        return v
+
+
+class FinanceAssumptions(BaseModel):
+    """Premissas financeiras correntes de um imóvel (Task 3).
+
+    Percentuais em FRAÇÃO (0.05 = 5%). Campos opcionais: ausência é tratada como
+    dado desconhecido (nunca zero silencioso) pelo motor financeiro.
+    """
+    goal_kind: Literal["LUCRO_MINIMO", "MARGEM_MINIMA", "ROI_MINIMO"] | None = None
+    goal_value: Decimal | None = None
+    corretagem_pct: Decimal | None = None
+    tributo_pct: Decimal | None = None
+    tax_base: Literal["GANHO", "VENDA"] = "GANHO"
+    valor_venda_estimado: Decimal | None = None
+    prazo_meses: int | None = None
+    carregamento_mensal: Decimal | None = None
+    cenarios: list[ScenarioAssumptionInput] = Field(default_factory=list)
+
+    @field_validator("corretagem_pct", "tributo_pct")
+    @classmethod
+    def _percentual_valido(cls, v):
+        if v is None:
+            return v
+        if v < 0 or v > 1:
+            raise ValueError("percentual deve estar entre 0 e 1 (fração; 0.05 = 5%)")
+        return v
+
+    @field_validator("goal_value", "valor_venda_estimado", "carregamento_mensal")
+    @classmethod
+    def _nao_negativo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("valor não pode ser negativo")
+        return v
+
+    @field_validator("prazo_meses")
+    @classmethod
+    def _prazo_valido(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("prazo_meses não pode ser negativo")
+        return v
+
+    @model_validator(mode="after")
+    def _meta_consistente(self):
+        # Meta exige tipo + valor juntos; margem/ROI em fração (0..1).
+        if (self.goal_kind is None) != (self.goal_value is None):
+            raise ValueError("goal_kind e goal_value devem ser informados juntos")
+        if self.goal_kind in ("MARGEM_MINIMA", "ROI_MINIMO") and self.goal_value is not None:
+            if self.goal_value < 0 or self.goal_value > 1:
+                raise ValueError("meta de margem/ROI deve ser fração entre 0 e 1")
+        return self
+
+
 class CostCreate(BaseModel):
     category: str; description: str; amount: Decimal = 0; recurring: bool = False
 class DebtCreate(BaseModel):

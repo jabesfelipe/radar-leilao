@@ -44,6 +44,18 @@ TAX_BASE_GANHO = "GANHO"
 TAX_BASE_VENDA = "VENDA"
 
 
+# Classificação de cada custo (Task 3, item 2.1): distingue explicitamente um
+# custo desconhecido de um custo efetivamente igual a zero.
+COST_STATUS_INFORMADO = "INFORMADO"        # valor informado pelo usuário
+COST_STATUS_ESTIMADO = "ESTIMADO"          # valor por premissa explícita
+COST_STATUS_DESCONHECIDO = "DESCONHECIDO"  # material, ainda não informado (pendência)
+COST_STATUS_NAO_APLICAVEL = "NAO_APLICAVEL"
+
+# Custos de aquisição tipicamente materiais: quando não informados, contam como
+# DESCONHECIDO (não como zero silencioso) e tornam o resultado provisório.
+MATERIAL_ACQUISITION_COSTS = ("itbi", "registro")
+
+
 @dataclass(frozen=True)
 class SaleAssumptions:
     """Premissas configuráveis da SAÍDA (venda). Todos os percentuais são frações
@@ -249,6 +261,7 @@ def _resolve_scenario(
         "custo_total": result["custo_total"],
         "valor_mercado": result["valor_mercado"],
         "resultado_liquido": result["resultado_liquido"],
+        "resultado_provisorio": result["resultado_provisorio"],
         "margem_liquida": result["margem_liquida"],
         "roi_operacao": result["roi_operacao"],
         "pendencias": result["pendencias"],
@@ -268,6 +281,7 @@ def calculate_financial(
     commission_percent: Decimal | None = None,
     commission_fixed: Decimal | None = None,
     market_value: Decimal | None = None,
+    monthly_carrying: Decimal | None = None,
     sale: SaleAssumptions | None = None,
     goal: MaxPriceGoal | None = None,
     scenarios: list[ScenarioAssumptions] | None = None,
@@ -342,6 +356,17 @@ def calculate_financial(
             breakdown[key] = decimal(overrides[key])
             informed[key] = True
 
+    # Carregamento mensal × prazo (Task 3, item 5). Despesa RECORRENTE distinta do
+    # custo único: soma `monthly_carrying * holding_months` ao carregamento, sem
+    # duplicar o custo único já informado. Sinaliza a premissa como estimada.
+    monthly_carrying_val = decimal(overrides["carregamento_mensal"]) if "carregamento_mensal" in overrides else (decimal(monthly_carrying) if present(monthly_carrying) else None)
+    carrying_recurring = ZERO
+    months = max(0, int(holding_months or 0))
+    if monthly_carrying_val is not None and months > 0:
+        carrying_recurring = monthly_carrying_val * Decimal(months)
+        breakdown["carregamento"] += carrying_recurring
+        informed["carregamento"] = True
+
     sale_values = [decimal(item.get("price")) for item in comparables if normalize_category(item.get("kind", "VENDA")) == "VENDA" and present(item.get("price"))]
     rent_values = [decimal(item.get("rent")) for item in comparables if normalize_category(item.get("kind")) == "ALUGUEL" and present(item.get("rent"))]
     estimated_market = decimal(market_value) if present(market_value) else (sum(sale_values, ZERO) / Decimal(len(sale_values)) if sale_values else None)
@@ -366,6 +391,32 @@ def calculate_financial(
         margem_liquida = resultado_liquido / estimated_market if estimated_market != ZERO else None
         roi_operacao = resultado_liquido / total if total != ZERO else None
 
+    # ---- Classificação de status de cada custo (Task 3, item 2.1) ----
+    # Distingue custo INFORMADO/ESTIMADO/DESCONHECIDO. Um custo material não
+    # informado é DESCONHECIDO (não zero silencioso) e torna o resultado provisório.
+    estimated_keys = set()
+    if "carregamento" in overrides or monthly_carrying_val is not None:
+        estimated_keys.add("carregamento")
+    for k in ("reforma", "desocupacao", "carregamento"):
+        if k in overrides:
+            estimated_keys.add(k)
+    custos_status: dict[str, str] = {}
+    for key in breakdown:
+        if informed.get(key):
+            custos_status[key] = COST_STATUS_ESTIMADO if key in estimated_keys else COST_STATUS_INFORMADO
+        elif key in MATERIAL_ACQUISITION_COSTS:
+            custos_status[key] = COST_STATUS_DESCONHECIDO
+        else:
+            # Custo não informado e não tipicamente material: tratado como não
+            # aplicável/zero explícito (o usuário pode informar se aplicável).
+            custos_status[key] = COST_STATUS_NAO_APLICAVEL
+
+    # Custos de saída (corretagem/tributo) também têm status próprio.
+    saida_status = {
+        "corretagem_venda": COST_STATUS_INFORMADO if sale.corretagem_pct is not None else COST_STATUS_DESCONHECIDO,
+        "tributos_venda": COST_STATUS_INFORMADO if sale.tributo_pct is not None else COST_STATUS_DESCONHECIDO,
+    }
+
     # ---- Pendências (dados essenciais ausentes) ----
     pending: list[str] = []
     if estimated_market is None:
@@ -375,9 +426,16 @@ def calculate_financial(
     if sale.tributo_pct is None:
         pending.append("Percentual de tributo na venda não informado (assumido 0; depende do enquadramento tributário).")
     # Custos de aquisição tipicamente materiais que não foram informados:
-    for essencial in ("itbi", "registro"):
+    for essencial in MATERIAL_ACQUISITION_COSTS:
         if not informed[essencial]:
             pending.append(f"Custo de {essencial} não informado (depende de município/edital).")
+
+    # Resultado é PROVISÓRIO quando calculável, porém há custos materiais
+    # desconhecidos (saída ou aquisição). Não se apresenta um parcial como completo.
+    custos_desconhecidos = [k for k, s in custos_status.items() if s == COST_STATUS_DESCONHECIDO]
+    saida_desconhecida = [k for k, s in saida_status.items() if s == COST_STATUS_DESCONHECIDO]
+    resultado_provisorio = bool(resultado_liquido is not None and (custos_desconhecidos or saida_desconhecida))
+    resultado_completo = bool(resultado_liquido is not None and not resultado_provisorio)
 
     # ---- Preço máximo (Task 2) ----
     fixed_costs_for_max = total - breakdown["aquisicao"] - breakdown["comissao"]
@@ -403,6 +461,7 @@ def calculate_financial(
         "debts": debts, "occupancy": occupancy, "area": area, "expected_rent": expected_rent,
         "holding_months": holding_months, "commission_percent": commission_percent,
         "commission_fixed": commission_fixed, "market_value": market_value, "sale": sale,
+        "monthly_carrying": monthly_carrying,
     }
     if scenarios:
         cenarios = [_resolve_scenario(base_inputs, sc) for sc in scenarios]
@@ -437,7 +496,12 @@ def calculate_financial(
         # Novos indicadores de venda (Task 2)
         "custo_saida": custo_saida,
         "custo_saida_detalhe": custo_saida_detalhe,
+        "custos_status": custos_status,
+        "saida_status": saida_status,
+        "carregamento_recorrente": carrying_recurring,
         "resultado_liquido": resultado_liquido,
+        "resultado_provisorio": resultado_provisorio,
+        "resultado_completo": resultado_completo,
         "margem_liquida": margem_liquida,
         "roi_operacao": roi_operacao,
         "yield_mensal": yield_monthly,

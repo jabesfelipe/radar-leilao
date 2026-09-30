@@ -115,10 +115,14 @@ describe('PropertyDetailPage', () => {
   })
 
   it('abre a seção Financeiro real dentro do imóvel', async () => {
-    vi.mocked(fetch)
-      .mockReturnValueOnce(response({ imovel: property }))
-      .mockReturnValueOnce(response({ property_id: 7, custos: [], historico: [] }))
-      .mockReturnValueOnce(response({ property_id: 7, dividas: [], historico: [] }))
+    // FinancialSection carrega custos + dívidas + financeiro (Promise.all): roteia por URL.
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/custos')) return response({ property_id: 7, custos: [], historico: [] })
+      if (url.includes('/dividas')) return response({ property_id: 7, dividas: [], historico: [] })
+      if (url.includes('/financeiro')) return response({ property_id: 7, premissas: null, financeiro: { custo_total: 0, preco_maximo: null, cenarios: [], pendencias: [] }, historico: [] })
+      return response({ imovel: property })
+    })
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
     await screen.findByRole('heading', { name: 'Apartamento Centro' })
 
@@ -128,9 +132,12 @@ describe('PropertyDetailPage', () => {
   })
 
   it('abre a seção Mercado real dentro do imóvel', async () => {
-    vi.mocked(fetch)
-      .mockReturnValueOnce(response({ imovel: property }))
-      .mockReturnValueOnce(response({ comparaveis: [] }))
+    // MarketSection carrega comparáveis (dossiê) + /mercado (Promise.all): roteia por URL.
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/mercado')) return response({ property_id: 7, mercado: { venda: { quantidade: 0 }, aluguel: { quantidade: 0 } } })
+      return response({ imovel: property, comparaveis: [] })
+    })
     render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
     await screen.findByRole('heading', { name: 'Apartamento Centro' })
 

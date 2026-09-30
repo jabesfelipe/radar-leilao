@@ -169,7 +169,38 @@ def get_financial(property_id: int, db: Session = Depends(get_db)):
     current = build_finance(prop)
     history = db.scalars(select(models.FinancialAnalysis).where(models.FinancialAnalysis.property_id == property_id).order_by(models.FinancialAnalysis.analysis_version)).all()
     latest = history[-1] if history else None
-    return {"property_id": property_id, "analysis_version": latest.analysis_version if latest else None, "financeiro": serialize(current), "historico": [{"id": item.id, "analysis_version": item.analysis_version, "inputs": item.inputs, "outputs": item.outputs, "created_at": item.created_at} for item in history]}
+    auction = prop.auctions[-1] if prop.auctions else None
+    premissas = auction.financial_assumptions if auction else None
+    return {"property_id": property_id, "analysis_version": latest.analysis_version if latest else None, "premissas": premissas, "financeiro": serialize(current), "historico": [{"id": item.id, "analysis_version": item.analysis_version, "inputs": item.inputs, "outputs": item.outputs, "created_at": item.created_at} for item in history]}
+
+
+@app.get("/api/imoveis/{property_id}/financeiro/premissas")
+def get_finance_assumptions(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    auction = prop.auctions[-1] if prop.auctions else None
+    return {"property_id": property_id, "premissas": (auction.financial_assumptions if auction else None)}
+
+
+@app.put("/api/imoveis/{property_id}/financeiro/premissas")
+def set_finance_assumptions(property_id: int, data: schemas.FinanceAssumptions, db: Session = Depends(get_db)):
+    """Informa/atualiza as premissas financeiras correntes do imóvel (Task 3).
+
+    Persiste no leilão corrente (reutiliza Auction). Validação de negativos/limites
+    é feita pelo schema. As premissas ficam recuperáveis ao reabrir o imóvel e são
+    aplicadas na próxima análise (o histórico anterior não é alterado)."""
+    prop = property_or_404(db, property_id)
+    auction = prop.auctions[-1] if prop.auctions else None
+    if auction is None:
+        # Sem leilão cadastrado, cria um mínimo para ancorar as premissas.
+        auction = models.Auction(property_id=property_id)
+        db.add(auction); db.flush()
+    before = auction.financial_assumptions
+    auction.financial_assumptions = data.model_dump(mode="json")
+    db.flush()
+    event = record_event(db, prop, "PREMISSAS_FINANCEIRAS_ATUALIZADAS", "Auction", auction.id, auction.financial_assumptions, ["financeiro", "checklist"])
+    record_history(db, prop, "Auction", auction.id, "UPDATE", {"financial_assumptions": before}, {"financial_assumptions": auction.financial_assumptions}, event.id)
+    db.commit()
+    return {"property_id": property_id, "premissas": auction.financial_assumptions, "financeiro": serialize(build_finance(prop))}
 
 @app.post("/api/imoveis/{property_id}/financeiro/analisar")
 def analyze_financial(property_id: int, db: Session = Depends(get_db)):
@@ -177,10 +208,12 @@ def analyze_financial(property_id: int, db: Session = Depends(get_db)):
     current = build_finance(prop)
     latest = db.scalar(select(models.FinancialAnalysis).where(models.FinancialAnalysis.property_id == property_id).order_by(models.FinancialAnalysis.analysis_version.desc()))
     version = (latest.analysis_version + 1) if latest else 1
-    inputs = {"auction_id": prop.auctions[-1].id if prop.auctions else None, "cost_ids": [cost.id for cost in prop.costs], "debt_ids": [debt.id for debt in prop.debts], "comparable_ids": [comparable.id for comparable in prop.comparables]}
+    auction = prop.auctions[-1] if prop.auctions else None
+    # Snapshot das premissas usadas nesta versão (preserva o histórico de premissas).
+    inputs = {"auction_id": auction.id if auction else None, "cost_ids": [cost.id for cost in prop.costs], "debt_ids": [debt.id for debt in prop.debts], "comparable_ids": [comparable.id for comparable in prop.comparables], "premissas": (auction.financial_assumptions if auction else None)}
     analysis = models.FinancialAnalysis(property_id=property_id, analysis_version=version, inputs=inputs, outputs=serialize(current))
     db.add(analysis); db.commit()
-    return {"property_id": property_id, "analysis_version": version, "financeiro": serialize(current)}
+    return {"property_id": property_id, "analysis_version": version, "premissas": inputs["premissas"], "financeiro": serialize(current)}
 
 @app.get("/api/imoveis/{property_id}/mercado")
 def get_market(property_id: int, db: Session = Depends(get_db)):

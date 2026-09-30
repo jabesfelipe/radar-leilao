@@ -230,6 +230,47 @@ def test_cenarios_sem_premissas_marcam_otimista_e_pessimista_como_pendentes():
     assert por_nome["BASE"].get("pendente") is not True
 
 
+def test_resultado_provisorio_quando_custos_materiais_desconhecidos():
+    # Sem ITBI/registro/corretagem/tributo informados, o resultado é provisório.
+    result = calculate_financial(bid=Decimal("200000"), market_value=Decimal("300000"))
+    assert result["resultado_liquido"] is not None
+    assert result["resultado_provisorio"] is True
+    assert result["resultado_completo"] is False
+    assert result["custos_status"]["itbi"] == "DESCONHECIDO"
+    assert result["saida_status"]["corretagem_venda"] == "DESCONHECIDO"
+
+
+def test_resultado_completo_quando_custos_materiais_informados():
+    result = calculate_financial(
+        bid=Decimal("200000"),
+        costs=[{"category": "ITBI", "amount": Decimal("6000")}, {"category": "REGISTRO", "amount": Decimal("4000")}],
+        market_value=Decimal("300000"),
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0.15")),
+    )
+    assert result["resultado_provisorio"] is False
+    assert result["resultado_completo"] is True
+    assert result["custos_status"]["itbi"] == "INFORMADO"
+    assert result["saida_status"]["tributos_venda"] == "INFORMADO"
+
+
+def test_carregamento_mensal_multiplica_pelo_prazo_sem_duplicar():
+    # 500/mês por 10 meses = 5000 de carregamento recorrente.
+    result = calculate_financial(bid=Decimal("100000"), monthly_carrying=Decimal("500"), holding_months=10)
+    assert result["carregamento_recorrente"] == Decimal("5000")
+    assert result["custos"]["carregamento"] == Decimal("5000")
+    # custo único de carregamento informado NÃO é duplicado pelo mensal.
+    result2 = calculate_financial(
+        bid=Decimal("100000"), monthly_carrying=Decimal("500"), holding_months=10,
+        costs=[{"category": "CARREGAMENTO", "amount": Decimal("1000")}],
+    )
+    assert result2["custos"]["carregamento"] == Decimal("6000")  # 1000 único + 5000 recorrente
+
+
+def test_prazo_zero_nao_gera_carregamento_recorrente():
+    result = calculate_financial(bid=Decimal("100000"), monthly_carrying=Decimal("500"), holding_months=0)
+    assert result["carregamento_recorrente"] == Decimal("0")
+
+
 def test_cenarios_com_premissas_usam_mesma_formula_e_diferenciam_resultado():
     base = ScenarioAssumptions(nome="BASE", valor_venda=Decimal("300000"))
     otimista = ScenarioAssumptions(nome="OTIMISTA", valor_venda=Decimal("340000"), justificativa="venda acima da média")

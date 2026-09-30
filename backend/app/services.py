@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from . import models
 from .checklist import CHECKLIST_CONFIDENCES, CHECKLIST_STATES, master_items
-from .finance import calculate_financial
+from .finance import MaxPriceGoal, SaleAssumptions, ScenarioAssumptions, calculate_financial
 from .risk_engine import RiskEngine
 from .verdict_engine import VerdictEngine
 
@@ -129,6 +129,46 @@ def latest_occupancy(prop: models.Property):
     return next(iter(reversed(prop.occupancy_analyses)), None)
 
 
+def _build_finance_assumptions(raw: dict | None):
+    """Constrói SaleAssumptions / MaxPriceGoal / cenários / valor de venda / prazo /
+    carregamento mensal a partir das premissas persistidas em Auction (Task 3).
+
+    Retorna um dict de kwargs a repassar a calculate_financial. Ausência de premissa
+    é preservada como None (o motor trata como dado desconhecido, nunca zero)."""
+    raw = raw or {}
+
+    def _dec(v):
+        return Decimal(str(v)) if v is not None and v != "" else None
+
+    sale = SaleAssumptions(
+        corretagem_pct=_dec(raw.get("corretagem_pct")),
+        tributo_pct=_dec(raw.get("tributo_pct")),
+        tax_base=raw.get("tax_base") or "GANHO",
+    )
+    goal = None
+    if raw.get("goal_kind") and raw.get("goal_value") is not None:
+        goal = MaxPriceGoal(kind=raw["goal_kind"], value=_dec(raw.get("goal_value")))
+    scenarios = []
+    for sc in raw.get("cenarios", []) or []:
+        scenarios.append(ScenarioAssumptions(
+            nome=sc.get("nome", "BASE"),
+            valor_venda=_dec(sc.get("valor_venda")),
+            reforma=_dec(sc.get("reforma")),
+            desocupacao=_dec(sc.get("desocupacao")),
+            carregamento=_dec(sc.get("carregamento")),
+            prazo_meses=sc.get("prazo_meses"),
+            justificativa=sc.get("justificativa", ""),
+        ))
+    return {
+        "sale": sale,
+        "goal": goal,
+        "scenarios": scenarios or None,
+        "market_value": _dec(raw.get("valor_venda_estimado")),
+        "monthly_carrying": _dec(raw.get("carregamento_mensal")),
+        "holding_months": int(raw["prazo_meses"]) if raw.get("prazo_meses") not in (None, "") else 0,
+    }
+
+
 def build_finance(prop: models.Property):
     auction = prop.auctions[-1] if prop.auctions else None
     acquisition = auction.acquisition_value if auction and auction.acquisition_value is not None else (auction.bid_value if auction else None)
@@ -137,7 +177,18 @@ def build_finance(prop: models.Property):
     debts = [{"amount": d.amount, "status": d.status} for d in prop.debts]
     occupancy = latest_occupancy(prop)
     occupancy_data = {"estimated_cost": occupancy.estimated_cost} if occupancy else {}
-    return calculate_financial(bid=acquisition, appraisal=auction.appraisal_value if auction else None, costs=costs, comparables=comparables, debts=debts, occupancy=occupancy_data, area=prop.area_m2, commission_percent=auction.commission_percent if auction else None, commission_fixed=auction.commission_fixed if auction else None)
+    # Premissas financeiras persistidas (Task 3): meta, corretagem, tributo, valor de
+    # venda, prazo, carregamento mensal e cenários. Ausência => dado desconhecido.
+    assumptions = _build_finance_assumptions(getattr(auction, "financial_assumptions", None) if auction else None)
+    return calculate_financial(
+        bid=acquisition,
+        appraisal=auction.appraisal_value if auction else None,
+        costs=costs, comparables=comparables, debts=debts, occupancy=occupancy_data,
+        area=prop.area_m2,
+        commission_percent=auction.commission_percent if auction else None,
+        commission_fixed=auction.commission_fixed if auction else None,
+        **assumptions,
+    )
 
 
 

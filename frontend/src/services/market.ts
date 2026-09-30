@@ -73,6 +73,40 @@ export async function listComparables(propertyId: number): Promise<MarketCompara
   return payload.comparaveis ?? []
 }
 
+// Qualidade da amostra e fontes (Task 3): resumo determinístico do endpoint /mercado.
+export type MarketQuality = {
+  quantidade: number
+  amostra_suficiente: boolean
+  dispersao_elevada: boolean
+  avaliacao_definitiva: boolean
+  avisos: string[]
+}
+
+export type MarketSummary = {
+  quantidade: number
+  preco_medio?: number | string | null
+  preco_mediano?: number | string | null
+  preco_m2_medio?: number | string | null
+  preco_m2_mediano?: number | string | null
+  aluguel_medio?: number | string | null
+  aluguel_mediano?: number | string | null
+  qualidade?: MarketQuality
+}
+
+export type MarketResponse = {
+  property_id: number
+  mercado: {
+    venda: MarketSummary
+    aluguel: MarketSummary
+    fontes?: Array<{ kind: string; source?: string; url?: string; data?: string }>
+    observacao?: string
+  }
+}
+
+export function getMarket(propertyId: number): Promise<MarketResponse> {
+  return request<MarketResponse>(`/api/imoveis/${propertyId}/mercado`)
+}
+
 export function createComparable(propertyId: number, payload: ComparableCreate): Promise<MarketComparable> {
   return request<MarketComparable>(`/api/imoveis/${propertyId}/comparaveis`, {
     method: 'POST',

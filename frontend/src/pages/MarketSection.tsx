@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { BarChart3, ExternalLink, Plus, RefreshCw } from 'lucide-react'
 import { Alert, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
-import { createComparable, formatMoney, listComparables, type MarketComparable } from '../services/market'
+import { createComparable, formatMoney, getMarket, listComparables, type MarketComparable, type MarketResponse } from '../services/market'
 
 type MarketSectionProps = {
   propertyId: number
@@ -34,12 +34,15 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [market, setMarket] = useState<MarketResponse['mercado'] | null>(null)
 
   const loadComparables = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setComparables(await listComparables(propertyId))
+      const [comps, marketData] = await Promise.all([listComparables(propertyId), getMarket(propertyId)])
+      setComparables(comps)
+      setMarket(marketData.mercado)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar os comparáveis.')
     } finally {
@@ -95,6 +98,26 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
   return (
     <Section title="Mercado" description="Comparáveis de mercado cadastrados para o imóvel." className="dossier-section" actions={<Button onClick={openForm}><Plus size={16} /> Novo comparável</Button>}>
       {successMessage && <Alert tone="success" title="Cadastro concluído" className="dossier-feedback">{successMessage}</Alert>}
+
+      {market && (
+        <Card padding="lg" className="market-quality">
+          <dl className="dossier-facts">
+            <Fact label="Comparáveis de venda" value={String(market.venda?.quantidade ?? 0)} />
+            <Fact label="Preço médio" value={formatMoney(market.venda?.preco_medio ?? null)} />
+            <Fact label="Preço mediano" value={formatMoney(market.venda?.preco_mediano ?? null)} />
+            <Fact label="Preço/m² mediano" value={formatMoney(market.venda?.preco_m2_mediano ?? null)} />
+            <Fact label="Comparáveis de aluguel" value={String(market.aluguel?.quantidade ?? 0)} />
+            <Fact label="Aluguel mediano" value={formatMoney(market.aluguel?.aluguel_mediano ?? null)} />
+          </dl>
+          {market.venda?.qualidade && !market.venda.qualidade.amostra_suficiente && (
+            <Alert tone="warning" title="Amostra insuficiente">A amostra é apenas indicativa, não conclusiva. Média/mediana não constituem avaliação definitiva de mercado.</Alert>
+          )}
+          {market.venda?.qualidade?.dispersao_elevada && (
+            <Alert tone="warning" title="Dispersão elevada">Os comparáveis têm alta variação de preço (possível heterogeneidade ou valores discrepantes).</Alert>
+          )}
+          {market.observacao && <p className="market-obs">{market.observacao}</p>}
+        </Card>
+      )}
 
       {formOpen && (
         <Card variant="elevated" padding="lg" className="dossier-form-card">

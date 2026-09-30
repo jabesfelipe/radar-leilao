@@ -72,6 +72,11 @@ class Auction(TimestampMixin, Base):
     commission_fixed: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     auctioneer: Mapped[str] = mapped_column(String(160), default="")
     notice_url: Mapped[str] = mapped_column(String(500), default="")
+    # Premissas financeiras correntes (Task 3): meta de preço máximo, corretagem,
+    # tributo na venda, valor de venda estimado, prazo e carregamento mensal, além
+    # das premissas dos cenários. JSON reutilizado no build_finance; recuperável ao
+    # reabrir o imóvel. Nunca contém segredo. Ausente por padrão (dados desconhecidos).
+    financial_assumptions: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     property: Mapped[Property] = relationship(back_populates="auctions")
 
 

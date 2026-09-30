@@ -1,13 +1,13 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: MVP ENCERRADO — validação E2E real V9 concluída**
+**Status global: VALIDAÇÃO FINAL REABERTA — MVP quase concluído; pendência de validação E2E manual do fluxo financeiro (Task 3)**
 
-**Última atualização:** 28/09/2026  
-**Última implementação aprovada:** Task 74.1 — commit 40c648d586ebb1a0beaef19ae7c4aa230fff7688
+**Última atualização:** 30/09/2026  
+**Última implementação:** Task 3 — integração das premissas financeiras (preço máximo, resultado líquido, cenários) à API e à interface
 
-**Próximo passo:** nenhum. MVP encerrado; novas mudanças entram como Fase 2/backlog
+**Próximo passo:** validação E2E manual pela interface do fluxo financeiro completo (premissas → preço máximo → veredito). Enquanto essa validação não for executada, o MVP NÃO é declarado encerrado.
 
-> **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores. O estado atual e autoritativo está no bloco **15. FECHAMENTO FINAL — 28/09/2026** e no `docs/IMPLEMENTATION-REFERENCE.md`.
+> **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está na seção **18. TASK 3** (a mais recente) e nas seções 16–17. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
 
 ## 1. Resumo executivo
 
@@ -854,3 +854,105 @@ implementados e cobertos por testes.
 - `docs/PROJECT-STATUS.md` — esta seção 17.
 
 Nenhum contrato de API, migração ou modelo foi alterado. Nenhuma credencial versionada.
+
+
+---
+
+## 18. TASK 3 — INTEGRAÇÃO DAS PREMISSAS FINANCEIRAS E FECHAMENTO P0/P1 — 30/09/2026
+
+**Escopo:** fechar a pendência P1 da Task 2 (premissas financeiras não chegavam ao
+motor pela camada de entrada) e os pontos P0/P1 de confiabilidade financeira.
+Histórico preservado.
+
+### 18.1 O que foi implementado
+
+- **Persistência das premissas** (migration `0012_premissas_financeiras`): coluna
+  JSON `auctions.financial_assumptions` (reversível, nullable, sem tocar em dados).
+  Guarda meta de preço máximo, corretagem, tributo (+ base), valor de venda
+  estimado, prazo e carregamento mensal.
+- **`build_finance`** (`services.py`) agora lê essas premissas e constrói
+  `SaleAssumptions` / `MaxPriceGoal` / `ScenarioAssumptions`, repassando ao motor.
+  O **preço máximo passa a ser calculado no fluxo normal** (dossiê e `/financeiro`),
+  com `preco_maximo_detalhe` (componentes/pendências).
+- **Endpoints** (`main.py`): `PUT/GET /api/imoveis/{id}/financeiro/premissas`
+  (informar/recuperar, com validação Pydantic de negativos/limites/combinações);
+  `analyze_financial` snapshota as premissas em `FinancialAnalysis.inputs`
+  (histórico preservado por versão).
+- **P0 — custo desconhecido ≠ zero** (`finance.py`): cada custo é classificado
+  (INFORMADO/ESTIMADO/DESCONHECIDO/NAO_APLICAVEL); custos materiais de aquisição
+  (ITBI/registro) e de saída (corretagem/tributo) não informados ficam
+  DESCONHECIDO. O resultado líquido calculável, porém com custos materiais
+  desconhecidos, é marcado `resultado_provisorio=true`/`resultado_completo=false` —
+  não é apresentado como conclusivo.
+- **Prazo × carregamento** (`finance.py`): premissa `carregamento_mensal` é
+  multiplicada por `holding_months` (`carregamento_recorrente`), somada ao custo de
+  carregamento único sem dupla contagem; reflete em custo total, resultado e ROI.
+- **Cenários**: base/otimista/pessimista com a mesma fórmula e premissas explícitas;
+  sem premissas, otimista/pessimista permanecem pendentes (nada inventado).
+- **Mercado**: qualidade da amostra e fontes agora chegam ao dossiê/endpoint e são
+  exibidas na interface (quantidade, médias/medianas, m², amostra insuficiente,
+  dispersão elevada; "não é avaliação definitiva").
+- **Veredito**: sem alterar o `VerdictEngine`, as pendências financeiras reais
+  fluem para o parecer; com premissas completas, elas desaparecem. Um resultado não
+  fica FAVORAVEL com custos essenciais desconhecidos.
+- **Frontend**: `FinancialSection` informa premissas e exibe custo total, custo de
+  saída, resultado líquido, margem líquida, ROI, preço máximo, pendências e o aviso
+  de resultado provisório; `MarketSection` exibe a qualidade da amostra.
+
+### 18.2 Testes executados (evidência real)
+
+- Backend: `python -m pytest -q` no container `radar-leilao-backend`, PostgreSQL
+  real (`RAG_TEST_DATABASE_URL`), **sem LLM/rede** → **506 passed, 2 skipped, 0
+  falhas**. Migration `0012` aplicada (`0011 → 0012`). Os 2 skips são os testes
+  reais do DataJud (gated). `tests/test_finance.py` = 30 passed (inclui resultado
+  provisório, carregamento×prazo, preço máximo por lucro/margem/ROI, inviável);
+  `tests/test_finance_assumptions.py` cobre build_finance, endpoints, persistência,
+  reexecução e preservação de histórico.
+- Frontend: `npx tsc --noEmit` OK; `npx vitest run` → **93 passed (16 arquivos)**.
+  Novos testes de `FinancialSection` (premissas/resultado) e `MarketSection`
+  (qualidade); testes de mock ajustados por URL (não afrouxados).
+
+### 18.3 Validação E2E manual — PENDENTE
+
+A validação ponta a ponta pela interface (cadastrar imóvel → informar premissas →
+executar análise → conferir preço máximo/resultado/cenários/veredito → reabrir e
+confirmar persistência → alterar premissa e reexecutar preservando histórico)
+**não foi executada nesta task** (exige interação manual na UI e LLM real). Fica
+registrada como pendência de validação; não é simulada como aprovada.
+
+### 18.4 Pendências remanescentes (por prioridade)
+
+- **P1**: validação E2E manual do fluxo financeiro pela UI (acima).
+- **P2**: mercado — ajustes por localização/conservação e estimativa conservadora/
+  liquidez (sinalização de qualidade já entregue).
+- **P2**: consulta real ao DataJud (teste gated, não validado sem credencial/rede).
+
+### 18.5 Critérios de aceite da Task 3
+
+1. API/UI informam e recuperam premissas — **atendido** (endpoints + FinancialSection).
+2. Preço máximo no fluxo normal quando há dados — **atendido** (build_finance repassa goal).
+3. Custos desconhecidos sinalizados; parcial não é conclusivo — **atendido** (resultado_provisorio).
+4. Prazo reflete carregamento — **atendido** (carregamento mensal × prazo).
+5. Cenários/cálculo/veredito consistentes — **atendido** (mesma fórmula; pendências no veredito).
+6. Premissas persistidas e histórico preservado — **atendido** (Auction + snapshot em inputs).
+7. Testes executados com resultados registrados — **atendido** (506 backend / 93 frontend).
+8. Documentação corresponde ao estado real — **atendido** (esta seção + status global).
+9. E2E executado OU limitação registrada — **limitação registrada** (18.3).
+10. Sem falhas P0/P1 ocultadas — a única P1 aberta (E2E manual) está declarada.
+
+### 18.6 Arquivos alterados
+
+- `backend/app/finance.py`, `backend/app/services.py`, `backend/app/main.py`,
+  `backend/app/models.py`, `backend/app/schemas.py`,
+  `backend/migrations/versions/0012_premissas_financeiras.py`,
+  `frontend/src/services/finance.ts`, `frontend/src/services/market.ts`,
+  `frontend/src/pages/FinancialSection.tsx`, `frontend/src/pages/MarketSection.tsx`,
+  `tests/test_finance.py`, `tests/test_finance_assumptions.py`,
+  `frontend/src/pages/FinancialSection.test.tsx`,
+  `frontend/src/pages/MarketSection.test.tsx`,
+  `frontend/src/pages/PropertyDetailPage.test.tsx`,
+  `docs/SPEC-VIBE-CODING-RADAR-LEILAO.md` (regra do carregamento mensal),
+  `docs/PROJECT-STATUS.md` (esta seção + status global).
+
+Nenhuma credencial versionada. Nenhuma busca jurídica por nome/CPF/CNPJ. Sem novos
+fornecedores, infraestrutura cloud ou refatorações amplas.

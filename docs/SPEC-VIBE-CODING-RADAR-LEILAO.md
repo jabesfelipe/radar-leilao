@@ -3196,8 +3196,36 @@ Quando não houver dados suficientes para diferenciar cenários de forma
 justificável, o cenário é marcado como **pendente** com a lista de informações
 necessárias — não se inventam estimativas. Cada cenário expõe suas premissas.
 
+## Custos de carregamento (recorrente × único) — Task 3
+
+Custo de carregamento (condomínio/IPTU/despesas durante a posse/regularização)
+distingue duas naturezas, sem dupla contagem:
+- **Único**: valor informado como custo (categoria CARREGAMENTO) — somado uma vez.
+- **Recorrente**: premissa `carregamento_mensal` multiplicada pelo prazo da
+  operação (`prazo_meses`): `carregamento_recorrente = carregamento_mensal × prazo`.
+O carregamento total do breakdown é a soma do único com o recorrente. Alterar o
+prazo reflete em custo total, resultado líquido e ROI. Prazo zero ⇒ recorrente = 0.
+
+## Status de custo e resultado provisório — Task 3
+
+Cada custo é classificado em INFORMADO, ESTIMADO (premissa explícita),
+DESCONHECIDO (material, ainda não informado) ou NAO_APLICAVEL. Custos materiais de
+aquisição (ITBI, registro) e de saída (corretagem, tributo) não informados são
+DESCONHECIDO — nunca zero silencioso. Quando o resultado líquido é calculável mas
+há custos materiais desconhecidos, ele é marcado `resultado_provisorio = true`
+(`resultado_completo = false`): é uma simulação parcial, não um valor validado.
+
+## Persistência das premissas — Task 3
+
+As premissas financeiras correntes (meta, corretagem, tributo + base, valor de
+venda estimado, prazo, carregamento mensal, cenários) são persistidas por imóvel em
+`auctions.financial_assumptions` (JSON) e aplicadas por `build_finance`. Cada
+análise financeira faz snapshot das premissas usadas em `FinancialAnalysis.inputs`,
+preservando o histórico (uma nova análise não altera resultados anteriores).
+
 ## Compatibilidade
 
 As chaves já existentes do resultado financeiro são preservadas. Os novos campos
 (`resultado_liquido`, `margem_liquida`, `roi_operacao`, `preco_maximo`,
-`premissas_utilizadas`, `pendencias`, cenários com premissas) são aditivos.
+`premissas_utilizadas`, `pendencias`, `custos_status`, `saida_status`,
+`resultado_provisorio`, `carregamento_recorrente`, cenários com premissas) são aditivos.
