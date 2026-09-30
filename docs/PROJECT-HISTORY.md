@@ -1847,3 +1847,33 @@ O documento mapeia a implementação efetiva do repositório e complementa a SPE
 **MVP FUNCIONALMENTE ENCERRADO EM 28/09/2026.**
 
 A partir deste ponto, novas capacidades devem entrar como **Fase 2 / backlog**, salvo correção de defeito crítico identificado posteriormente.
+
+
+---
+
+# Registro de atualização — 30/09/2026
+
+## Task 4 — Preço máximo seguro (definitivo vs. provisório)
+
+**Commit de implementação:** [cfb398c6d86e4549e4d33a404577026de9071392](https://github.com/jabesfelipe/radar-leilao/commit/cfb398c6d86e4549e4d33a404577026de9071392)
+
+### Implementação registrada
+
+- O cálculo de preço máximo recebe a lista de custos materiais desconhecidos.
+- O resultado diferencia estado definitivo e provisório.
+- Custos desconhecidos podem ser tratados como zero apenas em uma simulação parcial explicitamente sinalizada; não devem ser interpretados como custo real zero.
+- Pendências podem incluir ITBI, registro, comissão de arrematação, corretagem e tributo sobre venda.
+- A interface lista as premissas faltantes e identifica quando o preço máximo é provisório.
+- As premissas financeiras são persistidas por imóvel, com snapshot por análise para preservar o histórico.
+
+### Testes reportados pelo executor
+
+- Backend: 514 passed, 2 skipped.
+- Frontend: 95 passed.
+- TypeScript: aprovado.
+- Os dois testes ignorados e a validação DataJud real permanecem limitados pela configuração/gating.
+- E2E manual da interface financeira continua pendente; portanto, esta entrada não declara o MVP encerrado.
+
+## Sincronização documental
+
+Em 30/09/2026 foram atualizados README, PROJECT-STATUS, SPEC, EVOLUTION-BACKLOG, IMPLEMENTATION-REFERENCE e DEVELOPMENT-WORKFLOW para refletir a Task 4 e separar implementação, testes automatizados e validação manual. O fechamento do MVP depende da execução documentada do E2E financeiro pela UI.
