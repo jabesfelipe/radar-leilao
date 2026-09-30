@@ -660,3 +660,96 @@ A SPEC permanece como documento mestre de arquitetura/business. A nova referênc
 Não há Task 75 funcional planejada.
 
 Qualquer nova capacidade — MCP externo, Knowledge Graph dedicado, integrações externas, comparáveis automatizados, fórmula de preço máximo, produção/hardening ou leilão judicial — deve ser tratada como **Fase 2 / backlog**.
+
+
+---
+
+## 16. AUDITORIA — VALIDAÇÃO FINAL REABERTA — 30/09/2026
+
+**Data da revisão:** 30/09/2026
+**Estado:** validação final reaberta para confirmar funcionamento real. O encerramento
+anterior (seções 8 e 15) permanece preservado no histórico — nada foi apagado ou
+reescrito. Esta seção registra o resultado da auditoria baseada em evidências.
+
+> Regra desta auditoria: **não implementar funcionalidades de produto**; apenas
+> registrar o estado real. Nenhum código de aplicação, contrato de API, banco,
+> migração ou teste foi alterado nesta task.
+
+### 16.1 Evidência de execução dos testes
+
+- Comando: `python -m pytest -q` no container `radar-leilao-backend`.
+- Ambiente: PostgreSQL real (`RAG_TEST_DATABASE_URL` apontando para `radar_leilao`),
+  **sem LLM e sem rede** (`OPENAI_API_KEY` vazio, `OCR_ENABLED=false`), `PYTHONPATH=/app`.
+- Resultado real: **476 passed, 2 skipped, 0 falhas** (exit 0). Os 2 skips são os testes
+  reais do DataJud, propositalmente condicionados a `RUN_REAL_DATAJUD_TESTS=true`.
+- Migration head aplicada: `0011_judicial_persistence` (cadeia Alembic única).
+- Git: branch `main`, HEAD `62fe23d`; árvore de trabalho sem alterações de conteúdo
+  pendentes (apenas avisos cosméticos de fim de linha CRLF→LF).
+
+### 16.2 Legenda de status (rastreabilidade honesta)
+
+- **Comprovado (teste executado):** coberto por teste automatizado que rodou com sucesso nesta auditoria.
+- **Implementado (código):** existe no código, mas não validado manualmente em cenário real nesta task.
+- **Parcial:** existe, porém incompleto ou com placeholder declarado.
+- **Fora do MVP:** decisão explícita de escopo.
+- **Não verificado:** não foi possível validar nesta auditoria (ex.: exige credencial/rede externa).
+
+### 16.3 Tabela de auditoria
+
+| Área | Status | Evidência | Impacto | Correção mínima | Prioridade | Critério de aceite |
+|---|---|---|---|---|---|---|
+| Financeiro — custos/comissão/desconto/margem/yield | Comprovado (teste) | `backend/app/finance.py::calculate_financial`; `tests/test_finance.py` (custo total, comissão %/fixa, desconto, margem, yield, divisão por zero) | Base financeira determinística confiável | — | — | Testes de finance passam (ok) |
+| Financeiro — preço máximo de lance | Parcial (placeholder declarado) | `finance.py::calculate_max_acquisition_price` retorna `None`; `result["pendencias"]` declara ausência de fórmula canônica; `tests/test_finance.py::test_cenarios_sao_estruturas_neutras_e_preco_maximo_pendente` | Sem preço máximo, a decisão de lance fica sem teto objetivo | Definir fórmula canônica na SPEC e então implementar | P1 | SPEC define fórmula; `calculate_max_acquisition_price` a implementa; teste cobre valores esperados |
+| Financeiro — cenários conservador/base/otimista | Parcial | `finance.py`: lista `scenarios` repete os mesmos valores para BASE/OTIMISTA/PESSIMISTA (estrutura neutra) | Cenários não diferenciam risco; UI pode sugerir modelagem inexistente | Modelar premissas por cenário (ou rotular explicitamente como neutro na UI) | P1 | Cada cenário reflete premissas distintas com teste; ou UI deixa claro que é neutro |
+| Financeiro — tributação na venda, corretagem, lucro líquido, ROI temporal, margem de segurança | Ausente (fora do cálculo atual) | `finance.py` não calcula esses itens; `roi_estimado_percentual` é alias de `margem_percentual` (não ROI temporal) | Retorno pós-venda e carga tributária não entram na decisão | Especificar e implementar cálculo de venda (impostos + corretagem + prazo) | P1 | Fórmulas na SPEC + implementação + testes de lucro líquido/ROI |
+| Mercado — consolidação de comparáveis | Comprovado (teste) | `backend/app/market.py::calculate_market` (média/mediana, preço/m², aluguel); `tests/test_market.py` | Agrega apenas o que foi cadastrado; sem invenção de dados | — | — | Testes de market passam (ok) |
+| Mercado — origem/data/confiabilidade, ajustes, valor conservador, liquidez, prazo | Ausente (por design atual) | `market.py` docstring "sem scoring ou valuation"; comparáveis vêm de cadastro manual (`POST /api/imoveis/{id}/comparaveis`) | Sem ajuste/liquidez, o valor de venda é apenas média de comparáveis informados | Especificar ajustes e estimativa conservadora/liquidez | P2 | SPEC define método; implementação + testes; sem dado simulado como fato |
+| Jurídico — cadastro manual de processos (E2E) | Comprovado (teste) | `POST/GET /api/imoveis/{id}/processos` em `main.py`; `tests/test_processes.py` (campos, opcionais, 404, histórico) | Entrada manual de processos funciona ponta a ponta | — | — | Testes de processes passam (ok) |
+| Jurídico — integração DataJud por número de processo + persistência PG | Comprovado (teste, com mock) | `judicial_client.py`, `judicial_integration.py`, `POST /api/imoveis/{id}/processos/consultar`; `tests/test_judicial_client.py`, `tests/test_judicial_integration_pg.py`, `tests/judicial/test_postgres_store.py` | Consulta e persistência funcionam; falha da Judicial API não bloqueia análise | — | — | Testes passam (ok); validação real permanece opcional |
+| Jurídico — consulta real ao DataJud (rede) | Não verificado | Transporte real `HttpxTransport` implementado e injetado; teste real gated (`tests/judicial/test_real_datajud.py`, skip sem `RUN_REAL_DATAJUD_TESTS`) | Sem credencial/conectividade, a consulta real não foi exercitada nesta auditoria | Rodar teste real com credencial pública + conectividade | P2 | Teste real executa e retorna dados/vazio sem erro |
+| Jurídico — descoberta por nome/CPF/CNPJ na API pública | Fora do MVP | `judicial_api/providers/datajud.py` ergue `UNSUPPORTED_SEARCH_CRITERIA`; capabilities `name/cpf/cnpj=false` | A API pública DataJud não oferece essa descoberta | Não desenvolver enquanto não houver fonte adequada e autorizada | P2 | N/A enquanto fora do MVP |
+| Documentos e Checklist | Comprovado (teste) | Pipeline em `backend/app/documents/`; `checklist.py` (27 itens, estados); evidências + trilha (`DomainEvent`/`EntityHistory`); `tests/test_documents.py`, `test_extraction.py`, `test_checklist*.py`, `test_evidence*.py` | Base documental/checklist/auditoria confiável | — | — | Testes passam (ok) |
+| Veredito — consolidação e bloqueio por risco crítico | Comprovado (teste) | `verdict_engine.py` (CRITICA→DESFAVORAVEL; sem evidência→INCONCLUSIVO); `risk_engine.py` (risco só com evidência); `tests/test_verdict_engine.py`, `test_risk_engine.py` | Ausência de dados não vira positivo; risco crítico bloqueia | — | — | Testes passam (ok) |
+| Fluxo E2E (cadastro→documentos→análise→checklist→jurídico→veredito→histórico) | Comprovado (teste) + Validado manual (V9, sessão anterior) | Endpoints em `main.py`; `tests/test_integration_flows.py`; histórico V1–V9 (seção 15) | Fluxo essencial funciona | — | — | Testes de integração passam (ok) |
+| Entrega — testes/migrations/PostgreSQL/Docker | Comprovado (teste) | `pytest -q` = 476 passed / 2 skipped; migration head `0011`; `docker-compose.yml` (postgres, backend, judicial_api, frontend) | Ambiente reproduzível localmente | — | — | Suíte verde no container (ok) |
+
+### 16.4 Backlog priorizado de correções (com critério de aceite)
+
+**P0 — impedem decisão segura / corrompem dados:** nenhum P0 identificado nesta auditoria.
+
+**P1 — parte essencial do MVP incompleta:**
+1. **Preço máximo de lance** — hoje `None` (placeholder). Aceite: fórmula canônica na SPEC, implementação em `calculate_max_acquisition_price`, teste cobrindo valores esperados e tratamento de dados ausentes.
+2. **Cenários financeiros diferenciados** — hoje neutros/idênticos. Aceite: premissas distintas por cenário (ou rótulo explícito de "neutro" na UI), com teste.
+3. **Financeiro de venda** (tributação na venda, corretagem de venda, lucro líquido, ROI temporal, margem de segurança) — ausentes. Aceite: método na SPEC + implementação determinística + testes; `roi_estimado_percentual` deixa de ser alias de margem.
+
+**P2 — melhorias não bloqueantes / futuras:**
+4. **Mercado**: ajustes por área/localização/conservação, valor de venda conservador, liquidez e prazo de venda. Aceite: método na SPEC + implementação + testes; nenhum dado simulado apresentado como fato.
+5. **Consulta real ao DataJud**: executar o teste real gated com credencial pública e conectividade. Aceite: `RUN_REAL_DATAJUD_TESTS=true` retorna processos/vazio sem erro.
+6. **Descoberta de processos por nome/CPF/CNPJ**: fora do MVP enquanto não houver fonte adequada e autorizada.
+
+### 16.5 O que fica explicitamente fora do MVP
+
+- Descoberta automática de processos por **nome/CPF/CNPJ** (a API pública do DataJud não suporta; nunca simular capacidade).
+- Valuation de mercado com ajustes e liquidez automatizada.
+- Fórmula de preço máximo e financeiro de venda enquanto não definidos na SPEC.
+
+### 16.6 Plano mínimo para a Task 2 (ordenado por impacto/risco)
+
+1. **Definir na SPEC a fórmula canônica de preço máximo** e o **financeiro de venda** (tributação, corretagem, lucro líquido, ROI temporal, margem de segurança). É o maior bloqueio à decisão de lance. (P1)
+2. **Implementar** esses cálculos em `finance.py` de forma determinística, com testes, mantendo o tratamento de dados ausentes já existente. (P1)
+3. **Diferenciar os cenários** conservador/base/otimista (premissas reais) ou rotular claramente como neutro na UI. (P1)
+4. Só então avançar para os itens de **mercado** (ajustes/liquidez) e **consulta real ao DataJud**. (P2)
+
+### 16.7 Critérios objetivos para declarar o MVP concluído
+
+- Suíte completa verde no container (mantida): `pytest -q` sem falhas.
+- Preço máximo e financeiro de venda definidos na SPEC e implementados com testes (P1 resolvidos).
+- Cenários financeiros diferenciados ou explicitamente rotulados na UI.
+- Fluxo E2E real revalidado (imóvel real) após os P1, com Veredito coerente (risco crítico bloqueia; ausência de dados não vira positivo).
+- Documentação (STATUS/HISTORY/SPEC/backlog) coerente com o código, sem fonte concorrente.
+
+### 16.8 Documentos atualizados nesta auditoria
+
+- `docs/PROJECT-STATUS.md` — esta seção 16 (nova; histórico preservado).
+
+Nenhum outro documento, código ou teste foi alterado.
