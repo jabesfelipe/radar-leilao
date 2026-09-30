@@ -1,11 +1,11 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: IMPLEMENTAÇÃO FINANCEIRA ATUALIZADA — validação E2E manual pendente (Task 4); MVP ainda não encerrado**
+**Status global: TASK 5 INTEGRADA — testes financeiros HTTP reportados como aprovados; validação manual E2E pela UI pendente; MVP ainda não encerrado**
 
 **Última atualização:** 30/09/2026  
-**Última implementação:** Task 4 — preço máximo seguro, com estado definitivo/provisório conforme custos materiais conhecidos
+**Última implementação:** Task 5 — testes de integração financeira pela camada HTTP, cobrindo premissas, persistência, resultado e snapshot histórico
 
-**Próximo passo:** atualizar a cópia local, executar E2E manual pela UI (premissas → cálculo → persistência → resultado/veredito) e registrar evidências. Até lá, o MVP NÃO é declarado encerrado.
+**Próximo passo:** atualizar a cópia local, executar E2E manual pela UI (premissas → cálculo → persistência/recarga → preço máximo definitivo/provisório → histórico) e registrar evidências. Até lá, o MVP NÃO é declarado encerrado.
 
 > **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está no cabeçalho e na seção da Task 4 (última implementação registrada); as seções anteriores preservam o histórico. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
 
