@@ -1,10 +1,10 @@
 # RADAR LEILÃO — REFERÊNCIA DE IMPLEMENTAÇÃO
 
-**Data de fechamento documental:** 28/09/2026  
-**Estado:** MVP funcional encerrado  
+**Data de atualização:** 30/09/2026  
+**Estado:** Task 4 integrada; validação E2E financeiro manual pendente  
 **Branch de referência:** main  
-**Commit de referência do código:** 40c648d (hardening da reconciliação V8)  
-**Validação E2E final:** Analysis V9 do imóvel 633
+**Commit de referência mais recente:** cfb398c6d86e4549e4d33a404577026de9071392  
+**Validação do domínio:** Analysis V9 do imóvel 633 registrada historicamente; não substitui o E2E financeiro da Task 4
 
 > Este documento complementa a SPEC. A SPEC define o método e a arquitetura; este documento mapeia a implementação efetivamente existente no repositório.
 
