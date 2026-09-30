@@ -366,7 +366,7 @@ Após as tasks financeiras e a integração judicial, a suíte backend cresceu:
   definitivo × provisório), `tests/test_finance_assumptions.py` (persistência de
   premissas + build_finance + endpoints) e `tests/test_e2e_financeiro.py` (Task 5 —
   fluxo financeiro E2E pela camada HTTP real: premissas → PostgreSQL → resultado,
-  10 cenários).
+  12 testes de integração).
 - **E2E de navegador (UI real) NÃO é automatizado**: o frontend não possui
   Playwright/Cypress; a validação de UI é manual (ver `PROJECT-STATUS` §20.6). Os
   testes HTTP não substituem a validação manual do fluxo no navegador.
