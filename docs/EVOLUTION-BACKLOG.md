@@ -1,7 +1,7 @@
 # EVOLUÇÃO DO BACKLOG — RADAR LEILÃO
 
 **Data:** 30/09/2026  
-**Estado de referência:** Task 4 integrada; validação E2E financeira pendente; Fase 2 ainda não iniciada  
+**Estado de referência:** Task 5 integrada; testes financeiros HTTP adicionados; validação manual E2E pela UI pendente; Fase 2 ainda não iniciada  
 **Escopo:** evolução do Radar Leilão para aprofundar a qualidade da análise de imóveis em leilões extrajudiciais.
 
 ---
@@ -14,7 +14,7 @@ Estas ações são estabilização/validação do que já existe, não novas fun
 2. **Premissas incompletas (P1):** confirmar que ITBI, registro, comissão de arrematação, corretagem e tributo ausentes aparecem como pendências e que a estimativa não é tratada como limite confiável de lance.
 3. **Regressão da aplicação (P1):** executar health check e os fluxos principais após atualizar a cópia local; registrar logs e defeitos reproduzíveis.
 4. **DataJud real (P2):** os testes gated/skipped não comprovam uma consulta real; validar somente quando houver configuração e condições de acesso.
-5. **Documentação:** manter README, PROJECT-STATUS, SPEC e IMPLEMENTATION-REFERENCE alinhados ao commit mais recente.
+5. **Documentação:** manter README, PROJECT-STATUS, SPEC e IMPLEMENTATION-REFERENCE alinhados ao commit mais recente. A atualização documental de 30/09/2026 deve refletir a Task 5 (commit `6c5f318`).
 
 **Critério para fechar:** evidência registrada de UI real, premissas persistidas após recarga, estado provisório/definitivo correto e nenhuma regressão bloqueante. Até então, o status permanece “validação pendente”.
 
