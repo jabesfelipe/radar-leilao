@@ -1,17 +1,17 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: VALIDAÇÃO FINAL REABERTA — MVP quase concluído; pendência de validação E2E manual do fluxo financeiro (Task 3)**
+**Status global: IMPLEMENTAÇÃO FINANCEIRA ATUALIZADA — validação E2E manual pendente (Task 4); MVP ainda não encerrado**
 
 **Última atualização:** 30/09/2026  
-**Última implementação:** Task 3 — integração das premissas financeiras (preço máximo, resultado líquido, cenários) à API e à interface
+**Última implementação:** Task 4 — preço máximo seguro, com estado definitivo/provisório conforme custos materiais conhecidos
 
-**Próximo passo:** validação E2E manual pela interface do fluxo financeiro completo (premissas → preço máximo → veredito). Enquanto essa validação não for executada, o MVP NÃO é declarado encerrado.
+**Próximo passo:** atualizar a cópia local, executar E2E manual pela UI (premissas → cálculo → persistência → resultado/veredito) e registrar evidências. Até lá, o MVP NÃO é declarado encerrado.
 
 > **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está na seção **18. TASK 3** (a mais recente) e nas seções 16–17. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
 
 ## 1. Resumo executivo
 
-O MVP do Radar Leilão está encerrado tecnicamente.
+**Registro histórico anterior:** os parágrafos e tabelas abaixo descrevem capacidades implementadas em etapas anteriores; não significam que o fechamento atual tenha sido aprovado. O estado atual exige a validação E2E financeira da Task 4.
 
 O fluxo principal foi implementado em Python/FastAPI + React/TypeScript, com PostgreSQL/pgvector, processamento documental com MarkItDown/OCR, RAG híbrido, LangChain/LangGraph, cinco agentes LLM especializados, Checklist Mestre, Risk Engine, Verdict Engine, histórico e memória estruturada.
 
