@@ -424,3 +424,34 @@ O MVP é considerado funcionalmente encerrado porque o sistema foi executado com
 com versionamento, rastreabilidade e testes automatizados.
 
 A partir de 28/09/2026, novas mudanças devem ser tratadas como **Fase 2 / backlog**, salvo correção de defeito crítico descoberto posteriormente.
+
+
+---
+
+## 17. Atualização financeira — Task 4 (30/09/2026)
+
+### Arquivos principais
+
+- `backend/app/finance.py`: cálculo do preço máximo e classificação de certeza.
+- `tests/test_finance.py`: regressões de preço máximo e premissas desconhecidas.
+- `frontend/src/services/finance.ts`: contrato/consumo dos campos financeiros.
+- `frontend/src/pages/FinancialSection.tsx`: formulário e indicação de estado provisório/definitivo.
+- `frontend/src/pages/FinancialSection.test.tsx`: testes da interface financeira.
+
+### Contrato funcional
+
+- Premissas financeiras são persistidas por imóvel em `auctions.financial_assumptions`.
+- O cálculo expõe preço máximo e indica se ele é definitivo ou provisório.
+- Custos materiais desconhecidos devem permanecer listados como pendências.
+- Uma estimativa parcial não deve ser tratada como recomendação de lance nem como limite definitivo.
+- As premissas usadas numa análise devem permanecer registradas no snapshot histórico.
+
+### Evidência de qualidade
+
+O commit da Task 4 registra resultados reportados de 514 testes backend aprovados e 2 ignorados, 95 testes frontend aprovados e TypeScript aprovado. O E2E manual de interface continua pendente e não pode ser inferido a partir dos testes unitários/integrados.
+
+### Limites conhecidos
+
+- Consulta real ao DataJud ainda depende de configuração e validação externa; testes gated/skipped não comprovam funcionamento real.
+- A qualidade dos comparáveis de mercado e a avaliação real de liquidez/conservação permanecem itens de evolução.
+- Não há declaração de fechamento do MVP até a conclusão do roteiro E2E financeiro.
