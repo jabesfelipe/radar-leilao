@@ -3215,6 +3215,21 @@ DESCONHECIDO — nunca zero silencioso. Quando o resultado líquido é calculáv
 há custos materiais desconhecidos, ele é marcado `resultado_provisorio = true`
 (`resultado_completo = false`): é uma simulação parcial, não um valor validado.
 
+## Preço máximo seguro: definitivo × provisório — Task 4
+
+O preço máximo de arrematação NUNCA é apresentado como definitivo quando há custos
+MATERIAIS desconhecidos (ITBI, registro, comissão de arrematação, corretagem de
+venda ou tributo de venda). Regras:
+- Sem dado ESSENCIAL (valor de venda ou meta) ⇒ `preco_maximo = null` (não calcula).
+- Com dados essenciais, porém com custos materiais desconhecidos ⇒ o valor é
+  calculado como **estimativa provisória**: `preco_maximo_definitivo = false`,
+  `preco_maximo_provisorio = true`. Os custos desconhecidos entram como zero
+  APENAS na simulação parcial (o que SUPERESTIMA o teto), sempre com aviso listando
+  as premissas faltantes (`preco_maximo_detalhe.custos_desconhecidos`). O teto real
+  tende a ser MENOR. Não se inventam percentuais, impostos ou custos padrão.
+- Com todas as premissas materiais informadas ⇒ `preco_maximo_definitivo = true`.
+A interface distingue explicitamente os dois estados e lista as premissas faltantes.
+
 ## Persistência das premissas — Task 3
 
 As premissas financeiras correntes (meta, corretagem, tributo + base, valor de

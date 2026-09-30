@@ -131,7 +131,9 @@ export type FinanceResult = {
   margem_liquida?: number | string | null
   roi_operacao?: number | string | null
   preco_maximo?: number | string | null
-  preco_maximo_detalhe?: { viavel?: boolean; razao?: string; mensagem?: string; pendencias?: string[]; premissas_utilizadas?: Record<string, unknown> }
+  preco_maximo_definitivo?: boolean
+  preco_maximo_provisorio?: boolean
+  preco_maximo_detalhe?: { viavel?: boolean; definitivo?: boolean; provisorio?: boolean; razao?: string; mensagem?: string; pendencias?: string[]; custos_desconhecidos?: string[]; premissas_utilizadas?: Record<string, unknown> }
   cenarios?: Array<Record<string, unknown>>
   pendencias?: string[]
   custos_status?: Record<string, string>

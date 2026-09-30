@@ -110,6 +110,44 @@ describe('FinancialSection', () => {
     expect(JSON.parse(String((postCall![1] as RequestInit).body)).category).toBe('CONDOMINIO')
   })
 
+  it('sinaliza preço máximo provisório quando há custos materiais desconhecidos', async () => {
+    const financeProvisorio = {
+      ...financeBody,
+      financeiro: {
+        ...financeBody.financeiro,
+        preco_maximo: 222857,
+        preco_maximo_provisorio: true,
+        preco_maximo_definitivo: false,
+        preco_maximo_detalhe: { provisorio: true, custos_desconhecidos: ['itbi', 'registro'] },
+        pendencias: ['Preço máximo é ESTIMATIVA PROVISÓRIA: há custos materiais desconhecidos (itbi, registro).'],
+      },
+    }
+    routeFetch({ finance: financeProvisorio })
+    render(<FinancialSection propertyId={5} />)
+
+    expect(await screen.findByText('Preço máximo provisório')).toBeInTheDocument()
+    // O texto "estimativa provisória" aparece no rótulo e no alerta; basta haver ocorrência.
+    expect(screen.getAllByText(/estimativa provisória/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/O teto real tende a ser menor/i)).toBeInTheDocument()
+  })
+
+  it('sinaliza preço máximo definitivo quando as premissas materiais estão completas', async () => {
+    const financeDefinitivo = {
+      ...financeBody,
+      financeiro: {
+        ...financeBody.financeiro,
+        preco_maximo: 222857,
+        preco_maximo_provisorio: false,
+        preco_maximo_definitivo: true,
+        pendencias: [],
+      },
+    }
+    routeFetch({ finance: financeDefinitivo })
+    render(<FinancialSection propertyId={5} />)
+
+    expect(await screen.findByText('Preço máximo definitivo')).toBeInTheDocument()
+  })
+
   it('salva premissas financeiras e recalcula', async () => {
     const financeComPreco = { ...financeBody, financeiro: { ...financeBody.financeiro, preco_maximo: 222857, pendencias: [] } }
     routeFetch({ postBody: financeComPreco })

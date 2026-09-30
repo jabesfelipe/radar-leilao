@@ -128,21 +128,29 @@ def calculate_max_acquisition_price(
     commission_fixed: Decimal | None = None,
     sale: SaleAssumptions | None = None,
     goal: MaxPriceGoal | None = None,
+    unknown_costs: list[str] | None = None,
 ) -> dict[str, Any]:
     """Calcula o maior lance (A) compatível com uma meta financeira configurável.
 
     Retorna um dicionário com ``preco_maximo`` (Decimal | None), ``viavel`` (bool),
-    ``premissas_utilizadas`` e ``pendencias``. NUNCA retorna um preço aparente
-    quando faltam dados essenciais (SPEC ADDENDUM Task 2): nesse caso preco_maximo
-    é None e a pendência é listada. Não substitui premissas ausentes por zero.
+    ``definitivo`` (bool), ``provisorio`` (bool), ``premissas_utilizadas`` e
+    ``pendencias``. NUNCA retorna um preço aparente quando faltam dados ESSENCIAIS
+    (valor de venda / meta): nesse caso preco_maximo é None. Quando há custos
+    MATERIAIS desconhecidos (``unknown_costs``: ITBI, registro, comissão de
+    arrematação, corretagem ou tributo de venda), o preço é calculado como
+    ESTIMATIVA PROVISÓRIA (``definitivo=False``, ``provisorio=True``) — os custos
+    desconhecidos entram como zero APENAS na simulação parcial, nunca sem aviso —
+    e as premissas faltantes são listadas em ``pendencias``. Não inventa valores.
     """
     sale = sale or SaleAssumptions()
     goal = goal or MaxPriceGoal()
+    unknown_costs = unknown_costs or []
     pendencias: list[str] = []
     premissas: dict[str, Any] = {}
 
     if goal.kind not in SUPPORTED_GOALS:
-        return {"preco_maximo": None, "viavel": False, "premissas_utilizadas": premissas,
+        return {"preco_maximo": None, "viavel": False, "definitivo": False, "provisorio": False,
+                "premissas_utilizadas": premissas,
                 "pendencias": [f"Meta '{goal.kind}' não suportada."], "razao": "META_INVALIDA"}
 
     if not present(sale_value):
@@ -150,7 +158,8 @@ def calculate_max_acquisition_price(
     if goal.value is None:
         pendencias.append("Meta financeira (valor/percentual) é essencial e não foi informada.")
     if pendencias:
-        return {"preco_maximo": None, "viavel": False, "premissas_utilizadas": premissas,
+        return {"preco_maximo": None, "viavel": False, "definitivo": False, "provisorio": False,
+                "premissas_utilizadas": premissas,
                 "pendencias": pendencias, "razao": "DADOS_ESSENCIAIS_AUSENTES"}
 
     V = decimal(sale_value)
@@ -216,17 +225,33 @@ def calculate_max_acquisition_price(
         denom = k
 
     if denom <= ZERO:
-        return {"preco_maximo": None, "viavel": False, "premissas_utilizadas": premissas,
+        return {"preco_maximo": None, "viavel": False, "definitivo": False, "provisorio": False,
+                "premissas_utilizadas": premissas,
                 "pendencias": ["Parâmetros tornam o cálculo indeterminado (denominador <= 0)."],
                 "razao": "PARAMETROS_INVALIDOS"}
 
     a_max = numerator / denom
     if a_max <= ZERO:
-        return {"preco_maximo": None, "viavel": False, "premissas_utilizadas": premissas,
+        return {"preco_maximo": None, "viavel": False, "definitivo": False, "provisorio": False,
+                "premissas_utilizadas": premissas,
                 "pendencias": [], "razao": "META_INATINGIVEL",
                 "mensagem": "Meta inatingível para o valor de venda e custos informados."}
 
-    return {"preco_maximo": a_max, "viavel": True, "premissas_utilizadas": premissas, "pendencias": []}
+    # Preço calculável. Se há custos MATERIAIS desconhecidos, o valor é uma
+    # ESTIMATIVA PROVISÓRIA (não um limite definitivo de lance): os custos
+    # desconhecidos entraram como zero na simulação, o que SUPERESTIMA o teto.
+    definitivo = not unknown_costs
+    pend_prov = []
+    if not definitivo:
+        pend_prov.append(
+            "Preço máximo é ESTIMATIVA PROVISÓRIA: há custos materiais desconhecidos ("
+            + ", ".join(unknown_costs)
+            + "). O teto real tende a ser MENOR; informe essas premissas para um limite confiável."
+        )
+    return {"preco_maximo": a_max, "viavel": True, "definitivo": definitivo,
+            "provisorio": not definitivo, "premissas_utilizadas": premissas,
+            "custos_desconhecidos": list(unknown_costs), "pendencias": pend_prov,
+            "razao": "PROVISORIO" if not definitivo else "DEFINITIVO"}
 
 
 def _resolve_scenario(
@@ -437,7 +462,22 @@ def calculate_financial(
     resultado_provisorio = bool(resultado_liquido is not None and (custos_desconhecidos or saida_desconhecida))
     resultado_completo = bool(resultado_liquido is not None and not resultado_provisorio)
 
-    # ---- Preço máximo (Task 2) ----
+    # ---- Preço máximo (Task 2 / Task 4: seguro) ----
+    # Custos MATERIAIS desconhecidos que, se tratados como zero, SUPERESTIMARIAM o
+    # teto de lance. A comissão de arrematação também é material: quando não há nem
+    # percentual nem valor fixo informado, é desconhecida (não zero silencioso).
+    comissao_desconhecida = not (present(commission_percent) or present(commission_fixed))
+    unknown_for_max: list[str] = []
+    for essencial in MATERIAL_ACQUISITION_COSTS:
+        if not informed[essencial]:
+            unknown_for_max.append(essencial)
+    if comissao_desconhecida:
+        unknown_for_max.append("comissao_arrematacao")
+    if sale.corretagem_pct is None:
+        unknown_for_max.append("corretagem_venda")
+    if sale.tributo_pct is None:
+        unknown_for_max.append("tributo_venda")
+
     fixed_costs_for_max = total - breakdown["aquisicao"] - breakdown["comissao"]
     max_price = calculate_max_acquisition_price(
         sale_value=estimated_market,
@@ -446,14 +486,20 @@ def calculate_financial(
         commission_fixed=commission_fixed if present(commission_fixed) else None,
         sale=sale,
         goal=goal,
+        unknown_costs=unknown_for_max,
     )
     preco_maximo = max_price["preco_maximo"]
+    preco_maximo_definitivo = bool(max_price.get("definitivo"))
+    preco_maximo_provisorio = bool(max_price.get("provisorio"))
     if preco_maximo is None:
         pending.extend(max_price.get("pendencias", []))
         if max_price.get("razao") == "META_INATINGIVEL":
             pending.append(max_price.get("mensagem", "Meta de preço máximo inatingível."))
         elif goal is None:
             pending.append("Meta de preço máximo não configurada; preço máximo não calculado.")
+    elif preco_maximo_provisorio:
+        # Valor calculado, porém provisório: propaga o aviso para as pendências.
+        pending.extend(max_price.get("pendencias", []))
 
     # ---- Cenários (Task 2): mesma fórmula, premissas explícitas ----
     base_inputs = {
@@ -509,6 +555,8 @@ def calculate_financial(
         "cenario": "BASE",
         "cenarios": cenarios,
         "preco_maximo": preco_maximo,
+        "preco_maximo_definitivo": preco_maximo_definitivo,
+        "preco_maximo_provisorio": preco_maximo_provisorio,
         "preco_maximo_detalhe": max_price,
         "pendencias": _unique_str(pending),
         "prazo_meses": holding_months,

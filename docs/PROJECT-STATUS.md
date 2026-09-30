@@ -956,3 +956,68 @@ registrada como pendência de validação; não é simulada como aprovada.
 
 Nenhuma credencial versionada. Nenhuma busca jurídica por nome/CPF/CNPJ. Sem novos
 fornecedores, infraestrutura cloud ou refatorações amplas.
+
+
+---
+
+## 19. TASK 4 — PREÇO MÁXIMO SEGURO (definitivo × provisório) — 30/09/2026
+
+**Escopo:** corrigir o preço máximo que podia parecer definitivo quando havia
+custos materiais desconhecidos. Histórico preservado.
+
+### 19.1 O que foi corrigido
+
+- `calculate_max_acquisition_price` (`backend/app/finance.py`) recebe
+  `unknown_costs` e passa a devolver `definitivo`/`provisorio`. Com dados essenciais
+  presentes mas custos materiais desconhecidos, o preço é uma **estimativa
+  provisória** (`definitivo=false`), com aviso listando as premissas faltantes — os
+  custos desconhecidos entram como zero apenas na simulação parcial, nunca sem
+  aviso, e o valor NÃO é apresentado como limite confiável.
+- `calculate_financial` monta a lista de custos materiais desconhecidos (ITBI,
+  registro, **comissão de arrematação** quando não informada, corretagem e tributo
+  de venda) e a repassa; expõe `preco_maximo_definitivo`/`preco_maximo_provisorio`.
+- Não se inventam percentuais/impostos/custos padrão para "fechar a conta".
+- Frontend (`FinancialSection`): distingue "Preço máximo definitivo" de
+  "Preço máximo (estimativa provisória)", com aviso e lista de custos desconhecidos.
+
+### 19.2 Testes executados (evidência real)
+
+- Backend (`python -m pytest -q`, container, PostgreSQL real, sem LLM/rede):
+  **514 passed, 2 skipped, 0 falhas**. `tests/test_finance.py` = **33 passed**
+  (cobre: todos informados → definitivo; ITBI/registro, comissão, corretagem,
+  tributo desconhecidos → provisório; metas lucro/margem/ROI; inviável; premissas
+  completas → preço máximo esperado 234000/1,05).
+- Frontend: `npx tsc --noEmit` OK; `npx vitest run` → **95 passed (16 arquivos)**
+  (novos testes de preço máximo provisório e definitivo em `FinancialSection`).
+
+### 19.3 Exemplos numéricos validados
+
+- Definitivo: V=320k, comissão 5%, ITBI 10k, registro 20k (F=30k), corretagem 5%,
+  tributo 0, meta lucro 40k → **preço máximo = 234000/1,05 = 222.857,14**,
+  `definitivo=true`.
+- Provisório: mesmos dados sem ITBI/registro informados → valor calculado, porém
+  `provisorio=true` e `custos_desconhecidos` inclui `itbi`/`registro` (o teto real
+  seria menor ao incluí-los).
+
+### 19.4 Validação E2E manual — PENDENTE
+
+A validação ponta a ponta pela interface (premissas → salvar/recarregar → conferir
+preço máximo/resultado/cenários → deixar premissa material desconhecida e confirmar
+o aviso → alterar premissa e reexecutar preservando histórico) **não foi executada**
+(exige interação manual na UI e LLM real). Registrada como pendência P1; não simulada.
+
+### 19.5 Pendências remanescentes
+
+- **P1**: validação E2E manual do fluxo financeiro pela UI.
+- **P2**: mercado (ajustes por localização/conservação, valor conservador/liquidez);
+  consulta real ao DataJud (teste gated).
+
+### 19.6 Arquivos alterados
+
+- `backend/app/finance.py`, `tests/test_finance.py`,
+  `frontend/src/services/finance.ts`, `frontend/src/pages/FinancialSection.tsx`,
+  `frontend/src/pages/FinancialSection.test.tsx`,
+  `docs/SPEC-VIBE-CODING-RADAR-LEILAO.md`, `docs/PROJECT-STATUS.md`.
+
+Sem novas integrações, fornecedores, infraestrutura ou refatorações amplas. Nenhuma
+credencial versionada. MVP **não** declarado encerrado (E2E manual pendente).

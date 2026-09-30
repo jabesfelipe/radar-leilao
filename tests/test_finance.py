@@ -166,6 +166,109 @@ def test_preco_maximo_roi_minimo():
     assert out["preco_maximo"] == Decimal("240000")
 
 
+# ---------------------------------------------------------------------------
+# Preço máximo SEGURO (Task 4): definitivo vs. provisório por custos desconhecidos
+# ---------------------------------------------------------------------------
+
+def test_preco_maximo_definitivo_quando_sem_custos_desconhecidos():
+    out = calculate_max_acquisition_price(
+        sale_value=Decimal("320000"), fixed_costs=Decimal("30000"), commission_pct=Decimal("0.05"),
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0"), tax_base="VENDA"),
+        goal=MaxPriceGoal(kind=GOAL_LUCRO_MINIMO, value=Decimal("40000")),
+        unknown_costs=[],
+    )
+    assert out["viavel"] is True
+    assert out["definitivo"] is True
+    assert out["provisorio"] is False
+
+
+def test_preco_maximo_provisorio_quando_ha_custos_desconhecidos():
+    out = calculate_max_acquisition_price(
+        sale_value=Decimal("320000"), fixed_costs=Decimal("30000"), commission_pct=Decimal("0.05"),
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0"), tax_base="VENDA"),
+        goal=MaxPriceGoal(kind=GOAL_LUCRO_MINIMO, value=Decimal("40000")),
+        unknown_costs=["itbi", "registro"],
+    )
+    # O valor ainda é calculado (estimativa), mas NÃO é definitivo.
+    assert out["preco_maximo"] is not None
+    assert out["definitivo"] is False
+    assert out["provisorio"] is True
+    assert any("ESTIMATIVA PROVISÓRIA" in p for p in out["pendencias"])
+    assert out["custos_desconhecidos"] == ["itbi", "registro"]
+
+
+def test_calculate_financial_itbi_desconhecido_torna_preco_maximo_provisorio():
+    # ITBI/registro não informados => preço máximo provisório (não definitivo).
+    result = calculate_financial(
+        bid=Decimal("200000"), commission_percent=Decimal("5"), market_value=Decimal("320000"),
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0"), tax_base="VENDA"),
+        goal=MaxPriceGoal(kind=GOAL_LUCRO_MINIMO, value=Decimal("40000")),
+    )
+    assert result["preco_maximo"] is not None
+    assert result["preco_maximo_provisorio"] is True
+    assert result["preco_maximo_definitivo"] is False
+    assert "itbi" in result["preco_maximo_detalhe"]["custos_desconhecidos"]
+
+
+def test_calculate_financial_comissao_desconhecida_torna_provisorio():
+    # Sem comissão informada (nem % nem fixa) => comissão de arrematação desconhecida.
+    result = calculate_financial(
+        bid=Decimal("200000"), market_value=Decimal("320000"),
+        costs=[{"category": "ITBI", "amount": Decimal("6000")}, {"category": "REGISTRO", "amount": Decimal("4000")}],
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0.15")),
+        goal=MaxPriceGoal(kind=GOAL_LUCRO_MINIMO, value=Decimal("40000")),
+    )
+    assert result["preco_maximo_provisorio"] is True
+    assert "comissao_arrematacao" in result["preco_maximo_detalhe"]["custos_desconhecidos"]
+
+
+def test_calculate_financial_corretagem_desconhecida_torna_provisorio():
+    result = calculate_financial(
+        bid=Decimal("200000"), commission_fixed=Decimal("10000"), market_value=Decimal("320000"),
+        costs=[{"category": "ITBI", "amount": Decimal("6000")}, {"category": "REGISTRO", "amount": Decimal("4000")}],
+        sale=SaleAssumptions(tributo_pct=Decimal("0.15")),  # corretagem ausente
+        goal=MaxPriceGoal(kind=GOAL_LUCRO_MINIMO, value=Decimal("40000")),
+    )
+    assert result["preco_maximo_provisorio"] is True
+    assert "corretagem_venda" in result["preco_maximo_detalhe"]["custos_desconhecidos"]
+
+
+def test_calculate_financial_tributo_desconhecido_torna_provisorio():
+    result = calculate_financial(
+        bid=Decimal("200000"), commission_fixed=Decimal("10000"), market_value=Decimal("320000"),
+        costs=[{"category": "ITBI", "amount": Decimal("6000")}, {"category": "REGISTRO", "amount": Decimal("4000")}],
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05")),  # tributo ausente
+        goal=MaxPriceGoal(kind=GOAL_LUCRO_MINIMO, value=Decimal("40000")),
+    )
+    assert result["preco_maximo_provisorio"] is True
+    assert "tributo_venda" in result["preco_maximo_detalhe"]["custos_desconhecidos"]
+
+
+def test_calculate_financial_premissas_completas_preco_maximo_definitivo():
+    # Todos os custos materiais informados => preço máximo DEFINITIVO com valor esperado.
+    result = calculate_financial(
+        bid=Decimal("200000"), commission_percent=Decimal("5"), market_value=Decimal("320000"),
+        costs=[{"category": "ITBI", "amount": Decimal("10000")}, {"category": "REGISTRO", "amount": Decimal("20000")}],
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0"), tax_base="VENDA"),
+        goal=MaxPriceGoal(kind=GOAL_LUCRO_MINIMO, value=Decimal("40000")),
+    )
+    assert result["preco_maximo_definitivo"] is True
+    assert result["preco_maximo_provisorio"] is False
+    # F = 30000, corretagem 16000, meta 40000, k=1.05 => (320000-16000-30000-40000)/1.05
+    assert result["preco_maximo"] == (Decimal("234000") / Decimal("1.05"))
+
+
+def test_preco_maximo_provisorio_por_margem_e_roi():
+    for goal in (MaxPriceGoal(kind=GOAL_MARGEM_MINIMA, value=Decimal("0.2")), MaxPriceGoal(kind=GOAL_ROI_MINIMO, value=Decimal("0.25"))):
+        out = calculate_max_acquisition_price(
+            sale_value=Decimal("400000"), fixed_costs=Decimal("0"),
+            sale=SaleAssumptions(corretagem_pct=Decimal("0"), tributo_pct=Decimal("0"), tax_base="VENDA"),
+            goal=goal, unknown_costs=["itbi"],
+        )
+        assert out["preco_maximo"] is not None
+        assert out["provisorio"] is True
+
+
 def test_preco_maximo_inviavel_retorna_none():
     out = calculate_max_acquisition_price(
         sale_value=Decimal("100000"),

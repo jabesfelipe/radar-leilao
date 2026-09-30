@@ -257,10 +257,23 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
               <Fact label="Resultado líquido" value={formatMoney(result.resultado_liquido as number)} />
               <Fact label="Margem líquida" value={formatPercent(result.margem_liquida as number)} />
               <Fact label="ROI da operação" value={formatPercent(result.roi_operacao as number)} />
-              <Fact label="Preço máximo de arrematação" value={formatMoney(result.preco_maximo as number)} />
+              <Fact
+                label={result.preco_maximo != null && result.preco_maximo_provisorio ? 'Preço máximo (estimativa provisória)' : 'Preço máximo de arrematação'}
+                value={formatMoney(result.preco_maximo as number)}
+              />
             </dl>
             {result.resultado_provisorio && (
               <Alert tone="warning" title="Resultado provisório">Há custos materiais ainda desconhecidos. Este resultado é uma simulação parcial, não um valor validado.</Alert>
+            )}
+            {result.preco_maximo != null && result.preco_maximo_provisorio && (
+              <Alert tone="warning" title="Preço máximo provisório">
+                Este preço máximo é uma estimativa provisória: há custos materiais desconhecidos
+                {result.preco_maximo_detalhe?.custos_desconhecidos?.length ? ` (${result.preco_maximo_detalhe.custos_desconhecidos.join(', ')})` : ''}.
+                O teto real tende a ser menor. Informe essas premissas para um limite confiável.
+              </Alert>
+            )}
+            {result.preco_maximo != null && result.preco_maximo_definitivo && (
+              <Alert tone="success" title="Preço máximo definitivo">Calculado com as premissas materiais informadas.</Alert>
             )}
             {result.preco_maximo == null && (
               <Alert tone="info" title="Preço máximo indisponível">
