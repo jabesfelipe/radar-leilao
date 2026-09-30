@@ -6,6 +6,18 @@
 
 ---
 
+## 0. Pendências imediatas antes do fechamento do MVP
+
+Estas ações são estabilização/validação do que já existe, não novas funcionalidades de Fase 2.
+
+1. **E2E financeiro pela UI (P1):** validar preenchimento, gravação, recarga e apresentação do preço máximo definitivo/provisório.
+2. **Premissas incompletas (P1):** confirmar que ITBI, registro, comissão de arrematação, corretagem e tributo ausentes aparecem como pendências e que a estimativa não é tratada como limite confiável de lance.
+3. **Regressão da aplicação (P1):** executar health check e os fluxos principais após atualizar a cópia local; registrar logs e defeitos reproduzíveis.
+4. **DataJud real (P2):** os testes gated/skipped não comprovam uma consulta real; validar somente quando houver configuração e condições de acesso.
+5. **Documentação:** manter README, PROJECT-STATUS, SPEC e IMPLEMENTATION-REFERENCE alinhados ao commit mais recente.
+
+**Critério para fechar:** evidência registrada de UI real, premissas persistidas após recarga, estado provisório/definitivo correto e nenhuma regressão bloqueante. Até então, o status permanece “validação pendente”.
+
 ## 1. Objetivo deste documento
 
 Este documento organiza a evolução do produto após o fechamento do MVP.
