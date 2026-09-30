@@ -21,7 +21,10 @@ from backend.app import reconciliation
 from backend.app.reconciliation import reconcile_verdict
 
 
-PENDENCIA_FINANCEIRA = "Fórmula canônica de preço máximo não está definida na SPEC; cálculo não foi inventado."
+# Task 2: o financeiro passou a emitir pendências reais (preço máximo não
+# configurado, valor de venda/ITBI/registro ausentes) em vez de uma única string
+# fixa. Os testes separam pendências de CHECKLIST (perguntas dos itens) das
+# FINANCEIRAS (as demais), sem fixar o texto/contagem financeira.
 
 
 @pytest.fixture
@@ -135,18 +138,24 @@ def test_reconciliacao_produz_20_checklist_mais_1_financeira(sem_commit, monkeyp
     db.add(verdict)
     db.flush()
 
+    perguntas_pendentes = {
+        r.item.question
+        for r in exec_v8.results
+        if r.applicable and r.state in ("PENDENTE", "EM_ANALISE") and r.item is not None
+    }
+
     result = reconcile_verdict(db, prop.id, 8)
 
     atualizado = db.get(models.Verdict, verdict.id)
-    checklist_pendentes = [p for p in atualizado.pending_items if p != PENDENCIA_FINANCEIRA]
-    financeiras = [p for p in atualizado.pending_items if p == PENDENCIA_FINANCEIRA]
+    checklist_pendentes = [p for p in atualizado.pending_items if p in perguntas_pendentes]
+    financeiras = [p for p in atualizado.pending_items if p not in perguntas_pendentes]
 
     # 7 CONFIRMADO -> total_aplicaveis - 7 pendências de checklist (esperado 20 no 633 real).
     assert len(checklist_pendentes) == total_aplicaveis - 7
-    # a pendência financeira legítima permanece
-    assert len(financeiras) == 1
-    # total = checklist + financeira
-    assert len(atualizado.pending_items) == (total_aplicaveis - 7) + 1
+    # pendência(s) financeira(s) legítima(s) permanecem (>=1: preço máximo/dados de venda)
+    assert len(financeiras) >= 1
+    # total = checklist + financeiras
+    assert len(atualizado.pending_items) == len(checklist_pendentes) + len(financeiras)
     assert result.pending_after == len(atualizado.pending_items)
 
 

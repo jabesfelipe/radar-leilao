@@ -11,7 +11,51 @@ def comparable(kind, price=None, rent=None, area=None):
 
 def test_sem_comparaveis():
     result = calculate_market([])
-    assert result == {"venda": {"quantidade": 0, "preco_medio": None, "preco_mediano": None, "preco_m2_medio": None, "preco_m2_mediano": None, "quantidade_com_area": 0}, "aluguel": {"quantidade": 0, "aluguel_medio": None, "aluguel_mediano": None, "aluguel_m2_medio": None, "aluguel_m2_mediano": None, "quantidade_com_area": 0}}
+    assert result["venda"]["quantidade"] == 0
+    assert result["venda"]["preco_medio"] is None
+    assert result["aluguel"]["quantidade"] == 0
+    assert result["aluguel"]["aluguel_medio"] is None
+    # Qualidade sinaliza ausência de base — média/mediana nunca é avaliação definitiva.
+    assert result["venda"]["qualidade"]["amostra_suficiente"] is False
+    assert result["venda"]["qualidade"]["avaliacao_definitiva"] is False
+    assert any("Sem comparáveis" in a for a in result["venda"]["qualidade"]["avisos"])
+    assert result["fontes"] == []
+
+
+def test_amostra_insuficiente_e_sinalizada():
+    # 3 comparáveis (< 7 recomendados) → indicativo, não conclusivo.
+    result = calculate_market([comparable("VENDA", Decimal("100000"), area=Decimal("50")) for _ in range(3)])
+    q = result["venda"]["qualidade"]
+    assert q["quantidade"] == 3
+    assert q["amostra_suficiente"] is False
+    assert any("Amostra insuficiente" in a for a in q["avisos"])
+
+
+def test_amostra_suficiente_homogenea():
+    # 7 comparáveis iguais → suficiente e sem dispersão.
+    result = calculate_market([comparable("VENDA", Decimal("200000"), area=Decimal("100")) for _ in range(7)])
+    q = result["venda"]["qualidade"]
+    assert q["amostra_suficiente"] is True
+    assert q["dispersao_elevada"] is False
+
+
+def test_dispersao_elevada_e_sinalizada():
+    precos = [Decimal("100000"), Decimal("120000"), Decimal("130000"), Decimal("500000"), Decimal("140000"), Decimal("110000"), Decimal("125000")]
+    result = calculate_market([comparable("VENDA", p, area=Decimal("100")) for p in precos])
+    q = result["venda"]["qualidade"]
+    assert q["amostra_suficiente"] is True
+    assert q["dispersao_elevada"] is True
+    assert any("Dispersão elevada" in a for a in q["avisos"])
+
+
+def test_fontes_preservam_origem_e_url():
+    result = calculate_market([
+        {"kind": "VENDA", "price": Decimal("100000"), "area_m2": Decimal("50"), "source": "Portal X", "url": "http://x", "date": "2026-09-01"},
+        {"kind": "VENDA", "price": Decimal("110000"), "area_m2": Decimal("50")},
+    ])
+    assert len(result["fontes"]) == 1
+    assert result["fontes"][0]["source"] == "Portal X"
+    assert result["fontes"][0]["data"] == "2026-09-01"
 
 
 def test_somente_venda_com_media_mediana_e_m2():

@@ -96,12 +96,22 @@ def test_create_verdict_usa_a_execucao_da_versao_corrente(db):
     total_aplicaveis = sum(1 for r in execution.results if r.applicable)
     checklist_pendentes = total_aplicaveis - confirmados
 
+    # Perguntas dos itens aplicáveis pendentes (fonte de verdade do Checklist).
+    perguntas_pendentes = {
+        r.item.question
+        for r in execution.results
+        if r.applicable and r.state in ("PENDENTE", "EM_ANALISE") and r.item is not None
+    }
+
     verdict = services.create_verdict(db, prop, analysis)
 
     # As pendências do veredito vêm da execução da versão corrente (a recém-criada),
-    # não de uma execução antiga/errada. Todas as perguntas do master são distintas,
-    # então não há deduplicação colapsando a contagem. O build_finance adiciona
-    # exatamente 1 pendência financeira canônica (preço máximo não definido na SPEC).
-    FINANCEIRA = 1
-    assert len(verdict.pending_items) == checklist_pendentes + FINANCEIRA
+    # não de uma execução antiga/errada. A contagem de pendências de CHECKLIST deve
+    # bater com aplicáveis - confirmados. O build_finance adiciona pendências
+    # financeiras (>=1) sinalizando dados essenciais ausentes (Task 2): não são
+    # inventadas nem silenciadas. Separamos as duas naturezas para validar a regra.
+    pend_checklist = [p for p in verdict.pending_items if p in perguntas_pendentes]
+    pend_financeiras = [p for p in verdict.pending_items if p not in perguntas_pendentes]
+    assert len(pend_checklist) == checklist_pendentes
+    assert len(pend_financeiras) >= 1  # ao menos a pendência de preço máximo/dados de venda
     assert verdict.analysis_version == analysis.version

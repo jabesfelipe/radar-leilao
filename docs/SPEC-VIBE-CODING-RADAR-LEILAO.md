@@ -3040,3 +3040,164 @@ A regra de documentação é:
 **MVP FUNCIONALMENTE ENCERRADO EM 28/09/2026.**
 
 A partir deste ponto, alterações de capacidade devem ser tratadas como Fase 2/backlog. Correções críticas de defeitos continuam permitidas normalmente.
+
+
+---
+
+# ADDENDUM — TASK 2 — FÓRMULAS FINANCEIRAS CANÔNICAS (30/09/2026)
+
+Este addendum define, pela primeira vez, as **fórmulas financeiras canônicas** do
+Radar (preço máximo de aquisição, resultado líquido de venda, margem líquida e
+rentabilidade). Substitui a pendência histórica "fórmula canônica de preço máximo
+não definida na SPEC" registrada nos addenda anteriores. As seções anteriores são
+preservadas como histórico.
+
+## Princípios (não inventar números legais)
+
+1. O motor é **determinístico** e **parametrizável**. Nenhuma alíquota legal,
+   percentual de cartório/ITBI ou custo fixo universal é embutido no código.
+2. Todo percentual (comissão, ITBI, registro, corretagem de venda, tributo na
+   venda) e todo custo fixo vêm de **entrada do usuário** ou de **parâmetros
+   configuráveis** claramente identificados. Quando dependem de município, edital,
+   situação do imóvel ou enquadramento tributário, a **dependência é explícita** e
+   a ausência é sinalizada — nunca substituída por zero silenciosamente.
+3. **Falha-segura**: se faltar dado essencial para uma fórmula, o resultado dessa
+   fórmula é `null` e a pendência é reportada. Não se apresenta um número aparente
+   quando ele não pôde ser calculado com os dados disponíveis.
+
+## Variáveis
+
+Entrada (aquisição/operação):
+- `A` = valor de arrematação (lance).
+- `comissao` = comissão do leiloeiro: fixa, OU `A * comissao_pct`.
+- `itbi`, `registro` (escritura/registro), `debitos` (condomínio/IPTU/outros
+  atribuíveis ao comprador), `reforma`, `desocupacao`, `custos_juridicos`,
+  `carregamento` (condomínio/IPTU/despesas durante a posse/regularização),
+  `outros` = custos informados (fixos), cada um marcado como informado ou não.
+
+Saída (venda):
+- `V` = valor de venda estimado.
+- `corretagem_venda = V * corretagem_pct` (parametrizável; default 0 quando não informado, marcado como pendente se relevante).
+- `tributos_venda = base_tributo * tributo_pct`, onde `base_tributo` é
+  configurável: `GANHO` (V − custo_total) ou `VENDA` (V). Default sem tributo
+  quando `tributo_pct` não é informado (pendência sinalizada).
+
+## Fórmulas
+
+Custo total da operação (aquisição + operação + carregamento):
+```
+custo_total = A + comissao + itbi + registro + debitos + reforma
+            + desocupacao + custos_juridicos + carregamento + outros
+```
+
+Custos de saída (venda):
+```
+corretagem_venda = V * corretagem_pct
+tributos_venda   = tributo_pct * (V - custo_total)      # se base_tributo = GANHO
+                 = tributo_pct * V                       # se base_tributo = VENDA
+custo_saida      = corretagem_venda + tributos_venda
+```
+
+Resultado líquido (não confundir com margem bruta):
+```
+resultado_liquido = V - custo_saida - custo_total
+margem_liquida    = resultado_liquido / V               # sobre o valor de venda
+roi_operacao      = resultado_liquido / custo_total     # sobre o capital investido
+```
+
+Aluguel líquido e rentabilidade (quando aplicável):
+```
+yield_mensal = aluguel_mensal / custo_total
+yield_anual  = aluguel_mensal * 12 / custo_total
+```
+(Quando houver custos recorrentes de posse informados, o aluguel líquido desconta-os; sem esses dados, o yield é bruto e assim rotulado.)
+
+## Preço máximo de aquisição
+
+Objetivo: maior lance `A` compatível com uma **meta financeira configurável**.
+Metas suportadas (uma por vez):
+- `LUCRO_MINIMO`: `resultado_liquido >= meta_valor` (R$).
+- `MARGEM_MINIMA`: `margem_liquida >= meta_pct` (fração de V).
+- `ROI_MINIMO`: `roi_operacao >= meta_pct` (fração do custo total).
+
+Isolando `A` (a comissão pode ser percentual sobre `A`; os demais custos fixos
+são somados em `F = itbi + registro + debitos + reforma + desocupacao +
+custos_juridicos + carregamento + outros`; `tributos/corretagem` são sobre `V`):
+
+Seja `custo_total = A*(1 + comissao_pct) + F` (comissão percentual) ou
+`custo_total = A + comissao_fixa + F` (comissão fixa). Seja `k = 1 + comissao_pct`
+(ou `k = 1` com comissão fixa somada em `F`).
+
+- `LUCRO_MINIMO`:
+  `resultado_liquido = V - custo_saida - custo_total >= meta_valor`
+  ⇒ `A_max = (V - custo_saida - F - meta_valor) / k`
+- `MARGEM_MINIMA` (meta_pct sobre V):
+  `V - custo_saida - custo_total >= meta_pct * V`
+  ⇒ `A_max = (V*(1 - meta_pct) - custo_saida - F) / k`
+- `ROI_MINIMO` (meta_pct sobre custo_total): resolve
+  `V - custo_saida - custo_total >= meta_pct * custo_total`
+  ⇒ `custo_total <= (V - custo_saida) / (1 + meta_pct)`
+  ⇒ `A_max = ((V - custo_saida)/(1 + meta_pct) - F) / k`
+
+Regras:
+- `tributos_venda` com base `GANHO` depende de `custo_total` (que depende de `A`);
+  nesse caso o motor resolve o ponto fixo de forma consistente (a base do tributo
+  usa o próprio `custo_total` no ponto de meta), evitando dupla contagem.
+- Dados essenciais para o preço máximo: `V` (valor de venda estimado) e a `meta`.
+  Sem qualquer um deles, `preco_maximo = null` e a pendência é reportada.
+- Se `A_max <= 0`, o cenário é **inviável**: `preco_maximo = null`,
+  `viavel = false`, com a razão informada.
+- O resultado informa `premissas_utilizadas` (o que foi usado) e `pendencias`
+  (o que faltou), sem inventar valores.
+
+## Exemplos numéricos verificáveis
+
+Exemplo 1 — resultado líquido (todos os dados informados):
+```
+A = 200.000; comissao = 10.000 (fixa); itbi = 6.000; registro = 4.000;
+reforma = 20.000; V = 320.000; corretagem_pct = 5% ; tributo_pct = 15% base GANHO
+custo_total = 200.000 + 10.000 + 6.000 + 4.000 + 20.000 = 240.000
+corretagem_venda = 320.000 * 0,05 = 16.000
+tributos_venda   = 0,15 * (320.000 - 240.000) = 12.000
+custo_saida      = 28.000
+resultado_liquido = 320.000 - 28.000 - 240.000 = 52.000
+margem_liquida    = 52.000 / 320.000 = 0,1625 (16,25%)
+roi_operacao      = 52.000 / 240.000 = 0,21666... (21,67%)
+```
+
+Exemplo 2 — preço máximo por LUCRO_MINIMO:
+```
+V = 320.000; corretagem_pct = 5% (=16.000); tributo base VENDA 0% (=0);
+F = itbi+registro+reforma = 30.000; comissao_pct = 5% ⇒ k = 1,05; meta = 40.000
+custo_saida = 16.000
+A_max = (V - custo_saida - F - meta) / k
+      = (320.000 - 16.000 - 30.000 - 40.000) / 1,05
+      = 234.000 / 1,05 = 222.857,14
+Conferência: A=222.857,14 ⇒ comissao=11.142,86 ⇒ custo_total=264.000
+resultado_liquido = 320.000 - 16.000 - 264.000 = 40.000 = meta ✓
+```
+
+Exemplo 3 — inviável:
+```
+V = 100.000; F = 90.000; corretagem 0; comissao_pct = 5%; meta LUCRO = 50.000
+A_max = (100.000 - 0 - 90.000 - 50.000)/1,05 = -40.000/1,05 < 0
+⇒ preco_maximo = null, viavel = false, razao = "meta inatingível para o valor de venda informado".
+```
+
+## Cenários base/otimista/pessimista
+
+Os três cenários usam a **mesma fórmula**, variando **premissas explícitas e
+configuráveis** (não números arbitrários):
+- `valor_venda` (ex.: pessimista aplica um haircut sobre o valor de mercado);
+- `prazo_meses` (afeta o carregamento);
+- `reforma`, `desocupacao`, `carregamento` e demais fatores materiais.
+
+Quando não houver dados suficientes para diferenciar cenários de forma
+justificável, o cenário é marcado como **pendente** com a lista de informações
+necessárias — não se inventam estimativas. Cada cenário expõe suas premissas.
+
+## Compatibilidade
+
+As chaves já existentes do resultado financeiro são preservadas. Os novos campos
+(`resultado_liquido`, `margem_liquida`, `roi_operacao`, `preco_maximo`,
+`premissas_utilizadas`, `pendencias`, cenários com premissas) são aditivos.

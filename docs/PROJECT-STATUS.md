@@ -753,3 +753,104 @@ reescrito. Esta seção registra o resultado da auditoria baseada em evidências
 - `docs/PROJECT-STATUS.md` — esta seção 16 (nova; histórico preservado).
 
 Nenhum outro documento, código ou teste foi alterado.
+
+
+---
+
+## 17. TASK 2 — CORREÇÕES FINANCEIRAS P0/P1 IMPLEMENTADAS — 30/09/2026
+
+**Data:** 30/09/2026
+**Escopo:** correções confirmadas na auditoria (seção 16), sem funcionalidades fora
+de escopo. Histórico preservado.
+
+### 17.1 O que foi corrigido (com evidência)
+
+- **Fórmulas canônicas na SPEC** (`docs/SPEC-VIBE-CODING-RADAR-LEILAO.md`, ADDENDUM
+  Task 2): custo total de aquisição/operação/carregamento; resultado líquido de
+  venda (corretagem + tributos parametrizáveis, sem dupla contagem); margem
+  líquida; ROI da operação; preço máximo por meta configurável (LUCRO_MINIMO /
+  MARGEM_MINIMA / ROI_MINIMO), com exemplos numéricos verificáveis e dependências
+  explícitas. Nenhuma alíquota legal/custo fixo universal embutido.
+- **`backend/app/finance.py`**:
+  - `calculate_max_acquisition_price(...)` deixou de retornar `None` fixo: resolve o
+    maior lance compatível com a meta, tratando comissão %/fixa, custos fixos e
+    custos de saída, com resolução consistente do tributo base GANHO (sem dupla
+    contagem). **Falha-segura**: sem valor de venda ou sem meta, retorna
+    `preco_maximo=None` + pendência; cenário inviável retorna `viavel=false`. Nunca
+    substitui premissa ausente por zero.
+  - Resultado da operação: `resultado_liquido`, `margem_liquida`, `roi_operacao`
+    (distintos da margem bruta), `custo_saida` (corretagem + tributos). Custo de
+    carregamento incluído no breakdown.
+  - Pendências reais sinalizadas (valor de venda ausente, corretagem/tributo não
+    informados, ITBI/registro ausentes, meta de preço máximo não configurada) —
+    fluem para o Veredito via `financial["pendencias"]`.
+- **Cenários** base/otimista/pessimista: usam a MESMA fórmula, variando premissas
+  explícitas e configuráveis (`ScenarioAssumptions`). Sem premissas informadas,
+  otimista/pessimista são marcados como **pendentes** (não se inventam números).
+- **`backend/app/market.py`**: adicionada sinalização de qualidade da amostra
+  (suficiência vs. mínimo recomendado de 7, dispersão via coeficiente de variação,
+  `avaliacao_definitiva=false`) e preservação de origem/URL/data das fontes. A
+  média/mediana deixa de ser apresentada como avaliação definitiva.
+- **Veredito/parecer**: sem alterar o `VerdictEngine` (aprovado), o veredito agora
+  reflete as pendências financeiras reais — um resultado FAVORAVEL não sai com
+  custos essenciais desconhecidos tratados como zero.
+
+### 17.2 Jurídico manual (confirmado, sem alteração de código)
+
+O cadastro manual de processos existe ponta a ponta: `POST /api/imoveis/{id}/processos`
+e `GET /api/imoveis/{id}/processos` (`backend/app/main.py`), com estados, associação
+ao imóvel, histórico e sem duplicação óbvia (`tests/test_processes.py`). A descoberta
+por nome/CPF/CNPJ **permanece fora do escopo** (a API pública do DataJud não suporta;
+`UNSUPPORTED_SEARCH_CRITERIA`). Nada foi implementado nesse sentido.
+
+### 17.3 Testes executados (evidência real)
+
+- Comando: `python -m pytest -q` no container `radar-leilao-backend`, PostgreSQL
+  real (`RAG_TEST_DATABASE_URL`), **sem LLM/rede** (`OPENAI_API_KEY` vazio,
+  `OCR_ENABLED=false`).
+- `tests/test_finance.py`: **21 passed** (preço máximo por lucro/margem/ROI com % e
+  fixos, verificação do resultado, inviável, pendências, resultado líquido,
+  corretagem/tributos, cenários com premissas).
+- Suíte completa: **494 passed, 2 skipped, 0 falhas**. Os 2 skips são os testes
+  reais do DataJud (gated por `RUN_REAL_DATAJUD_TESTS`). Os 2 testes de veredito que
+  dependiam da contagem de pendências foram atualizados para a nova regra (contam
+  pendências de checklist e financeiras separadamente) — não foram afrouxados; ao
+  contrário, o veredito ficou mais rigoroso.
+
+### 17.4 Pendências remanescentes (por prioridade)
+
+- **P1 — parametrização de entrada na UI/endpoint**: as premissas de venda (metas,
+  corretagem, tributo) e de cenários hoje são aceitas pela camada de cálculo, mas o
+  endpoint financeiro (`build_finance`) ainda não coleta essas premissas de um
+  cadastro do usuário — por isso o preço máximo aparece como pendência no fluxo
+  padrão até que as premissas sejam informadas. Critério de aceite: cadastro/endpoint
+  para metas e premissas de venda/cenário, com testes.
+- **P2 — mercado**: ajustes por localização/conservação e estimativa de valor
+  conservador/liquidez continuam fora do escopo (sinalização de qualidade já
+  implementada).
+- **P2 — consulta real ao DataJud**: teste real permanece gated; não validado sem
+  credencial/conectividade.
+
+### 17.5 Validação manual ainda necessária
+
+- Reexecução E2E real de um imóvel após informar metas/premissas financeiras, para
+  confirmar o preço máximo e o resultado líquido no fluxo completo pela UI.
+
+### 17.6 Status do MVP
+
+O MVP **não** é declarado concluído nesta task: permanece a pendência P1 de coleta
+das premissas financeiras na camada de entrada (endpoint/UI) para que o preço máximo
+saia do estado "pendente" no fluxo padrão. As fórmulas e o motor determinístico estão
+implementados e cobertos por testes.
+
+### 17.7 Arquivos alterados nesta task
+
+- `docs/SPEC-VIBE-CODING-RADAR-LEILAO.md` — ADDENDUM Task 2 (fórmulas/exemplos).
+- `backend/app/finance.py` — preço máximo, resultado líquido, cenários, pendências.
+- `backend/app/market.py` — qualidade da amostra e rastreabilidade de fontes.
+- `tests/test_finance.py`, `tests/test_market.py` — novas expectativas corretas.
+- `tests/test_reconcile_verdict.py`, `tests/test_execution_same_session_selection.py`
+  — contagem de pendências atualizada para a nova regra (checklist vs. financeiras).
+- `docs/PROJECT-STATUS.md` — esta seção 17.
+
+Nenhum contrato de API, migração ou modelo foi alterado. Nenhuma credencial versionada.
