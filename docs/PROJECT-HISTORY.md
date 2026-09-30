@@ -1877,3 +1877,26 @@ A partir deste ponto, novas capacidades devem entrar como **Fase 2 / backlog**, 
 ## Sincronização documental
 
 Em 30/09/2026 foram atualizados README, PROJECT-STATUS, SPEC, EVOLUTION-BACKLOG, IMPLEMENTATION-REFERENCE e DEVELOPMENT-WORKFLOW para refletir a Task 4 e separar implementação, testes automatizados e validação manual. O fechamento do MVP depende da execução documentada do E2E financeiro pela UI.
+
+
+## Task 5 — Validação E2E do fluxo financeiro (30/09/2026)
+
+Adicionado `tests/test_e2e_financeiro.py`: 12 testes que exercitam o fluxo
+financeiro de ponta a ponta pela camada HTTP real (FastAPI `TestClient` → rota →
+PostgreSQL com override de `get_db` e savepoint, isolado por transação), cobrindo os
+10 cenários obrigatórios (premissas completas → preço máximo definitivo; ITBI/
+registro/comissão/corretagem/tributo desconhecidos → provisório com pendência;
+persistência após recarregar; histórico preservado em nova análise; metas lucro/
+margem/ROI e inviável; validações 422/404).
+
+### Testes reportados pelo executor
+- Backend: 526 passed, 2 skipped (test_e2e_financeiro: 12 passed).
+- Frontend: inalterado nesta task (Task 4: 95 passed).
+
+### Diagnóstico e limitação
+- Não há Playwright/Cypress no projeto; o E2E de NAVEGADOR não é automatizado.
+- O E2E HTTP cobre o backend de ponta a ponta, mas não substitui a validação manual
+  da UI no navegador. Passos de validação manual em PROJECT-STATUS §20.6.
+- Esta entrada NÃO declara o MVP encerrado (E2E manual da UI segue pendente).
+
+Nenhuma migration/regra/contrato/infra alterado; nenhum dado real tocado.

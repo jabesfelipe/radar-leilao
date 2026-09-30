@@ -1021,3 +1021,83 @@ o aviso → alterar premissa e reexecutar preservando histórico) **não foi exe
 
 Sem novas integrações, fornecedores, infraestrutura ou refatorações amplas. Nenhuma
 credencial versionada. MVP **não** declarado encerrado (E2E manual pendente).
+
+
+---
+
+## 20. TASK 5 — VALIDAÇÃO E2E DO FLUXO FINANCEIRO — 30/09/2026
+
+**Escopo:** validar e automatizar (no viável) o fluxo financeiro de ponta a ponta,
+das premissas à persistência e apresentação. Histórico preservado.
+
+### 20.1 Diagnóstico
+
+- Não há infraestrutura de E2E de navegador no projeto: o frontend usa apenas
+  `vitest` + `@testing-library` (jsdom); **Playwright/Cypress NÃO estão instalados**
+  (`frontend/package.json`).
+- A cobertura financeira até a Task 4 exercitava o motor (`test_finance.py`) e os
+  endpoints chamados como funções Python (`test_finance_assumptions.py`), mas **não**
+  havia um teste que exercitasse o fluxo pela camada HTTP real (request → rota →
+  PostgreSQL → resposta JSON).
+- Decisão de escopo mínimo: adicionar um **E2E de integração HTTP** com o
+  `TestClient` do FastAPI (menor dependência adicional — reutiliza `httpx` já
+  presente e o padrão de override de `get_db` com savepoint de
+  `tests/test_integration_flows.py`, isolado por transação, sem tocar dados reais).
+  O E2E de **navegador** permanece como validação manual (não há ambiente para
+  browser automation aqui) — não foi simulado.
+
+### 20.2 O que foi adicionado
+
+- `tests/test_e2e_financeiro.py` — 12 testes HTTP cobrindo os 10 cenários da Task 5.
+
+### 20.3 Cenários cobertos (via HTTP real)
+
+1. Premissas materiais completas → preço máximo DEFINITIVO. ✓
+2. ITBI desconhecido → provisório + `custos_desconhecidos` inclui `itbi`. ✓
+3. Registro desconhecido → provisório. ✓
+4. Comissão de arrematação desconhecida → provisório. ✓
+5. Corretagem de venda desconhecida → provisório. ✓
+6. Tributo de venda desconhecido → provisório. ✓
+7. Salvar premissas, recarregar (GET) e confirmar persistência. ✓
+8. Nova análise não altera o snapshot da anterior (histórico por versão). ✓
+9. Metas lucro/margem/ROI + cenário inviável (`META_INATINGIVEL`). ✓
+10. Erros de validação (422: percentual fora de 0–1; meta incompleta) e 404. ✓
+
+### 20.4 Testes executados (evidência real)
+
+- `python -m pytest -q tests/test_e2e_financeiro.py` (container, PostgreSQL real,
+  sem LLM/rede) → **12 passed**.
+- Suíte backend completa → **526 passed, 2 skipped, 0 falhas** (os 2 skips são os
+  testes reais do DataJud, gated). Zero regressão.
+- Frontend: inalterado nesta task (última execução Task 4: tsc OK + vitest 95 passed).
+
+### 20.5 Cenários NÃO executados / limitações
+
+- **E2E de navegador (UI real)**: não executado — sem Playwright/Cypress instalados
+  e sem ambiente de browser automation. Continua como validação MANUAL (passos em
+  20.6). O E2E HTTP cobre o backend de ponta a ponta, mas não a renderização/estados
+  do React no navegador.
+- Testes reais do DataJud: gated, não executados.
+
+### 20.6 Passos para validação manual (UI)
+
+1. Subir o ambiente (`docker compose up -d`) e abrir o frontend.
+2. Cadastrar um imóvel de teste e informar o leilão.
+3. Na aba Financeiro, informar as premissas (meta, valor de venda, corretagem,
+   tributo, prazo, carregamento mensal) e salvar.
+4. Recarregar a página e confirmar que as premissas persistem.
+5. Deixar ITBI/registro/comissão/corretagem/tributo em falta e confirmar o aviso
+   "Preço máximo (estimativa provisória)" com a lista de custos desconhecidos.
+6. Preencher todas as premissas materiais e confirmar "Preço máximo definitivo".
+7. Alterar uma premissa, reexecutar a análise e confirmar no histórico que a versão
+   anterior permanece inalterada.
+
+### 20.7 Arquivos alterados
+
+- `tests/test_e2e_financeiro.py` (novo).
+- `docs/PROJECT-STATUS.md`, `docs/IMPLEMENTATION-REFERENCE.md`,
+  `docs/PROJECT-HISTORY.md` (registro).
+
+Nenhuma migration, regra de negócio, contrato ou infraestrutura foi alterado. Nenhum
+dado real de imóvel foi tocado (isolamento por transação/rollback). O MVP **não** é
+declarado encerrado enquanto a validação E2E manual da UI não for executada.
