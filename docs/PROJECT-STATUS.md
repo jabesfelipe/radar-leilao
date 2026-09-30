@@ -7,11 +7,11 @@
 
 **Próximo passo:** atualizar a cópia local, executar E2E manual pela UI (premissas → cálculo → persistência/recarga → preço máximo definitivo/provisório → histórico) e registrar evidências. Até lá, o MVP NÃO é declarado encerrado.
 
-> **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está no cabeçalho e na seção da Task 4 (última implementação registrada); as seções anteriores preservam o histórico. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
+> **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está no cabeçalho e nas seções das Tasks 4 e 5 (última implementação registrada); as seções anteriores preservam o histórico. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
 
 ## 1. Resumo executivo
 
-**Registro histórico anterior:** os parágrafos e tabelas abaixo descrevem capacidades implementadas em etapas anteriores; não significam que o fechamento atual tenha sido aprovado. O estado atual exige a validação E2E financeira da Task 4.
+**Registro histórico anterior:** os parágrafos e tabelas abaixo descrevem capacidades implementadas em etapas anteriores; não significam que o fechamento atual tenha sido aprovado. O estado atual exige a validação E2E financeira manual pela UI; os testes HTTP da Task 5 não a substituem.
 
 O fluxo principal foi implementado em Python/FastAPI + React/TypeScript, com PostgreSQL/pgvector, processamento documental com MarkItDown/OCR, RAG híbrido, LangChain/LangGraph, cinco agentes LLM especializados, Checklist Mestre, Risk Engine, Verdict Engine, histórico e memória estruturada.
 
