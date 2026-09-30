@@ -2,9 +2,9 @@
 
 MVP em português do Brasil para análise rastreável de imóveis em leilões extrajudiciais.
 
-**Estado em 30/09/2026:** núcleo implementado; **validação manual E2E do fluxo financeiro pendente**. Não declarar o MVP encerrado até validar a interface de ponta a ponta após a Task 4.
+**Estado em 30/09/2026:** Task 5 integrada; testes automatizados reportados em 526 passed / 2 skipped. **Validação manual E2E do fluxo financeiro pela interface ainda pendente**; não declarar o MVP encerrado até concluir essa validação.
 
-A última implementação registrada é a **Task 4 — preço máximo seguro (definitivo vs. provisório)**, commit [cfb398c](https://github.com/jabesfelipe/radar-leilao/commit/cfb398c6d86e4549e4d33a404577026de9071392). Os testes automatizados reportados pelo executor foram: backend 514 passed / 2 skipped; frontend 95 passed; TypeScript aprovado. Esses resultados foram reportados pelo executor e ainda precisam ser distinguidos da validação manual da UI.
+A última implementação registrada é a **Task 5 — testes de integração E2E financeiro pela camada HTTP**, commit [6c5f318](https://github.com/jabesfelipe/radar-leilao/commit/6c5f31808f2a259ba0e6dfb8ace63dd484248794). O commit reporta backend 526 passed / 2 skipped, incluindo 12 cenários financeiros de integração HTTP. Os resultados foram reportados pelo executor e não equivalem a um E2E de navegador: a validação manual da UI continua pendente.
 
 ## Documentação oficial
 
