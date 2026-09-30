@@ -1,10 +1,10 @@
 # RADAR LEILÃO — REFERÊNCIA DE IMPLEMENTAÇÃO
 
 **Data de atualização:** 30/09/2026  
-**Estado:** Task 4 integrada; validação E2E financeiro manual pendente  
+**Estado:** Task 5 integrada; testes financeiros HTTP reportados como aprovados; validação E2E manual pela UI pendente  
 **Branch de referência:** main  
-**Commit de referência mais recente:** cfb398c6d86e4549e4d33a404577026de9071392  
-**Validação do domínio:** Analysis V9 do imóvel 633 registrada historicamente; não substitui o E2E financeiro da Task 4
+**Commit de referência mais recente:** 6c5f31808f2a259ba0e6dfb8ace63dd484248794  
+**Validação do domínio:** Analysis V9 do imóvel 633 registrada historicamente; os testes financeiros HTTP da Task 5 não substituem o E2E financeiro manual pela UI
 
 > Este documento complementa a SPEC. A SPEC define o método e a arquitetura; este documento mapeia a implementação efetivamente existente no repositório.
 
