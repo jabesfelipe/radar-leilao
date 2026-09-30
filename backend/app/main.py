@@ -19,7 +19,7 @@ from .judicial_integration import JudicialIntegrationService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
-from .services import (aggregate_llm_usage, build_finance, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
+from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
 configure_logging()
 log = get_logger("api")
@@ -169,7 +169,7 @@ def get_financial(property_id: int, db: Session = Depends(get_db)):
     current = build_finance(prop)
     history = db.scalars(select(models.FinancialAnalysis).where(models.FinancialAnalysis.property_id == property_id).order_by(models.FinancialAnalysis.analysis_version)).all()
     latest = history[-1] if history else None
-    auction = prop.auctions[-1] if prop.auctions else None
+    auction = current_auction(prop)
     premissas = auction.financial_assumptions if auction else None
     return {"property_id": property_id, "analysis_version": latest.analysis_version if latest else None, "premissas": premissas, "financeiro": serialize(current), "historico": [{"id": item.id, "analysis_version": item.analysis_version, "inputs": item.inputs, "outputs": item.outputs, "created_at": item.created_at} for item in history]}
 
@@ -177,7 +177,7 @@ def get_financial(property_id: int, db: Session = Depends(get_db)):
 @app.get("/api/imoveis/{property_id}/financeiro/premissas")
 def get_finance_assumptions(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
-    auction = prop.auctions[-1] if prop.auctions else None
+    auction = current_auction(prop)
     return {"property_id": property_id, "premissas": (auction.financial_assumptions if auction else None)}
 
 
@@ -189,7 +189,7 @@ def set_finance_assumptions(property_id: int, data: schemas.FinanceAssumptions, 
     é feita pelo schema. As premissas ficam recuperáveis ao reabrir o imóvel e são
     aplicadas na próxima análise (o histórico anterior não é alterado)."""
     prop = property_or_404(db, property_id)
-    auction = prop.auctions[-1] if prop.auctions else None
+    auction = current_auction(prop)
     if auction is None:
         # Sem leilão cadastrado, cria um mínimo para ancorar as premissas.
         auction = models.Auction(property_id=property_id)
@@ -208,7 +208,7 @@ def analyze_financial(property_id: int, db: Session = Depends(get_db)):
     current = build_finance(prop)
     latest = db.scalar(select(models.FinancialAnalysis).where(models.FinancialAnalysis.property_id == property_id).order_by(models.FinancialAnalysis.analysis_version.desc()))
     version = (latest.analysis_version + 1) if latest else 1
-    auction = prop.auctions[-1] if prop.auctions else None
+    auction = current_auction(prop)
     # Snapshot das premissas usadas nesta versão (preserva o histórico de premissas).
     inputs = {"auction_id": auction.id if auction else None, "cost_ids": [cost.id for cost in prop.costs], "debt_ids": [debt.id for debt in prop.debts], "comparable_ids": [comparable.id for comparable in prop.comparables], "premissas": (auction.financial_assumptions if auction else None)}
     analysis = models.FinancialAnalysis(property_id=property_id, analysis_version=version, inputs=inputs, outputs=serialize(current))

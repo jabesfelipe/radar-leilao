@@ -169,8 +169,22 @@ def _build_finance_assumptions(raw: dict | None):
     }
 
 
+def current_auction(prop: models.Property):
+    """Seleciona o leilão CORRENTE de forma determinística.
+
+    Um imóvel pode ter mais de um Auction (cada POST /leilao cria um novo registro).
+    A relationship ``prop.auctions`` NÃO possui ordenação explícita, então
+    ``prop.auctions[-1]`` depende da ordem incidental da coleção ORM e pode variar
+    entre sessões/requests — o que fazia premissas gravadas num leilão divergirem do
+    leilão lido no cálculo (SPEC §44.2: não usar ordem incidental para estado atual).
+    Selecionamos deterministicamente o maior ``id`` (registro mais recente)."""
+    if not prop.auctions:
+        return None
+    return max(prop.auctions, key=lambda a: a.id)
+
+
 def build_finance(prop: models.Property):
-    auction = prop.auctions[-1] if prop.auctions else None
+    auction = current_auction(prop)
     acquisition = auction.acquisition_value if auction and auction.acquisition_value is not None else (auction.bid_value if auction else None)
     costs = [{"category": c.category, "amount": c.amount} for c in prop.costs]
     comparables = [{"kind": c.kind, "price": c.price, "rent": c.rent, "area_m2": c.area_m2} for c in prop.comparables]

@@ -249,3 +249,40 @@ def test_c10_validacao_meta_incompleta_422(client):
 def test_c10_imovel_inexistente_404(client):
     resp = client.get("/api/imoveis/999999/financeiro/premissas")
     assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------
+# Regressão — seleção determinística do leilão corrente (multi-auction)
+# --------------------------------------------------------------------------
+# Cada POST /leilao cria um novo Auction. Antes da correção, os endpoints
+# financeiros usavam prop.auctions[-1] (ordem incidental da relationship ORM),
+# então as premissas gravadas num leilão podiam divergir do leilão lido no
+# cálculo — quebrando o preço máximo (ex.: DADOS_ESSENCIAIS_AUSENTES no lugar de
+# META_INATINGIVEL) mesmo com as premissas salvas. A seleção agora é determinística
+# (maior id). Este teste fixa esse contrato (SPEC §44.2).
+
+def test_reg_multiplos_leiloes_premissas_consistentes(client):
+    pid = _criar_imovel_com_leilao(client)
+    _add_custo(client, pid, "ITBI", "10000")
+    _add_custo(client, pid, "REGISTRO", "20000")
+    # Segundo leilão (novo Auction) com comissão informada:
+    client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "200000", "appraisal_value": "300000", "commission_percent": "5"})
+
+    # Premissas salvas DEPOIS do segundo leilão devem ser lidas de volta e usadas
+    # no cálculo do mesmo leilão corrente.
+    _set_premissas(client, pid, valor_venda_estimado=320000)
+    premissas = client.get(f"/api/imoveis/{pid}/financeiro/premissas").json()["premissas"]
+    assert premissas is not None
+    assert premissas["valor_venda_estimado"] == "320000"
+
+    # Cálculo definitivo coerente (venda informada + custos materiais presentes).
+    # valor_mercado no dossiê é serializado como número (Decimal→float).
+    fin = client.get(f"/api/imoveis/{pid}/financeiro").json()["financeiro"]
+    assert float(fin["valor_mercado"]) == 320000.0
+    assert fin["preco_maximo"] is not None
+    assert fin["preco_maximo_definitivo"] is True
+
+    # Meta inviável no leilão corrente → META_INATINGIVEL (não DADOS_ESSENCIAIS_AUSENTES).
+    fin = _set_premissas(client, pid, goal_kind="LUCRO_MINIMO", goal_value=1000000)["financeiro"]
+    assert fin["preco_maximo"] is None
+    assert fin["preco_maximo_detalhe"]["razao"] == "META_INATINGIVEL"
