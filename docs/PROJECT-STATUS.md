@@ -666,6 +666,8 @@ Qualquer nova capacidade — MCP externo, Knowledge Graph dedicado, integraçõe
 
 ## 16. AUDITORIA — VALIDAÇÃO FINAL REABERTA — 30/09/2026
 
+> **Nota histórica:** a tabela e o backlog desta auditoria registram o estado observado antes das correções financeiras das Tasks 2–5. Para o estado atual, prevalecem a reconciliação da §16.4 e os registros das Tasks 17–20. Itens marcados como históricos abaixo não são pendências atuais quando já endereçados nas Tasks posteriores.
+
 **Data da revisão:** 30/09/2026
 **Estado:** validação final reaberta para confirmar funcionamento real. O encerramento
 anterior (seções 8 e 15) permanece preservado no histórico — nada foi apagado ou
@@ -728,10 +730,10 @@ reescrito. Esta seção registra o resultado da auditoria baseada em evidências
 
 **P0 — impedem decisão segura / corrompem dados:** nenhum P0 identificado nesta auditoria.
 
-**P1 — parte essencial do MVP incompleta:**
-1. **Preço máximo de lance** — hoje `None` (placeholder). Aceite: fórmula canônica na SPEC, implementação em `calculate_max_acquisition_price`, teste cobrindo valores esperados e tratamento de dados ausentes.
-2. **Cenários financeiros diferenciados** — hoje neutros/idênticos. Aceite: premissas distintas por cenário (ou rótulo explícito de "neutro" na UI), com teste.
-3. **Financeiro de venda** (tributação na venda, corretagem de venda, lucro líquido, ROI temporal, margem de segurança) — ausentes. Aceite: método na SPEC + implementação determinística + testes; `roi_estimado_percentual` deixa de ser alias de margem.
+**P1 — registro histórico da auditoria (não representa o status atual):**
+1. **Preço máximo de lance** — registrado como placeholder na auditoria original; endereçado nas Tasks 2–4.
+2. **Cenários financeiros** — registrados como neutros na auditoria original; tratados com premissas explícitas nas Tasks 2–3.
+3. **Financeiro de venda** (tributação, corretagem, lucro líquido, ROI e margem) — registrado como ausente na auditoria original; implementado nas Tasks 2–4.
 
 **P2 — melhorias não bloqueantes / futuras:**
 4. **Mercado**: ajustes por área/localização/conservação, valor de venda conservador, liquidez e prazo de venda. Aceite: método na SPEC + implementação + testes; nenhum dado simulado apresentado como fato.
@@ -741,15 +743,17 @@ reescrito. Esta seção registra o resultado da auditoria baseada em evidências
 ### 16.5 O que fica explicitamente fora do MVP
 
 - Descoberta automática de processos por **nome/CPF/CNPJ** (a API pública do DataJud não suporta; nunca simular capacidade).
-- Valuation de mercado com ajustes e liquidez automatizada.
-- Fórmula de preço máximo e financeiro de venda enquanto não definidos na SPEC.
+- Valuation de mercado com ajustes e liquidez automatizada (Fase 2).
+- Consulta real ao DataJud ainda não validada por execução com rede; manter como pendência P2 até haver evidência.
 
-### 16.6 Plano mínimo para a Task 2 (ordenado por impacto/risco)
+### 16.6 Plano mínimo para a Task 2 (registro histórico)
 
-1. **Definir na SPEC a fórmula canônica de preço máximo** e o **financeiro de venda** (tributação, corretagem, lucro líquido, ROI temporal, margem de segurança). É o maior bloqueio à decisão de lance. (P1)
-2. **Implementar** esses cálculos em `finance.py` de forma determinística, com testes, mantendo o tratamento de dados ausentes já existente. (P1)
-3. **Diferenciar os cenários** conservador/base/otimista (premissas reais) ou rotular claramente como neutro na UI. (P1)
-4. Só então avançar para os itens de **mercado** (ajustes/liquidez) e **consulta real ao DataJud**. (P2)
+O plano abaixo documenta a sequência originalmente proposta e foi executado pelas Tasks 2–5; não é uma lista de tarefas ainda abertas:
+
+1. Definir na SPEC a fórmula canônica de preço máximo e o financeiro de venda — endereçado nas Tasks 2–4.
+2. Implementar cálculos determinísticos e tratamento de dados ausentes — endereçado nas Tasks 2–4.
+3. Tratar cenários financeiros com premissas explícitas — endereçado nas Tasks 2–3.
+4. Avançar em mercado e consulta real ao DataJud — permanecem como evolução/validação P2, conforme §16.5.
 
 ### 16.7 Critérios objetivos para declarar o MVP concluído
 
