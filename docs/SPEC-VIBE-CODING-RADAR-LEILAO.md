@@ -1,7 +1,7 @@
 # RADAR LEILÃO — ARQUITETURA MESTRA
 
-**Versão:** 4.1 — Business + Arquitetura + Implementação atualizada até a Task 4  
-**Status:** Documento mestre oficial; núcleo implementado, validação E2E financeira pendente antes do encerramento do MVP  
+**Versão:** 4.2 — Business + Arquitetura + Implementação atualizada até a Task 5  
+**Status:** Documento mestre oficial; Task 5 integrada e testes financeiros HTTP reportados como aprovados; validação manual E2E pela UI pendente antes do encerramento do MVP  
 **Idioma:** Português do Brasil (pt-BR)  
 **Idioma do sistema:** Português do Brasil (pt-BR)  
 **Escopo:** Leilões extrajudiciais de imóveis no Brasil
