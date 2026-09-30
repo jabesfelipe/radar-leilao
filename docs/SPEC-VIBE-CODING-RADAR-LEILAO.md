@@ -1,7 +1,7 @@
 # RADAR LEILÃO — ARQUITETURA MESTRA
 
-**Versão:** 4.0 — Business + Arquitetura + Implementação + Encerramento do MVP  
-**Status:** Documento mestre oficial e registro final do MVP encerrado  
+**Versão:** 4.1 — Business + Arquitetura + Implementação atualizada até a Task 4  
+**Status:** Documento mestre oficial; núcleo implementado, validação E2E financeira pendente antes do encerramento do MVP  
 **Idioma:** Português do Brasil (pt-BR)  
 **Idioma do sistema:** Português do Brasil (pt-BR)  
 **Escopo:** Leilões extrajudiciais de imóveis no Brasil
@@ -3244,3 +3244,29 @@ As chaves já existentes do resultado financeiro são preservadas. Os novos camp
 (`resultado_liquido`, `margem_liquida`, `roi_operacao`, `preco_maximo`,
 `premissas_utilizadas`, `pendencias`, `custos_status`, `saida_status`,
 `resultado_provisorio`, `carregamento_recorrente`, cenários com premissas) são aditivos.
+
+
+---
+
+# Registro de implementação — 30/09/2026 (Task 4)
+
+Esta seção registra a implementação financeira mais recente sem substituir as regras canônicas do domínio descritas anteriormente.
+
+## Preço máximo definitivo versus provisório
+
+A função `calculate_max_acquisition_price` aceita a lista de custos desconhecidos. O cálculo pode apresentar uma simulação numérica parcial, mas o resultado deve permanecer explicitamente **provisório** enquanto custos materiais estiverem ausentes. Custos desconhecidos podem ser tratados como zero apenas para a simulação parcial, acompanhados de avisos; não devem ser interpretados como custos reais iguais a zero.
+
+Os custos materiais considerados pela implementação incluem, conforme aplicável, ITBI, registro, comissão de arrematação, corretagem de venda e tributo sobre a venda. A aplicação não deve inventar alíquotas nem assumir que uma simulação provisória é um limite confiável de lance.
+
+Campos de resultado adicionados/explicados:
+- `preco_maximo_definitivo`: indica que as premissas materiais necessárias foram informadas.
+- `preco_maximo_provisorio`: permite exibir estimativa parcial com pendências explícitas.
+- `pendencias` / lista de custos desconhecidos: identifica o que precisa ser preenchido ou confirmado.
+
+A interface deve diferenciar visualmente os estados e listar as premissas faltantes. A persistência das premissas por imóvel usa `auctions.financial_assumptions` (JSON), e o snapshot das premissas de cada análise financeira deve preservar o histórico dos resultados anteriores.
+
+## Evidência de testes e limite da validação
+
+O commit `cfb398c6d86e4549e4d33a404577026de9071392` registra a Task 4. O executor reportou backend **514 passed, 2 skipped**, frontend **95 passed** e TypeScript aprovado. Esses números são evidência reportada, não uma execução independente deste documento.
+
+**Pendência de fechamento:** realizar o E2E manual pela interface com premissas completas e incompletas, persistência após recarregar e confirmação de que o preço máximo provisório nunca é apresentado como definitivo. Não marcar o MVP como encerrado até registrar o resultado dessa validação.
