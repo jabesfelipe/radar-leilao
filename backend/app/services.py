@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from . import models
@@ -459,3 +460,69 @@ def update_checklist_item(db: Session, item: models.ChecklistItem, changes: dict
     event = record_checklist_event(db, item, event_type, {"before": before, "after": checklist_item_snapshot(item)})
     record_checklist_history(db, item, "ACTIVATE" if event_type.endswith("ATIVADA") else ("DEACTIVATE" if event_type.endswith("DESATIVADA") else "UPDATE"), before, checklist_item_snapshot(item), event.id)
     return item
+
+
+# Códigos de severidade de risco por "peso" para escolher o risco jurídico principal.
+_RISK_SEVERITY_ORDER = {"CRITICA": 4, "ALTA": 3, "MEDIA": 2, "BAIXA": 1}
+
+
+def juridical_overview(db: Session, prop: models.Property) -> dict[str, Any]:
+    """Visão jurídica LEGÍVEL para o dossiê/veredito (determinística, sem LLM).
+
+    Distingue explicitamente EVIDÊNCIA/CORRELAÇÃO/SITUAÇÃO: nunca apresenta uma
+    hipótese como fato. A situação do imóvel permanece NÃO CONFIRMADA salvo
+    confirmação manual (checklist CONFIRMADO). Impacto financeiro = NÃO QUANTIFICADO.
+    """
+    processos = list(prop.processes or [])
+    relevantes = [p for p in processos if (p.correlation_level or "").upper() in {"ALTA", "MEDIA"}]
+
+    execution = latest_execution(prop)
+    pendencias: list[str] = []
+    confirmados: list[str] = []
+    if execution:
+        for res in execution.results:
+            item = res.item
+            if item is None or str(item.category or "").upper() != "JURIDICO":
+                continue
+            estado = (res.state or "").upper()
+            if estado in {"PENDENTE", "EM_ANALISE", "ATENCAO", "RISCO_IDENTIFICADO"}:
+                pendencias.append(item.question)
+            elif estado == "CONFIRMADO":
+                confirmados.append(item.question)
+
+    # Riscos jurídicos persistidos (categoria juridico).
+    riscos = [r for r in (prop.risks or []) if str(r.category or "").lower() == "juridico"]
+    risco_principal = None
+    if riscos:
+        risco_principal = max(riscos, key=lambda r: _RISK_SEVERITY_ORDER.get((r.severity or "").upper(), 0))
+
+    # Correlação predominante entre os processos relevantes (maior nível observado).
+    correlacao = "NAO_CONFIRMADA"
+    for nivel in ("ALTA", "MEDIA", "BAIXA"):
+        if any((p.correlation_level or "").upper() == nivel for p in processos):
+            correlacao = nivel
+            break
+
+    return {
+        "processos_encontrados": len(processos),
+        "processos_relevantes": len(relevantes),
+        "pendencias": pendencias,
+        "confirmados": confirmados,
+        "correlacao": correlacao,
+        # A situação do imóvel só é CONFIRMADA por validação manual/documental.
+        "situacao_imovel": "CONFIRMADA" if confirmados and not pendencias else "NAO_CONFIRMADA",
+        "risco_principal": (
+            {
+                "descricao": risco_principal.description,
+                "severidade": risco_principal.severity,
+                "confianca": risco_principal.confidence,
+                "evidencia_id": risco_principal.evidence_id,
+            }
+            if risco_principal is not None else None
+        ),
+        "impacto_financeiro": "NAO_QUANTIFICADO",
+        "diligencia_recomendada": (
+            "Validar matrícula atualizada e documentação processual."
+            if pendencias or relevantes else None
+        ),
+    }

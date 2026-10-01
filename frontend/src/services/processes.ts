@@ -16,7 +16,47 @@ export type LegalProcess = {
   source?: string | null
   impact?: string | null
   evidence_id?: number | null
+  // Classificação do vínculo processo×imóvel (integração judicial).
+  link_origin?: 'AUTOMATICA' | 'MANUAL' | 'VALIDADA' | 'NAO_CONFIRMADA' | null
+  correlation_level?: 'ALTA' | 'MEDIA' | 'BAIXA' | 'NAO_CONFIRMADA' | null
   created_at?: string
+}
+
+// Critérios de pesquisa judicial. Só são enviados os que o usuário informar;
+// nenhum CPF/CNPJ é presumido.
+export type JudicialSearchCriteria = {
+  process_number?: string
+  cpf?: string
+  cnpj?: string
+  name?: string
+  uf?: string
+  tribunals?: string[]
+  justice_types?: string[]
+}
+
+export type JudicialSource = {
+  tribunal?: string | null
+  status?: string | null
+  [key: string]: unknown
+}
+
+export type JudicialSearchResult = {
+  property_id: number
+  disponivel: boolean
+  status?: string
+  mensagem?: string
+  search_id?: string | null
+  processos_criados?: number
+  processos_atualizados?: number
+  processos_relevantes?: number
+  sinais_criados?: number
+  fontes?: JudicialSource[]
+  avisos?: string[]
+}
+
+export type JudicialLink = {
+  link_origin: 'MANUAL' | 'VALIDADA' | 'NAO_CONFIRMADA'
+  observacao?: string
 }
 
 export type ProcessCreate = {
@@ -66,6 +106,30 @@ export async function listProcesses(propertyId: number): Promise<LegalProcess[]>
 
 export function createProcess(propertyId: number, payload: ProcessCreate): Promise<LegalProcess> {
   return request<LegalProcess>(`/api/imoveis/${propertyId}/processos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+// Pesquisa judicial pela Judicial API (DataJud) a partir do imóvel. Envia só os
+// critérios preenchidos; a API responde com disponivel=false em degradação.
+export function searchJudicial(propertyId: number, criteria: JudicialSearchCriteria): Promise<JudicialSearchResult> {
+  const body: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(criteria)) {
+    if (value === undefined || value === null || value === '') continue
+    if (Array.isArray(value) && value.length === 0) continue
+    body[key] = value
+  }
+  return request<JudicialSearchResult>(`/api/imoveis/${propertyId}/processos/consultar`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function linkJudicialProcess(propertyId: number, processId: number, payload: JudicialLink): Promise<{ property_id: number; processo: LegalProcess }> {
+  return request<{ property_id: number; processo: LegalProcess }>(`/api/imoveis/${propertyId}/juridico/processos/${processId}/vincular`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

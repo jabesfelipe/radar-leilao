@@ -359,11 +359,15 @@ No fechamento da Task 74.1:
 
 ### Atualização (Tasks 2–5, 30/09/2026)
 
-Após as tasks financeiras, a integração judicial e a correção `788d749` (seleção
-determinística do leilão corrente), a suíte backend está em:
-- **527 passed, 2 skipped** (os 2 skips são os testes reais do DataJud, gated por
+Após as tasks financeiras, a correção `788d749` (seleção determinística do leilão)
+e a integração jurídica E2E (correlação imóvel×processo → sinal → checklist →
+risco → veredito; migration `0013`), a suíte backend está em:
+- **547 passed, 2 skipped** (os 2 skips são os testes reais do DataJud, gated por
   `RUN_REAL_DATAJUD_TESTS`), rodando no container com PostgreSQL real e sem LLM/rede.
-  Validação de fechamento mais recente em `PROJECT-STATUS` §21.
+  Validações mais recentes em `PROJECT-STATUS` §21 (fechamento) e §22 (jurídico E2E).
+- Cobertura jurídica: `tests/test_legal_correlation.py` (correlação determinística),
+  `tests/test_juridico_integracao_e2e.py` (fluxo sinal→checklist→risco→veredito) e
+  `tests/test_juridico_e2e_http.py` (consulta/vínculo/leitura via HTTP, sem DataJud real).
 - Cobertura financeira: `tests/test_finance.py` (motor, incl. preço máximo
   definitivo × provisório), `tests/test_finance_assumptions.py` (persistência de
   premissas + build_finance + endpoints) e `tests/test_e2e_financeiro.py` (fluxo

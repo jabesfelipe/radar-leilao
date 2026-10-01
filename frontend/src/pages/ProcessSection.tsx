@@ -1,7 +1,30 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Plus, RefreshCw, Scale } from 'lucide-react'
+import { Plus, RefreshCw, Scale, Search } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Textarea } from '../components/ui'
-import { createProcess, listProcesses, type LegalProcess } from '../services/processes'
+import {
+  createProcess, linkJudicialProcess, listProcesses, searchJudicial,
+  type JudicialSearchResult, type LegalProcess,
+} from '../services/processes'
+
+// Mapeia o nível de correlação para o tom visual do Badge (reutiliza o design system).
+function correlationTone(level?: string | null): 'danger' | 'warning' | 'info' | 'neutral' {
+  switch ((level || '').toUpperCase()) {
+    case 'ALTA': return 'danger'
+    case 'MEDIA': return 'warning'
+    case 'BAIXA': return 'info'
+    default: return 'neutral'
+  }
+}
+
+function correlationLabel(level?: string | null): string {
+  const v = (level || '').toUpperCase()
+  return v === 'NAO_CONFIRMADA' ? 'NÃO CONFIRMADA' : v || 'NÃO CONFIRMADA'
+}
+
+function originLabel(origin?: string | null): string {
+  const v = (origin || '').toUpperCase()
+  return v === 'NAO_CONFIRMADA' ? 'NÃO CONFIRMADA' : v || '—'
+}
 
 type ProcessSectionProps = {
   propertyId: number
@@ -58,6 +81,14 @@ export function ProcessSection({ propertyId }: ProcessSectionProps) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+
+  // Pesquisa judicial (Judicial API).
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchCriteria, setSearchCriteria] = useState({ process_number: '', cpf: '', cnpj: '', name: '' })
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
+  const [searchResult, setSearchResult] = useState<JudicialSearchResult | null>(null)
+  const [linkingId, setLinkingId] = useState<number | null>(null)
 
   const loadProcesses = useCallback(async () => {
     setLoading(true)
@@ -122,8 +153,78 @@ export function ProcessSection({ propertyId }: ProcessSectionProps) {
     }
   }
 
+  const handleSearch = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const hasCriteria = Object.values(searchCriteria).some((v) => v.trim())
+    if (!hasCriteria) {
+      setSearchError('Informe ao menos um critério (número do processo, CPF, CNPJ ou nome).')
+      return
+    }
+    setSearching(true)
+    setSearchError('')
+    setSearchResult(null)
+    try {
+      const result = await searchJudicial(propertyId, {
+        process_number: optional(searchCriteria.process_number),
+        cpf: optional(searchCriteria.cpf),
+        cnpj: optional(searchCriteria.cnpj),
+        name: optional(searchCriteria.name),
+      })
+      setSearchResult(result)
+      await loadProcesses()
+    } catch (cause) {
+      setSearchError(cause instanceof Error ? cause.message : 'Não foi possível pesquisar processos.')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const handleLink = async (processId: number) => {
+    setLinkingId(processId)
+    setSaveError('')
+    try {
+      await linkJudicialProcess(propertyId, processId, { link_origin: 'VALIDADA' })
+      await loadProcesses()
+      setSuccessMessage('Processo vinculado ao imóvel (validado).')
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Não foi possível vincular o processo.')
+    } finally {
+      setLinkingId(null)
+    }
+  }
+
   return (
-    <Section title="Processos Jurídicos" description="Processos relacionados ao imóvel cadastrados manualmente." className="dossier-section" actions={<Button onClick={openForm}><Plus size={16} /> Novo processo</Button>}>
+    <Section title="Processos Jurídicos" description="Pesquise processos pela Judicial API e acompanhe o dossiê jurídico do imóvel." className="dossier-section" actions={<><Button variant="secondary" onClick={() => { setSearchOpen((v) => !v); setSearchError('') }}><Search size={16} /> Pesquisar processos</Button><Button onClick={openForm}><Plus size={16} /> Novo processo</Button></>}>
+      {searchOpen && (
+        <Card variant="elevated" padding="lg" className="dossier-form-card">
+          <form className="dossier-form" onSubmit={handleSearch} noValidate>
+            <Input label="Número do processo" value={searchCriteria.process_number} onChange={(e) => setSearchCriteria((c) => ({ ...c, process_number: e.target.value }))} />
+            <Input label="Nome da parte" value={searchCriteria.name} onChange={(e) => setSearchCriteria((c) => ({ ...c, name: e.target.value }))} />
+            <Input label="CPF" value={searchCriteria.cpf} onChange={(e) => setSearchCriteria((c) => ({ ...c, cpf: e.target.value }))} />
+            <Input label="CNPJ" value={searchCriteria.cnpj} onChange={(e) => setSearchCriteria((c) => ({ ...c, cnpj: e.target.value }))} />
+            <div className="dossier-form-actions">
+              {searchError && <Alert tone="danger">{searchError}</Alert>}
+              <Button type="submit" loading={searching}><Search size={16} /> Pesquisar</Button>
+            </div>
+          </form>
+          {searchResult && (
+            searchResult.disponivel === false ? (
+              <Alert tone="warning" title="Judicial API indisponível">{searchResult.mensagem || 'A consulta não pôde ser concluída agora; a análise do imóvel não foi interrompida.'}</Alert>
+            ) : (
+              <div className="judicial-search-summary">
+                <Alert tone="info" title="Pesquisa judicial concluída">
+                  {(searchResult.fontes?.length ?? 0)} fonte(s) consultada(s) · {(searchResult.processos_criados ?? 0) + (searchResult.processos_atualizados ?? 0)} processo(s) · {searchResult.processos_relevantes ?? 0} relevante(s) · {searchResult.sinais_criados ?? 0} sinal(is) jurídico(s).
+                  {searchResult.search_id ? ` Pesquisa ${searchResult.search_id}.` : ''}
+                </Alert>
+                {!!(searchResult.avisos && searchResult.avisos.length) && (
+                  <Alert tone="warning" title="Fontes com aviso/parciais">{searchResult.avisos.join(' · ')}</Alert>
+                )}
+              </div>
+            )
+          )}
+        </Card>
+      )}
+
       {successMessage && <Alert tone="success" title="Cadastro concluído" className="dossier-feedback">{successMessage}</Alert>}
 
       {formOpen && (
@@ -168,7 +269,12 @@ export function ProcessSection({ propertyId }: ProcessSectionProps) {
                   <p className="eyebrow">PROCESSO</p>
                   <h3>{process.number}</h3>
                 </div>
-                {process.status && <Badge tone="warning" size="sm">{process.status}</Badge>}
+                <div className="process-card-badges">
+                  {process.correlation_level && (
+                    <Badge tone={correlationTone(process.correlation_level)} size="sm">Correlação: {correlationLabel(process.correlation_level)}</Badge>
+                  )}
+                  {process.status && <Badge tone="warning" size="sm">{process.status}</Badge>}
+                </div>
               </div>
               <dl className="dossier-facts">
                 <Fact label="Tribunal" value={process.court} />
@@ -179,10 +285,14 @@ export function ProcessSection({ propertyId }: ProcessSectionProps) {
                 <Fact label="Polo passivo" value={process.polo_passive} />
                 <Fact label="Distribuição" value={formatDate(process.distribution_date)} />
                 <Fact label="Fonte" value={process.source} />
+                <Fact label="Vínculo" value={process.link_origin ? originLabel(process.link_origin) : null} />
                 <Fact label="Impacto" value={process.impact} />
                 <Fact label="Observações" value={process.observations} />
                 {process.evidence_id != null && <Fact label="Evidência" value={`#${process.evidence_id}`} />}
               </dl>
+              <div className="process-card-actions">
+                <Button variant="secondary" size="sm" loading={linkingId === process.id} onClick={() => void handleLink(process.id)}>Vincular ao imóvel</Button>
+              </div>
             </Card>
           ))}
         </div>

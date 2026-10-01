@@ -1923,3 +1923,36 @@ em PROJECT-STATUS §21.
 - E2E de **navegador** não é executável (sem Playwright/Cypress) — pendência
   impeditiva única do encerramento. MVP **não** declarado encerrado.
 - Nenhum defeito novo reproduzido; nenhuma alteração de regra de negócio.
+
+
+## Integração Jurídica E2E — Judicial API no dossiê (30/09/2026)
+
+Integra o resultado da Judicial API ao dossiê jurídico do imóvel de forma
+rastreável, reutilizando toda a infraestrutura existente (judicial_client,
+judicial_integration, SignalEngine, RiskEngine, VerdictEngine, reanálise
+incremental). Detalhes e evidências em PROJECT-STATUS §22.
+
+### Entregue
+- Correlação determinística imóvel×processo (`backend/app/legal_correlation.py`):
+  ALTA (CPF/CNPJ) / MEDIA (nome+comarca/UF) / BAIXA (homônimo) / NAO_CONFIRMADA.
+  Nome igual nunca confirma identidade.
+- Migration `0013_processo_correlacao`: `legal_processes.link_origin` e
+  `correlation_level` (nullable, reversível).
+- Persistência judicial: processo recebe correlação + link_origin=AUTOMATICA;
+  sinal (Evidence JURIDICO) vinculado ao processo (EvidenceLink).
+- Elo sinal patrimonial → checklist (ATENCAO, nunca CONFIRMADO) → RiskEngine →
+  Veredito; confirmação manual preservada.
+- Seção jurídica legível no dossiê (`services.juridical_overview`); impacto
+  financeiro = NÃO QUANTIFICADO.
+- Reanálise: CONSULTA_JUDICIAL_REALIZADA / PROCESSO_VINCULADO em EVENT_IMPACTS.
+- Endpoints: `.../juridico/processos/{id}/vincular`, `.../juridico/riscos`,
+  `.../juridico/evidencias`; UI de pesquisa/vinculação na seção Jurídico.
+
+### Evidências
+- Backend: 547 passed, 2 skipped (DataJud gated). Frontend: tsc OK, vitest 99 passed.
+- Imóvel 633 intacto (V1–V9), nenhuma análise LLM/V10, nenhum dado real alterado.
+
+### Limitações
+- Property não tem CPF/CNPJ estruturado; correlação por nome fica MEDIA/BAIXA.
+- Consulta real ao DataJud permanece gated (mocks nos testes).
+- Fórmula financeira inalterada.

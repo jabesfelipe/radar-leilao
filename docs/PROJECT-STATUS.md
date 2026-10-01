@@ -1,9 +1,9 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: VALIDAÇÃO DE FECHAMENTO EXECUTADA — testes automatizados verdes e correção financeira (commit 788d749) confirmados; E2E de NAVEGADOR não executável neste ambiente; MVP ainda NÃO encerrado**
+**Status global: INTEGRAÇÃO JURÍDICA E2E INTEGRADA (Judicial API → correlação → sinal → checklist → risco → veredito); testes automatizados verdes; E2E de NAVEGADOR do fluxo financeiro ainda pendente; MVP ainda NÃO encerrado**
 
 **Última atualização:** 30/09/2026  
-**Última implementação:** correção da seleção determinística do leilão corrente (commit `788d749`), com teste de regressão multi-leilão; validação de fechamento registrada na §21.
+**Última implementação:** integração jurídica E2E — correlação determinística imóvel×processo, classificação do vínculo, reflexo no checklist/Risk Engine/Veredito e seção jurídica no dossiê (migration `0013`). Detalhes na §22.
 
 **Próximo passo (impeditivo do encerramento):** executar o E2E financeiro pela INTERFACE em um navegador real e registrar as evidências. Não há automação de navegador (Playwright/Cypress) no projeto, então essa validação permanece manual. Até ela ser concluída e registrada, o MVP NÃO é declarado encerrado.
 
@@ -1178,3 +1178,72 @@ preservado. O estado abaixo é o autoritativo.
 
 **Conclusão:** o MVP **NÃO** é declarado encerrado nesta rodada. Pendência
 impeditiva única: **validação E2E do fluxo financeiro em navegador real** (§20.6).
+
+
+---
+
+## 22. INTEGRAÇÃO JURÍDICA E2E — Judicial API no dossiê do imóvel — 30/09/2026
+
+Integra o resultado da Judicial API (já existente) ao dossiê jurídico, de forma
+rastreável e sem reimplementar provider/DataJud/SignalEngine. Reutiliza
+`judicial_client`, `judicial_integration`, SignalEngine (judicial_api), RiskEngine,
+VerdictEngine e a reanálise incremental. Histórico preservado.
+
+### 22.1 O que foi implementado
+- **Correlação determinística imóvel×processo** (`backend/app/legal_correlation.py`,
+  pura, sem LLM): `ALTA` (CPF/CNPJ exato), `MEDIA` (nome + comarca/UF, sem
+  identificador), `BAIXA` (só nome — possível homônimo), `NAO_CONFIRMADA` (dados
+  insuficientes). Regra central: **nome igual nunca confirma identidade**.
+- **Classificação do vínculo** (migration `0013_processo_correlacao`): colunas
+  `legal_processes.link_origin` (AUTOMATICA/MANUAL/VALIDADA/NAO_CONFIRMADA) e
+  `correlation_level` (ALTA/MEDIA/BAIXA/NAO_CONFIRMADA), nullable e reversíveis.
+- **Persistência enriquecida** (`judicial_integration.py`): cada processo da
+  Judicial API recebe `correlation_level` + `link_origin=AUTOMATICA`; o sinal
+  (Evidence JURIDICO) passa a ser **vinculado ao processo** via `EvidenceLink`; o
+  resultado reporta `processes_relevant` (ALTA/MEDIA).
+- **Elo sinal → checklist**: sinal patrimonial (PENHORA/ARRESTO/INDISPONIBILIDADE/
+  HIPOTECA/ALIENACAO_FIDUCIARIA/PROPERTY_*) marca `PENHORA_INDISPONIBILIDADE` ou
+  `ACAO_QUESTIONAMENTO` como **ATENCAO** (diligência), com `ChecklistEvidence`,
+  **nunca CONFIRMADO** (evidência processual não confirma gravame). Confirmação
+  manual (CONFIRMADO/NAO_APLICAVEL/RISCO_IDENTIFICADO) é preservada.
+- **Risco jurídico**: o estado ATENCAO + evidência faz o RiskEngine (já existente)
+  gerar o risco jurídico ao recalcular a versão; aparece no Veredito.
+- **Seção jurídica no dossiê** (`services.juridical_overview`): processos
+  encontrados/relevantes, pendências/confirmados jurídicos, correlação
+  predominante, situação do imóvel (NÃO CONFIRMADA salvo confirmação manual),
+  risco principal e diligência. **Impacto financeiro = NÃO QUANTIFICADO** (o
+  jurídico não inventa valores; a fórmula de preço máximo não foi alterada).
+- **Reanálise**: `CONSULTA_JUDICIAL_REALIZADA` e `PROCESSO_VINCULADO` entram em
+  `EVENT_IMPACTS` (impact.py) → domínios juridico/checklist, reutilizando o
+  IncrementalAnalysisService (sem segundo mecanismo).
+- **UI** (`ProcessSection.tsx` + `services/processes.ts`): botão "Pesquisar
+  processos", formulário de critérios, loading/erro, resumo de fontes/processos/
+  relevantes/sinais, aviso de indisponibilidade, badge de correlação por processo,
+  campo de vínculo e botão "Vincular ao imóvel".
+
+### 22.2 Endpoints adicionados
+- `POST /api/imoveis/{id}/juridico/processos/{process_id}/vincular` — classifica o
+  vínculo (MANUAL/VALIDADA/NAO_CONFIRMADA), preserva a correlação determinística e
+  emite `PROCESSO_VINCULADO`.
+- `GET /api/imoveis/{id}/juridico/riscos` — riscos jurídicos persistidos.
+- `GET /api/imoveis/{id}/juridico/evidencias` — evidências jurídicas legíveis.
+- `POST /api/imoveis/{id}/processos/consultar` (já existente) passou a retornar
+  `processos_relevantes`; o dossiê (`GET /api/imoveis/{id}`) passou a expor `juridico`.
+
+### 22.3 Testes (evidência real, PostgreSQL real, sem LLM/DataJud real)
+- `tests/test_legal_correlation.py` (12), `tests/test_juridico_integracao_e2e.py`
+  (3), `tests/test_juridico_e2e_http.py` (6) — fluxo completo mock→processo→
+  correlação→sinal→checklist→risco→veredito; confirmação manual preservada;
+  homônimo tratado; validações 400/404.
+- **Suíte backend completa: 547 passed, 2 skipped, 0 falhas** (2 skips = DataJud
+  real gated). **Frontend: tsc OK; vitest 99 passed (16 arquivos)**, ProcessSection
+  com 9 testes.
+- **Imóvel real 633 intacto**: 9 análises (V1–V9) preservadas, nenhum processo
+  criado, nenhum dado alterado. Nenhuma análise LLM/V10 executada.
+
+### 22.4 Limitações / decisões
+- `Property` não guarda CPF/CNPJ do proprietário estruturado hoje; o perfil usa
+  `PropertyRegistration.holder`/`comarca` + cidade/UF. Sem identificador, a
+  correlação por nome fica em MEDIA/BAIXA (nunca ALTA) — por desenho.
+- A consulta real ao DataJud permanece gated (mocks nos testes).
+- O fluxo financeiro **não** foi alterado; o jurídico só sinaliza risco/pendência.

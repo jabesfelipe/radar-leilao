@@ -33,10 +33,31 @@ from .judicial_client import (
     JudicialApiUnavailable,
     JudicialSearchOutcome,
 )
-from .services import record_event, record_history
+from .legal_correlation import (
+    LINK_AUTOMATIC,
+    PropertyProfile,
+    ProcessProfile,
+    correlate,
+    parties_from_payload,
+)
+from .services import latest_execution, record_event, record_history
 
 # Origem canônica dos processos/evidências consultados pela Judicial API.
 JUDICIAL_SOURCE = "Judicial API (DataJud)"
+
+# Códigos de sinal (judicial_api) que são PATRIMONIAIS e, quando presentes, devem
+# refletir a NECESSIDADE DE DILIGÊNCIA no checklist jurídico — nunca confirmam
+# gravame por si só (SPEC §35; itens 11/14 da task).
+_PATRIMONIAL_SIGNAL_PREFIXES = (
+    "PENHORA", "ARRESTO", "INDISPONIBILIDADE", "HIPOTECA", "ALIENACAO_FIDUCIARIA",
+    "PROPERTY_",
+)
+# Canonical keys do Checklist Mestre que recebem a pendência de diligência.
+_CHECKLIST_KEY_RESTRICAO = "PENHORA_INDISPONIBILIDADE"
+_CHECKLIST_KEY_ACAO = "ACAO_QUESTIONAMENTO"
+# Estados do checklist que NÃO devem ser sobrescritos automaticamente (confirmação
+# manual do usuário é preservada).
+_CHECKLIST_MANUAL_STATES = {"CONFIRMADO", "NAO_APLICAVEL", "RISCO_IDENTIFICADO"}
 
 # Mapeia a confiança numérica (0..1) do sinal para o vocabulário do Radar.
 def _confidence_label(value: float | None) -> str:
@@ -72,6 +93,7 @@ class JudicialConsultResult:
     search_id: str | None
     processes_created: int = 0
     processes_updated: int = 0
+    processes_relevant: int = 0
     signals_created: int = 0
     sources: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -96,6 +118,21 @@ class JudicialIntegrationService:
         outcome = self.client.search(criteria)
         return self._persist(prop, outcome)
 
+    def _build_property_profile(self, prop: models.Property) -> PropertyProfile:
+        """Monta o perfil conhecido do imóvel/proprietário para a correlação.
+
+        Reutiliza o que já existe (matrícula: titular/comarca; cidade/UF do imóvel).
+        Nada é presumido: ausência vira None (correlação NAO_CONFIRMADA)."""
+        registration = prop.registrations[-1] if getattr(prop, "registrations", None) else None
+        return PropertyProfile(
+            owner_name=getattr(registration, "holder", None),
+            owner_cpf=None,  # Property/registration não guardam CPF/CNPJ estruturado hoje.
+            owner_cnpj=None,
+            city=getattr(prop, "city", None),
+            state=getattr(prop, "state", None),
+            comarca=getattr(registration, "comarca", None),
+        )
+
     def _persist(self, prop: models.Property, outcome: JudicialSearchOutcome) -> JudicialConsultResult:
         result = JudicialConsultResult(
             status=outcome.status,
@@ -111,8 +148,12 @@ class JudicialIntegrationService:
                 select(models.LegalProcess).where(models.LegalProcess.property_id == prop.id)
             ).all()
         }
+        profile = self._build_property_profile(prop)
         now = datetime.now(timezone.utc)
         affected_ids: list[int] = []
+        # Mapa número normalizado → LegalProcess (para associar sinais ao processo).
+        process_by_number: dict[str, models.LegalProcess] = {}
+        relevant_count = 0
         for proc in outcome.processes:
             number = str(proc.get("process_number") or "").strip()
             if not number:
@@ -127,27 +168,57 @@ class JudicialIntegrationService:
             else:
                 result.processes_updated += 1
             record.court = proc.get("tribunal") or record.court
+            record.comarca = proc.get("comarca") or record.comarca
             record.subject = _first_subject(proc.get("subjects", [])) or record.subject
             record.nature = proc.get("class_name") or record.nature
             record.polo_active = polos["ativo"] or record.polo_active
             record.polo_passive = polos["passivo"] or record.polo_passive
             record.source = JUDICIAL_SOURCE
             record.consulted_at = now
+            # Correlação determinística imóvel×processo (ALTA/MEDIA/BAIXA/NAO_CONFIRMADA).
+            correlation = correlate(profile, ProcessProfile(
+                parties=parties_from_payload(proc.get("parties", [])),
+                comarca=proc.get("comarca"),
+                tribunal=proc.get("tribunal"),
+                uf=proc.get("uf"),
+            ))
+            record.correlation_level = correlation.level
+            # Vínculo via consulta automática; só vira MANUAL/VALIDADA por ação do usuário.
+            if record.link_origin not in {"MANUAL", "VALIDADA", "NAO_CONFIRMADA"}:
+                record.link_origin = LINK_AUTOMATIC
+            if correlation.level in {"ALTA", "MEDIA"}:
+                relevant_count += 1
             self.db.flush()
             affected_ids.append(record.id)
+            process_by_number[key] = record
             self._replace_movements(record, proc.get("movements", []))
 
+        # Sinais → Evidence (rastreável), vinculada ao processo correspondente, e
+        # refletida como diligência no checklist jurídico quando patrimonial.
         for signal in outcome.signals:
-            self._persist_signal(prop, signal)
+            evidence = self._persist_signal(prop, signal)
             result.signals_created += 1
+            key = _digits(signal.get("process_number"))
+            process = process_by_number.get(key)
+            if process is not None and evidence is not None:
+                self.db.add(models.EvidenceLink(
+                    evidence_id=evidence.id, target_type="LegalProcess",
+                    target_id=process.id, relation="SUSTENTA",
+                ))
+                if process.evidence_id is None:
+                    process.evidence_id = evidence.id
+            if evidence is not None and self._is_patrimonial(signal):
+                self._reflect_signal_on_checklist(prop, signal, evidence)
 
         payload = {
             "search_id": outcome.search_id,
             "status": outcome.status,
             "processos": len(outcome.processes),
+            "relevantes": relevant_count,
             "sinais": len(outcome.signals),
             "fontes": [s.get("tribunal") for s in outcome.sources],
         }
+        result.processes_relevant = relevant_count
         event = record_event(
             self.db, prop, "CONSULTA_JUDICIAL_REALIZADA", "LegalProcess",
             affected_ids[0] if affected_ids else None, payload,
@@ -155,6 +226,47 @@ class JudicialIntegrationService:
         )
         record_history(self.db, prop, "LegalProcess", affected_ids[0] if affected_ids else 0, "CONSULT", None, payload, event.id)
         return result
+
+    @staticmethod
+    def _is_patrimonial(signal: dict[str, Any]) -> bool:
+        code = str(signal.get("signal_code") or "").upper()
+        return any(code.startswith(prefix) for prefix in _PATRIMONIAL_SIGNAL_PREFIXES)
+
+    def _reflect_signal_on_checklist(self, prop: models.Property, signal: dict[str, Any], evidence: models.Evidence) -> None:
+        """Reflete um sinal patrimonial como NECESSIDADE DE DILIGÊNCIA no checklist.
+
+        Marca o item jurídico de restrição como ATENCAO (diligência pendente) e
+        vincula a evidência do sinal — NUNCA como CONFIRMADO (evidência processual
+        não confirma gravame; itens 11/14). Preserva confirmação manual existente.
+        """
+        execution = latest_execution(prop)
+        if execution is None:
+            return
+        code = str(signal.get("signal_code") or "").upper()
+        target_key = _CHECKLIST_KEY_ACAO if ("ACAO" in code or "QUESTIONAMENTO" in code) else _CHECKLIST_KEY_RESTRICAO
+        for res in execution.results:
+            item = res.item
+            if item is None or item.canonical_key != target_key:
+                continue
+            if res.state in _CHECKLIST_MANUAL_STATES:
+                return
+            res.state = "ATENCAO"
+            res.risk = (
+                "Evidência processual sugere possível restrição; validar matrícula/"
+                "documentação. A situação do imóvel NÃO está confirmada."
+            )
+            if not (res.answer or "").strip():
+                res.answer = "Diligência recomendada a partir de evidência processual."
+            self.db.flush()
+            exists = self.db.scalars(
+                select(models.ChecklistEvidence).where(
+                    models.ChecklistEvidence.checklist_result_id == res.id,
+                    models.ChecklistEvidence.evidence_id == evidence.id,
+                )
+            ).first()
+            if exists is None:
+                self.db.add(models.ChecklistEvidence(checklist_result_id=res.id, evidence_id=evidence.id))
+            return
 
     def _replace_movements(self, process: models.LegalProcess, movements: list[dict[str, Any]]) -> None:
         # Substitui os movimentos oriundos da Judicial API pela lista corrente,
@@ -176,7 +288,7 @@ class JudicialIntegrationService:
                 )
             )
 
-    def _persist_signal(self, prop: models.Property, signal: dict[str, Any]) -> None:
+    def _persist_signal(self, prop: models.Property, signal: dict[str, Any]) -> models.Evidence:
         code = signal.get("signal_code", "SINAL")
         tribunal = signal.get("tribunal")
         number = signal.get("process_number")
@@ -195,6 +307,8 @@ class JudicialIntegrationService:
             source_excerpt=f"{JUDICIAL_SOURCE} — sinal {code} (severidade {signal.get('severity')})",
         )
         self.db.add(evidence)
+        self.db.flush()
+        return evidence
 
 
 def _digits(value: str | None) -> str:

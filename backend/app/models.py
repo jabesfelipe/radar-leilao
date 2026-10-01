@@ -272,6 +272,11 @@ class LegalProcess(TimestampMixin, Base):
     consulted_at: Mapped[datetime | None] = mapped_column(DateTime)
     impact: Mapped[str | None] = mapped_column(Text)
     evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+    # Classificação do vínculo processo×imóvel (migration 0013).
+    # link_origin: AUTOMATICA | MANUAL | VALIDADA | NAO_CONFIRMADA
+    # correlation_level: ALTA | MEDIA | BAIXA | NAO_CONFIRMADA (determinístico)
+    link_origin: Mapped[str | None] = mapped_column(String(30))
+    correlation_level: Mapped[str | None] = mapped_column(String(20))
     property: Mapped[Property] = relationship(back_populates="processes")
     movements: Mapped[list["ProcessMovement"]] = relationship(back_populates="process", cascade="all, delete-orphan")
 

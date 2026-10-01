@@ -94,4 +94,67 @@ describe('ProcessSection', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Tentar novamente' }))
     await waitFor(() => expect(screen.getByRole('heading', { name: '0001234-56.2026.8.26.0100' })).toBeInTheDocument())
   })
+
+  it('exibe correlação e vínculo quando o processo vem da Judicial API', async () => {
+    const correlated = { ...legalProcess, correlation_level: 'MEDIA', link_origin: 'AUTOMATICA' }
+    vi.mocked(fetch).mockReturnValueOnce(response({ property_id: 5, processos: [correlated], historico: [] }))
+    render(<ProcessSection propertyId={5} />)
+
+    expect(await screen.findByText(/Correlação: MEDIA/)).toBeInTheDocument()
+    expect(screen.getByText('AUTOMATICA')).toBeInTheDocument()
+  })
+
+  it('pesquisa judicial exibe o resumo das fontes e processos encontrados', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ property_id: 5, processos: [], historico: [] })) // load inicial
+      .mockReturnValueOnce(response({
+        property_id: 5, disponivel: true, search_id: 'abc', processos_criados: 1,
+        processos_atualizados: 0, processos_relevantes: 1, sinais_criados: 2,
+        fontes: [{ tribunal: 'TJPR', status: 'SUCCESS' }], avisos: [],
+      })) // consultar
+      .mockReturnValueOnce(response({ property_id: 5, processos: [{ ...legalProcess, correlation_level: 'ALTA', link_origin: 'AUTOMATICA' }], historico: [] })) // reload
+
+    render(<ProcessSection propertyId={5} />)
+    await screen.findByText('Nenhum processo cadastrado')
+
+    fireEvent.click(screen.getByRole('button', { name: /Pesquisar processos/ }))
+    fireEvent.change(screen.getByLabelText('Nome da parte'), { target: { value: 'João da Silva' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Pesquisar$/ }))
+
+    expect(await screen.findByText(/Pesquisa judicial concluída/)).toBeInTheDocument()
+    expect(screen.getByText(/1 fonte\(s\) consultada\(s\)/)).toBeInTheDocument()
+    const consultCall = vi.mocked(fetch).mock.calls[1]
+    expect(consultCall[0]).toContain('/api/imoveis/5/processos/consultar')
+  })
+
+  it('pesquisa judicial avisa quando a fonte está indisponível', async () => {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ property_id: 5, processos: [], historico: [] }))
+      .mockReturnValueOnce(response({ property_id: 5, disponivel: false, mensagem: 'Judicial API indisponível; análise não interrompida.' }))
+      .mockReturnValueOnce(response({ property_id: 5, processos: [], historico: [] }))
+
+    render(<ProcessSection propertyId={5} />)
+    await screen.findByText('Nenhum processo cadastrado')
+
+    fireEvent.click(screen.getByRole('button', { name: /Pesquisar processos/ }))
+    fireEvent.change(screen.getByLabelText('Nome da parte'), { target: { value: 'João da Silva' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Pesquisar$/ }))
+
+    expect(await screen.findByText('Judicial API indisponível')).toBeInTheDocument()
+  })
+
+  it('vincula um processo ao imóvel', async () => {
+    const correlated = { ...legalProcess, correlation_level: 'MEDIA', link_origin: 'AUTOMATICA' }
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ property_id: 5, processos: [correlated], historico: [] })) // load
+      .mockReturnValueOnce(response({ property_id: 5, processo: { ...correlated, link_origin: 'VALIDADA' } })) // vincular
+      .mockReturnValueOnce(response({ property_id: 5, processos: [{ ...correlated, link_origin: 'VALIDADA' }], historico: [] })) // reload
+
+    render(<ProcessSection propertyId={5} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Vincular ao imóvel' }))
+
+    expect(await screen.findByText('Processo vinculado ao imóvel (validado).')).toBeInTheDocument()
+    const linkCall = vi.mocked(fetch).mock.calls[1]
+    expect(linkCall[0]).toContain('/juridico/processos/8/vincular')
+  })
 })

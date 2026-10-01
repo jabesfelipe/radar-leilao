@@ -1,3 +1,4 @@
+from typing import Literal
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -19,7 +20,7 @@ from .judicial_integration import JudicialIntegrationService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
-from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, latest_execution, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
+from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
 
 configure_logging()
 log = get_logger("api")
@@ -488,8 +489,9 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     # relacionamento ORM). id.desc() é desempate defensivo para mesma versão.
     latest = db.scalar(select(models.Verdict).where(models.Verdict.property_id == property_id).order_by(models.Verdict.analysis_version.desc(), models.Verdict.id.desc()))
     veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
+    juridico = juridical_overview(db, prop)
     checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
-    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "financeiro": serialize(build_finance(prop))}
+    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop))}
 
 @app.post("/api/imoveis/{property_id}/leilao")
 def add_auction(property_id: int, data: schemas.AuctionCreate, db: Session = Depends(get_db)):
@@ -613,11 +615,60 @@ def consult_judicial(property_id: int, request: JudicialConsultRequest | None = 
         "status": result.status,
         "processos_criados": result.processes_created,
         "processos_atualizados": result.processes_updated,
+        "processos_relevantes": result.processes_relevant,
         "sinais_criados": result.signals_created,
         "fontes": result.sources,
         "avisos": result.warnings,
         "reanalise": result.reanalyze,
     }
+
+
+class JudicialLinkRequest(BaseModel):
+    """Classificação manual do vínculo processo×imóvel (item 7 da task)."""
+    link_origin: Literal["MANUAL", "VALIDADA", "NAO_CONFIRMADA"] = "MANUAL"
+    observacao: str | None = None
+
+
+@app.post("/api/imoveis/{property_id}/juridico/processos/{process_id}/vincular")
+def link_judicial_process(property_id: int, process_id: int, data: JudicialLinkRequest | None = None, db: Session = Depends(get_db)):
+    """Vincula/valida manualmente um processo ao imóvel, registrando a origem do
+    vínculo (MANUAL/VALIDADA/NAO_CONFIRMADA). Preserva a correlação determinística
+    já calculada (não a sobrescreve) e emite evento para a reanálise incremental."""
+    prop = property_or_404(db, property_id)
+    process = db.get(models.LegalProcess, process_id)
+    if not process or process.property_id != property_id:
+        raise HTTPException(404, "Processo não encontrado para o imóvel")
+    data = data or JudicialLinkRequest()
+    before = {"link_origin": process.link_origin, "observations": process.observations}
+    process.link_origin = data.link_origin
+    if data.observacao:
+        process.observations = data.observacao
+    db.flush()
+    payload = {"process_id": process.id, "link_origin": process.link_origin, "correlation_level": process.correlation_level}
+    event = record_event(db, prop, "PROCESSO_VINCULADO", "LegalProcess", process.id, payload, ["juridico", "checklist"])
+    record_history(db, prop, "LegalProcess", process.id, "UPDATE", before, payload, event.id)
+    db.commit(); db.refresh(process)
+    return {"property_id": prop.id, "processo": process, "evento_id": event.id}
+
+
+@app.get("/api/imoveis/{property_id}/juridico/riscos")
+def list_juridical_risks(property_id: int, db: Session = Depends(get_db)):
+    """Riscos jurídicos persistidos do imóvel (categoria juridico), legíveis."""
+    property_or_404(db, property_id)
+    risks = db.scalars(select(models.Risk).where(models.Risk.property_id == property_id).order_by(models.Risk.analysis_version, models.Risk.id)).all()
+    juridicos = [r for r in risks if str(r.category or "").lower() == "juridico"]
+    return {"property_id": property_id, "riscos": juridicos}
+
+
+@app.get("/api/imoveis/{property_id}/juridico/evidencias")
+def list_juridical_evidences(property_id: int, db: Session = Depends(get_db)):
+    """Evidências jurídicas (category=JURIDICO) com rastreabilidade legível."""
+    property_or_404(db, property_id)
+    evidences = db.scalars(select(models.Evidence).where(models.Evidence.property_id == property_id, models.Evidence.category == "JURIDICO").order_by(models.Evidence.id)).all()
+    return {"property_id": property_id, "evidencias": [
+        {"id": e.id, "fato": e.fact, "interpretacao": e.interpretation, "hipotese": e.hypothesis, "confianca": e.confidence, "origem": e.source_excerpt}
+        for e in evidences
+    ]}
 
 @app.patch("/api/imoveis/{property_id}/checklist/{item_id}")
 def update_checklist(property_id: int, item_id: int, data: schemas.ChecklistUpdate, db: Session = Depends(get_db)):

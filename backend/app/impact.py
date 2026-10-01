@@ -21,6 +21,8 @@ EVENT_IMPACTS: dict[str, tuple[str, ...]] = {
     "EDITAL_CADASTRADO": ("documental", "juridico", "financeiro", "checklist"),
     "EDITAL_EXTRAIDO": ("documental", "juridico", "financeiro", "checklist"),
     "PROCESSO_ADICIONADO": ("juridico", "checklist", "financeiro"),
+    "CONSULTA_JUDICIAL_REALIZADA": ("juridico", "checklist"),
+    "PROCESSO_VINCULADO": ("juridico", "checklist"),
     "DIVIDA_ADICIONADA": ("financeiro", "checklist"),
     "CUSTO_ADICIONADO": ("financeiro", "checklist"),
     "COMPARAVEL_ADICIONADO": ("mercado", "financeiro"),
