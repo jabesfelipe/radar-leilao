@@ -359,14 +359,16 @@ No fechamento da Task 74.1:
 
 ### Atualização (Tasks 2–5, 30/09/2026)
 
-Após as tasks financeiras e a integração judicial, a suíte backend cresceu:
-- **526 passed, 2 skipped** (os 2 skips são os testes reais do DataJud, gated por
+Após as tasks financeiras, a integração judicial e a correção `788d749` (seleção
+determinística do leilão corrente), a suíte backend está em:
+- **527 passed, 2 skipped** (os 2 skips são os testes reais do DataJud, gated por
   `RUN_REAL_DATAJUD_TESTS`), rodando no container com PostgreSQL real e sem LLM/rede.
+  Validação de fechamento mais recente em `PROJECT-STATUS` §21.
 - Cobertura financeira: `tests/test_finance.py` (motor, incl. preço máximo
   definitivo × provisório), `tests/test_finance_assumptions.py` (persistência de
-  premissas + build_finance + endpoints) e `tests/test_e2e_financeiro.py` (Task 5 —
-  fluxo financeiro E2E pela camada HTTP real: premissas → PostgreSQL → resultado,
-  12 testes de integração).
+  premissas + build_finance + endpoints) e `tests/test_e2e_financeiro.py` (fluxo
+  financeiro E2E pela camada HTTP real: premissas → PostgreSQL → resultado, incl.
+  cenário de múltiplos leilões).
 - **E2E de navegador (UI real) NÃO é automatizado**: o frontend não possui
   Playwright/Cypress; a validação de UI é manual (ver `PROJECT-STATUS` §20.6). Os
   testes HTTP não substituem a validação manual do fluxo no navegador.

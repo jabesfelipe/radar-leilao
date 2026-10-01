@@ -1,11 +1,11 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: TASK 5 INTEGRADA — testes financeiros HTTP reportados como aprovados; validação manual E2E pela UI pendente; MVP ainda não encerrado**
+**Status global: VALIDAÇÃO DE FECHAMENTO EXECUTADA — testes automatizados verdes e correção financeira (commit 788d749) confirmados; E2E de NAVEGADOR não executável neste ambiente; MVP ainda NÃO encerrado**
 
 **Última atualização:** 30/09/2026  
-**Última implementação:** Task 5 — testes de integração financeira pela camada HTTP, cobrindo premissas, persistência, resultado e snapshot histórico
+**Última implementação:** correção da seleção determinística do leilão corrente (commit `788d749`), com teste de regressão multi-leilão; validação de fechamento registrada na §21.
 
-**Próximo passo:** atualizar a cópia local, executar E2E manual pela UI (premissas → cálculo → persistência/recarga → preço máximo definitivo/provisório → histórico) e registrar evidências. Até lá, o MVP NÃO é declarado encerrado.
+**Próximo passo (impeditivo do encerramento):** executar o E2E financeiro pela INTERFACE em um navegador real e registrar as evidências. Não há automação de navegador (Playwright/Cypress) no projeto, então essa validação permanece manual. Até ela ser concluída e registrada, o MVP NÃO é declarado encerrado.
 
 > **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está no cabeçalho e nas seções das Tasks 4 e 5 (última implementação registrada); as seções anteriores preservam o histórico. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
 
@@ -1116,3 +1116,65 @@ das premissas à persistência e apresentação. Histórico preservado.
 Nenhuma migration, regra de negócio, contrato ou infraestrutura foi alterado. Nenhum
 dado real de imóvel foi tocado (isolamento por transação/rollback). O MVP **não** é
 declarado encerrado enquanto a validação E2E manual da UI não for executada.
+
+
+---
+
+## 21. VALIDAÇÃO DE FECHAMENTO DO MVP — 30/09/2026
+
+Rodada de validação para decidir o fechamento do MVP após as Tasks 2–5 e a
+correção `788d749`. Nenhuma regra de negócio foi alterada; o histórico anterior é
+preservado. O estado abaixo é o autoritativo.
+
+### 21.1 Ambiente e sincronização
+- Branch `main`, HEAD `788d749` (fix da seleção determinística do leilão corrente),
+  sincronizado com `origin/main` (`git pull --ff-only` = *Already up to date*).
+- Containers Docker saudáveis: `backend` (8000), `frontend` (5173), `judicial_api`
+  (8010), `postgres` (5432); `/health` dos três serviços = 200. O backend em
+  execução contém o código atual (imagem rebuildada com `788d749`).
+- Migration head aplicada no banco: `0012_premissas_financeiras`.
+
+### 21.2 Testes automatizados (evidência real desta rodada)
+- Backend (container, PostgreSQL real, sem LLM/rede): **527 passed, 2 skipped, 0
+  falhas**. Os 2 skips são os testes reais do DataJud (gated por
+  `RUN_REAL_DATAJUD_TESTS`). O total subiu de 526 → 527 pelo teste de regressão
+  multi-leilão adicionado com a correção `788d749`.
+- Financeiro (`test_finance.py`, `test_finance_assumptions.py`,
+  `test_e2e_financeiro.py`): **54 passed**, incluindo o cenário de múltiplos leilões.
+- Frontend: `tsc --noEmit` sem erros; `vitest run` = **90 passed (16 arquivos)**.
+  (Registros anteriores citavam 95; o número real atual é 90.)
+
+### 21.3 E2E financeiro de NAVEGADOR — NÃO EXECUTÁVEL (pendência impeditiva)
+- O projeto não possui automação de navegador: `frontend/package.json` traz apenas
+  `vitest` + `@testing-library` sobre `jsdom`; **não há Playwright/Cypress/Puppeteer/
+  Selenium/WebdriverIO** nem script e2e. Testes jsdom/HTTP não contam como E2E de
+  navegador.
+- Portanto, o fluxo financeiro **no navegador** não foi validado nesta rodada.
+  Permanece como **validação manual** (passos na §20.6). Não foi simulado.
+
+### 21.4 E2E real da Caixa — imóvel 633 (inspeção, sem nova análise)
+- `OPENAI_API_KEY` presente e `LLM_MODEL=gpt-4o-mini` (LLM configurado).
+- Imóvel 633 (COND PARQUE ARVOREDO RESIDENCIAL CLUBE): histórico **V1–V9
+  preservado**; Checklist V9 = **10 CONFIRMADO / 17 PENDENTE** (27); Veredito V9 com
+  **18 pendências** e **34 evidências** legíveis — coerente com `IMPLEMENTATION-REFERENCE`
+  §14 e §15.
+- **Nenhuma nova análise real foi executada.** A V9 real já existe e comprova o fluxo
+  ponta a ponta; re-executar criaria uma V10, gastaria tokens pagos e alteraria dados
+  reais sem necessidade — contrariando a diretriz de não repetir análises reais.
+
+### 21.5 Correções desta campanha
+- Único defeito reproduzido: seleção **não-determinística** do leilão corrente
+  (`prop.auctions[-1]`), corrigido no commit `788d749` com helper
+  `services.current_auction` (maior `id`) e teste de regressão multi-leilão. Nenhum
+  defeito novo foi reproduzido nesta rodada de fechamento.
+
+### 21.6 Critérios de encerramento
+| Critério | Situação |
+|---|---|
+| Testes atuais aprovados (backend/frontend/tsc) | **Atendido** (527/2 skip; 90; tsc OK) |
+| Fluxo financeiro de **navegador** validado | **NÃO atendido** (sem automação de navegador; validação manual pendente) |
+| Análise real revalidada **ou** limitações registradas | **Atendido por registro** (V9 real inspecionada e consistente; nova análise não executada por decisão) |
+| Documentação fiel às evidências | **Atendido** (esta seção) |
+
+**Conclusão:** o MVP **NÃO** é declarado encerrado nesta rodada. Pendência
+impeditiva única: **validação E2E do fluxo financeiro em navegador real** (§20.6).

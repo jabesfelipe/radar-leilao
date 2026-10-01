@@ -1900,3 +1900,26 @@ margem/ROI e inviável; validações 422/404).
 - Esta entrada NÃO declara o MVP encerrado (E2E manual da UI segue pendente).
 
 Nenhuma migration/regra/contrato/infra alterado; nenhum dado real tocado.
+
+
+## Validação de fechamento do MVP (30/09/2026)
+
+Rodada de validação para decidir o fechamento do MVP após as Tasks 2–5 e o commit
+`788d749` (fix da seleção determinística do leilão corrente). Detalhes e evidências
+em PROJECT-STATUS §21.
+
+### Evidências reais desta rodada
+- Git: `main` em `788d749`, sincronizado com `origin/main`; containers saudáveis;
+  migration head `0012_premissas_financeiras`.
+- Backend: `pytest` = 527 passed, 2 skipped (DataJud real gated). Financeiro
+  (finance + finance_assumptions + e2e_financeiro) = 54 passed, incl. multi-leilão.
+- Frontend: `tsc --noEmit` OK; `vitest run` = 90 passed (16 arquivos). Correção de
+  registro: o número real é 90 (não 95, como constava).
+- Imóvel real 633: histórico V1–V9 preservado; Checklist V9 10/17; Veredito V9 com
+  18 pendências e 34 evidências. Nenhuma nova análise real foi executada (V9 já
+  existe; evitado gasto de tokens e alteração de dados reais).
+
+### Resultado
+- E2E de **navegador** não é executável (sem Playwright/Cypress) — pendência
+  impeditiva única do encerramento. MVP **não** declarado encerrado.
+- Nenhum defeito novo reproduzido; nenhuma alteração de regra de negócio.
