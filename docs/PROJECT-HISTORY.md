@@ -1985,7 +1985,7 @@ Detalhes e evidências em PROJECT-STATUS §23.
   validação de UI permanece manual.
 
 
-## TASK 75.1 — Correções finais de segurança, UI e validação (20/09/2026)
+## TASK 75.1 — Correções finais de segurança, UI e validação (02/10/2026)
 
 Fechamento dos GAPs da Task 75 sem tocar arquitetura/engines nem as 27 canonical keys;
 imóvel 633 preservado (V1–V9, sem V10, sem LLM).
