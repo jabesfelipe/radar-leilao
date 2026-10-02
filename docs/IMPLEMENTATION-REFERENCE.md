@@ -483,7 +483,7 @@ O commit da Task 4 registra resultados reportados de 514 testes backend aprovado
 
 ---
 
-## 18. Segurança de credenciais de portal — Task 75.1 (20/09/2026)
+## 18. Segurança de credenciais de portal — Task 75.1 (02/10/2026)
 
 ### Arquivos principais
 
