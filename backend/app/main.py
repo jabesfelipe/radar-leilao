@@ -1,4 +1,6 @@
 from typing import Literal
+from datetime import date, datetime
+from decimal import Decimal
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -20,7 +22,7 @@ from .judicial_integration import JudicialIntegrationService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
-from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, serialize, update_checklist_item)
+from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item)
 
 configure_logging()
 log = get_logger("api")
@@ -47,6 +49,22 @@ def list_properties(db: Session = Depends(get_db)):
 @app.post("/api/imoveis", response_model=schemas.PropertyOut)
 def create_property(data: schemas.PropertyCreate, db: Session = Depends(get_db)):
     prop = models.Property(**data.model_dump()); db.add(prop); db.flush(); ensure_checklist_master(db); create_execution(db, prop, "CADASTRO"); record_event(db, prop, "IMOVEL_CADASTRADO", "Property", prop.id, data.model_dump(mode="json"), ["documental", "financeiro", "juridico", "mercado", "checklist"]); db.commit(); db.refresh(prop); return prop
+
+@app.patch("/api/imoveis/{property_id}", response_model=schemas.PropertyOut)
+def update_property(property_id: int, data: schemas.PropertyUpdate, db: Session = Depends(get_db)):
+    """Edita dados CADASTRAIS do imóvel (TASK 75.2). Histórico before/after + evento
+    com domínios afetados. NÃO cria análise nem executa LLM; a reanálise incremental
+    só é acionada pela regra de impacto existente (endpoint /reanalisar)."""
+    prop = property_or_404(db, property_id)
+    before = _snapshot(prop, PROPERTY_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(prop, changes)
+    db.flush()
+    after = _snapshot(prop, PROPERTY_FIELDS)
+    event = record_event(db, prop, "IMOVEL_ATUALIZADO", "Property", prop.id, {"changes": list(changes.keys())}, ["documental", "financeiro", "juridico", "mercado", "checklist"])
+    record_history(db, prop, "Property", prop.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(prop)
+    return prop
 
 @app.post("/api/imoveis/completo", status_code=201)
 def create_property_full(data: schemas.PropertyFullCreate, db: Session = Depends(get_db)):
@@ -257,6 +275,24 @@ def list_registrations(property_id: int, db: Session = Depends(get_db)):
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "PropertyRegistration").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
 
+@app.patch("/api/imoveis/{property_id}/matricula/{registration_id}")
+def update_registration(property_id: int, registration_id: int, data: schemas.RegistrationUpdate, db: Session = Depends(get_db)):
+    """Edita os metadados cadastrais da matrícula (TASK 75.2). Histórico before/after
+    + evento. Documentos anexos NÃO são sobrescritos (versionamento documental à parte)."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.PropertyRegistration, registration_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Matrícula não encontrada para o imóvel")
+    before = _snapshot(item, REGISTRATION_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(item, changes)
+    db.flush()
+    after = _snapshot(item, REGISTRATION_FIELDS)
+    event = record_event(db, prop, "MATRICULA_ATUALIZADA", "PropertyRegistration", item.id, {"changes": list(changes.keys())}, ["juridico", "checklist"])
+    record_history(db, prop, "PropertyRegistration", item.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(item)
+    return {"matricula": item, "evento_id": event.id}
+
 @app.post("/api/imoveis/{property_id}/edital")
 def create_notice(property_id: int, data: schemas.AuctionNoticeCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
@@ -272,6 +308,24 @@ def list_notices(property_id: int, db: Session = Depends(get_db)):
     records = db.scalars(select(models.AuctionNotice).where(models.AuctionNotice.property_id == property_id).order_by(models.AuctionNotice.created_at)).all()
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "AuctionNotice").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
+
+@app.patch("/api/imoveis/{property_id}/edital/{notice_id}")
+def update_notice(property_id: int, notice_id: int, data: schemas.AuctionNoticeUpdate, db: Session = Depends(get_db)):
+    """Edita os metadados cadastrais do edital (TASK 75.2). Histórico before/after +
+    evento. O documento original NÃO é sobrescrito (versionamento documental à parte)."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.AuctionNotice, notice_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Edital não encontrado para o imóvel")
+    before = _snapshot(item, NOTICE_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(item, changes)
+    db.flush()
+    after = _snapshot(item, NOTICE_FIELDS)
+    event = record_event(db, prop, "EDITAL_ATUALIZADO", "AuctionNotice", item.id, {"changes": list(changes.keys())}, ["documental", "juridico", "financeiro", "checklist"])
+    record_history(db, prop, "AuctionNotice", item.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(item)
+    return {"edital": item, "evento_id": event.id}
 
 @app.post("/api/imoveis/{property_id}/documentos/{document_version_id}/extrair")
 def extract_document_endpoint(property_id: int, document_version_id: int, data: schemas.DocumentExtractionRequest, db: Session = Depends(get_db)):
@@ -493,9 +547,67 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
     return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop))}
 
+# ============================================================================
+# TASK 75.2 — Helpers de CRUD cadastral com histórico/evento.
+# Convenção: dado cadastral/factual é editável e gera EntityHistory (before/after)
+# + DomainEvent (com domínios afetados). NÃO cria análise automaticamente. O
+# resultado financeiro é SEMPRE recalculado pelo motor determinístico (nunca
+# editado à mão). Nenhum segredo (ex.: credencial de portal) entra em before/after.
+# ============================================================================
+def _snapshot(obj, fields: list[str]) -> dict:
+    """Snapshot JSON-serializável dos campos cadastrais de um registro ORM."""
+    out: dict = {}
+    for f in fields:
+        v = getattr(obj, f, None)
+        if isinstance(v, Decimal):
+            v = str(v)
+        elif isinstance(v, (date, datetime)):
+            v = v.isoformat()
+        out[f] = v
+    return out
+
+
+COST_FIELDS = ["category", "description", "amount", "recurring"]
+DEBT_FIELDS = ["category", "creditor", "amount", "reference_date", "status", "evidence_id"]
+COMPARABLE_FIELDS = ["kind", "price", "rent", "area_m2", "source", "url"]
+PROCESS_FIELDS = ["number", "court", "comarca", "nature", "subject", "status", "polo_active", "polo_passive", "distribution_date", "observations", "source", "impact"]
+REGISTRATION_FIELDS = ["registration_number", "registry_office", "comarca", "consultation_date", "holder", "observations", "document_version_id"]
+NOTICE_FIELDS = ["identifier", "item", "notice_date", "auction_stage", "appraisal_value", "minimum_value", "auction_date", "auctioneer", "observations"]
+PROPERTY_FIELDS = ["title", "address", "city", "state", "property_type", "neighborhood", "area_m2", "private_area_m2", "bedrooms", "parking_spots", "description", "origin", "origin_property_code", "inscription", "modality", "system", "status"]
+AUCTION_FIELDS = ["auction_date", "auction_stage", "appraisal_value", "bid_value", "first_auction_date", "first_auction_value", "second_auction_date", "second_auction_value", "acquisition_value", "commission_percent", "commission_fixed", "auctioneer", "notice_url"]
+AUCTIONEER_FIELDS = ["name", "document", "company", "registration", "phone", "email", "website", "address", "observations", "status"]
+# PORTAL: `secret` JAMAIS entra no snapshot. Só `has_secret` representa a credencial.
+PORTAL_FIELDS = ["portal", "url", "username", "access_type", "two_factor_enabled", "observations", "status"]
+AUCTIONEER_DOC_FIELDS = ["doc_type", "name", "file_path", "version", "observations"]
+
+
+def _apply_updates(obj, changes: dict) -> None:
+    for key, value in changes.items():
+        setattr(obj, key, value)
+
+
 @app.post("/api/imoveis/{property_id}/leilao")
 def add_auction(property_id: int, data: schemas.AuctionCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id); auction = models.Auction(property_id=property_id, **data.model_dump()); db.add(auction); db.flush(); event = record_event(db, prop, "LEILAO_ATUALIZADO", "Auction", auction.id, data.model_dump(mode="json"), ["financeiro", "checklist"]); record_history(db, prop, "Auction", auction.id, "CREATE", None, data.model_dump(mode="json"), event.id); db.commit(); return auction
+
+@app.patch("/api/imoveis/{property_id}/leilao/{auction_id}")
+def update_auction(property_id: int, auction_id: int, data: schemas.AuctionUpdate, db: Session = Depends(get_db)):
+    """Edita dados cadastrais do leilão (TASK 75.2). Gera histórico before/after e
+    evento LEILAO_ATUALIZADO com domínios afetados. NÃO cria análise nem LLM; o
+    financeiro é recalculado pelo motor determinístico e devolvido na resposta."""
+    prop = property_or_404(db, property_id)
+    auction = db.get(models.Auction, auction_id)
+    if not auction or auction.property_id != property_id:
+        raise HTTPException(404, "Leilão não encontrado para o imóvel")
+    before = _snapshot(auction, AUCTION_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(auction, changes)
+    db.flush()
+    after = _snapshot(auction, AUCTION_FIELDS)
+    event = record_event(db, prop, "LEILAO_ATUALIZADO", "Auction", auction.id, {"changes": list(changes.keys())}, ["financeiro", "checklist"])
+    record_history(db, prop, "Auction", auction.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(auction)
+    return {"leilao": auction, "financeiro": serialize(build_finance(prop)), "evento_id": event.id}
 
 @app.post("/api/imoveis/{property_id}/custos")
 def add_cost(property_id: int, data: schemas.CostCreate, db: Session = Depends(get_db)):
@@ -515,6 +627,38 @@ def list_costs(property_id: int, db: Session = Depends(get_db)):
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "Cost").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "custos": costs, "historico": history}
 
+@app.patch("/api/imoveis/{property_id}/custos/{cost_id}")
+def update_cost(property_id: int, cost_id: int, data: schemas.CostUpdate, db: Session = Depends(get_db)):
+    """Edita um custo (TASK 75.2). Histórico before/after + evento; recalcula o
+    financeiro (pendências, preço máximo, definitivo/provisório). Não cria análise."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.Cost, cost_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Custo não encontrado para o imóvel")
+    before = _snapshot(item, COST_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(item, changes)
+    db.flush()
+    after = _snapshot(item, COST_FIELDS)
+    event = record_event(db, prop, "CUSTO_ATUALIZADO", "Cost", item.id, {"changes": list(changes.keys())}, ["financeiro", "checklist"])
+    record_history(db, prop, "Cost", item.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(item)
+    return {"custo": item, "financeiro": serialize(build_finance(prop)), "evento_id": event.id}
+
+@app.delete("/api/imoveis/{property_id}/custos/{cost_id}")
+def delete_cost(property_id: int, cost_id: int, db: Session = Depends(get_db)):
+    """Exclui um custo (dado cadastral, pode ser excluído). Preserva histórico
+    (DELETE em EntityHistory) + evento e recalcula o financeiro."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.Cost, cost_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Custo não encontrado para o imóvel")
+    before = _snapshot(item, COST_FIELDS)
+    event = record_event(db, prop, "CUSTO_REMOVIDO", "Cost", item.id, before, ["financeiro", "checklist"])
+    record_history(db, prop, "Cost", item.id, "DELETE", before, None, event.id)
+    db.delete(item); db.commit()
+    return {"property_id": property_id, "removido": cost_id, "financeiro": serialize(build_finance(prop)), "evento_id": event.id}
+
 @app.post("/api/imoveis/{property_id}/dividas")
 def add_debt(property_id: int, data: schemas.DebtCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
@@ -533,9 +677,89 @@ def list_debts(property_id: int, db: Session = Depends(get_db)):
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "Debt").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "dividas": debts, "historico": history}
 
+@app.patch("/api/imoveis/{property_id}/dividas/{debt_id}")
+def update_debt(property_id: int, debt_id: int, data: schemas.DebtUpdate, db: Session = Depends(get_db)):
+    """Edita uma dívida (TASK 75.2). Histórico before/after + evento; recalcula o
+    financeiro/pendências. Não cria análise automaticamente."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.Debt, debt_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Dívida não encontrada para o imóvel")
+    before = _snapshot(item, DEBT_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(item, changes)
+    db.flush()
+    after = _snapshot(item, DEBT_FIELDS)
+    event = record_event(db, prop, "DIVIDA_ATUALIZADA", "Debt", item.id, {"changes": list(changes.keys())}, ["financeiro", "checklist"])
+    record_history(db, prop, "Debt", item.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(item)
+    return {"divida": item, "financeiro": serialize(build_finance(prop)), "evento_id": event.id}
+
+@app.delete("/api/imoveis/{property_id}/dividas/{debt_id}")
+def delete_debt(property_id: int, debt_id: int, db: Session = Depends(get_db)):
+    """Exclui uma dívida (dado cadastral). Preserva histórico + evento e recalcula."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.Debt, debt_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Dívida não encontrada para o imóvel")
+    before = _snapshot(item, DEBT_FIELDS)
+    event = record_event(db, prop, "DIVIDA_REMOVIDA", "Debt", item.id, before, ["financeiro", "checklist"])
+    record_history(db, prop, "Debt", item.id, "DELETE", before, None, event.id)
+    db.delete(item); db.commit()
+    return {"property_id": property_id, "removido": debt_id, "financeiro": serialize(build_finance(prop)), "evento_id": event.id}
+
 @app.post("/api/imoveis/{property_id}/comparaveis")
 def add_comparable(property_id: int, data: schemas.ComparableCreate, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id); item = models.MarketComparable(property_id=property_id, **data.model_dump()); db.add(item); db.flush(); record_event(db, prop, "COMPARAVEL_ADICIONADO", "MarketComparable", item.id, data.model_dump(mode="json"), impacted_domains("COMPARAVEL_ADICIONADO")); db.commit(); return item
+    prop = property_or_404(db, property_id)
+    item = models.MarketComparable(property_id=property_id, **data.model_dump())
+    db.add(item); db.flush()
+    payload = data.model_dump(mode="json")
+    # TASK 75.2: comparável passa a registrar EntityHistory (antes só havia evento).
+    event = record_event(db, prop, "COMPARAVEL_ADICIONADO", "MarketComparable", item.id, payload, impacted_domains("COMPARAVEL_ADICIONADO"))
+    record_history(db, prop, "MarketComparable", item.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(item)
+    return item
+
+@app.get("/api/imoveis/{property_id}/comparaveis")
+def list_comparables(property_id: int, db: Session = Depends(get_db)):
+    """Lista comparáveis + histórico de alterações (TASK 75.2)."""
+    prop = property_or_404(db, property_id)
+    comparables = db.scalars(select(models.MarketComparable).where(models.MarketComparable.property_id == property_id).order_by(models.MarketComparable.created_at)).all()
+    history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "MarketComparable").order_by(models.EntityHistory.created_at)).all()
+    return {"property_id": prop.id, "comparaveis": comparables, "historico": history}
+
+@app.patch("/api/imoveis/{property_id}/comparaveis/{comparable_id}")
+def update_comparable(property_id: int, comparable_id: int, data: schemas.ComparableUpdate, db: Session = Depends(get_db)):
+    """Edita um comparável (TASK 75.2). Histórico before/after + evento; recalcula a
+    visão de mercado e o financeiro. Não altera análises históricas."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.MarketComparable, comparable_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Comparável não encontrado para o imóvel")
+    before = _snapshot(item, COMPARABLE_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(item, changes)
+    db.flush()
+    after = _snapshot(item, COMPARABLE_FIELDS)
+    event = record_event(db, prop, "COMPARAVEL_ATUALIZADO", "MarketComparable", item.id, {"changes": list(changes.keys())}, ["mercado", "financeiro"])
+    record_history(db, prop, "MarketComparable", item.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(item)
+    comparables = [{"kind": c.kind, "price": c.price, "rent": c.rent, "area_m2": c.area_m2} for c in prop.comparables]
+    return {"comparavel": item, "mercado": calculate_market(comparables), "financeiro": serialize(build_finance(prop)), "evento_id": event.id}
+
+@app.delete("/api/imoveis/{property_id}/comparaveis/{comparable_id}")
+def delete_comparable(property_id: int, comparable_id: int, db: Session = Depends(get_db)):
+    """Exclui um comparável (dado cadastral). Preserva histórico + evento e recalcula."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.MarketComparable, comparable_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Comparável não encontrado para o imóvel")
+    before = _snapshot(item, COMPARABLE_FIELDS)
+    event = record_event(db, prop, "COMPARAVEL_REMOVIDO", "MarketComparable", item.id, before, ["mercado", "financeiro"])
+    record_history(db, prop, "MarketComparable", item.id, "DELETE", before, None, event.id)
+    db.delete(item); db.commit()
+    comparables = [{"kind": c.kind, "price": c.price, "rent": c.rent, "area_m2": c.area_m2} for c in prop.comparables]
+    return {"property_id": property_id, "removido": comparable_id, "mercado": calculate_market(comparables), "evento_id": event.id}
 
 @app.post("/api/imoveis/{property_id}/processos")
 def add_process(property_id: int, data: schemas.ProcessCreate, db: Session = Depends(get_db)):
@@ -554,6 +778,41 @@ def list_processes(property_id: int, db: Session = Depends(get_db)):
     processes = db.scalars(select(models.LegalProcess).where(models.LegalProcess.property_id == property_id).order_by(models.LegalProcess.created_at)).all()
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "LegalProcess").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "processos": processes, "historico": history}
+
+@app.patch("/api/imoveis/{property_id}/processos/{process_id}")
+def update_process(property_id: int, process_id: int, data: schemas.ProcessUpdate, db: Session = Depends(get_db)):
+    """Edita os dados CADASTRAIS de um processo (TASK 75.2). Histórico before/after +
+    evento. NÃO edita movimentações (append-only) nem a correlação determinística
+    (link_origin/correlation_level permanecem geridos pelo fluxo jurídico)."""
+    prop = property_or_404(db, property_id)
+    item = db.get(models.LegalProcess, process_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Processo não encontrado para o imóvel")
+    before = _snapshot(item, PROCESS_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(item, changes)
+    db.flush()
+    after = _snapshot(item, PROCESS_FIELDS)
+    event = record_event(db, prop, "PROCESSO_ATUALIZADO", "LegalProcess", item.id, {"changes": list(changes.keys())}, ["juridico", "checklist"])
+    record_history(db, prop, "LegalProcess", item.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(item)
+    return {"processo": item, "evento_id": event.id}
+
+@app.post("/api/imoveis/{property_id}/processos/{process_id}/movimentacoes")
+def add_process_movement(property_id: int, process_id: int, data: schemas.ProcessMovementCreate, db: Session = Depends(get_db)):
+    """Adiciona uma movimentação processual (APPEND-ONLY — TASK 75.2 §8/§D). Um novo
+    andamento é SEMPRE um novo registro; movimentações não são editadas/sobrescritas."""
+    prop = property_or_404(db, property_id)
+    process = db.get(models.LegalProcess, process_id)
+    if not process or process.property_id != property_id:
+        raise HTTPException(404, "Processo não encontrado para o imóvel")
+    movement = models.ProcessMovement(process_id=process_id, **data.model_dump())
+    db.add(movement); db.flush()
+    payload = {"process_id": process_id, **data.model_dump(mode="json")}
+    event = record_event(db, prop, "MOVIMENTACAO_PROCESSUAL_ADICIONADA", "ProcessMovement", movement.id, payload, ["juridico", "checklist"])
+    record_history(db, prop, "ProcessMovement", movement.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(movement)
+    return {"process_id": process_id, "movimentacao": {"id": movement.id, "movement_date": movement.movement_date, "description": movement.description, "source": movement.source}, "evento_id": event.id}
 
 
 class JudicialConsultRequest(BaseModel):
@@ -868,6 +1127,14 @@ def _auctioneer_doc_out(d: models.AuctioneerDocument) -> dict:
             "file_path": d.file_path, "version": d.version, "observations": d.observations, "created_at": d.created_at}
 
 
+def _portal_history_snapshot(p: models.PortalAccess) -> dict:
+    """Snapshot do portal para EntityHistory/evento. NUNCA inclui `secret` —
+    apenas `has_secret` representa a existência da credencial (TASK 75.1/75.2)."""
+    snap = _snapshot(p, PORTAL_FIELDS)
+    snap["has_secret"] = bool(p.secret)
+    return snap
+
+
 def auctioneer_or_404(db: Session, auctioneer_id: int) -> models.Auctioneer:
     a = db.get(models.Auctioneer, auctioneer_id)
     if not a:
@@ -884,7 +1151,11 @@ def list_auctioneers(db: Session = Depends(get_db)):
 @app.post("/api/leiloeiros", status_code=201)
 def create_auctioneer(data: schemas.AuctioneerCreate, db: Session = Depends(get_db)):
     a = models.Auctioneer(**data.model_dump())
-    db.add(a); db.commit(); db.refresh(a)
+    db.add(a); db.flush()
+    # TASK 75.2: leiloeiro passa a registrar evento + histórico (sem imóvel associado).
+    event = record_global_event(db, "LEILOEIRO_CADASTRADO", "Auctioneer", a.id, data.model_dump(mode="json"), ["leiloeiros"])
+    record_global_history(db, "Auctioneer", a.id, "CREATE", None, _snapshot(a, AUCTIONEER_FIELDS), event.id)
+    db.commit(); db.refresh(a)
     return _auctioneer_out(a, with_children=True)
 
 
@@ -893,13 +1164,51 @@ def get_auctioneer(auctioneer_id: int, db: Session = Depends(get_db)):
     return _auctioneer_out(auctioneer_or_404(db, auctioneer_id), with_children=True)
 
 
+@app.get("/api/leiloeiros/{auctioneer_id}/historico")
+def auctioneer_history(auctioneer_id: int, db: Session = Depends(get_db)):
+    """Histórico de alterações do leiloeiro, portais e documentos (sem segredos)."""
+    auctioneer_or_404(db, auctioneer_id)
+    portal_ids = [p.id for p in db.scalars(select(models.PortalAccess).where(models.PortalAccess.auctioneer_id == auctioneer_id)).all()]
+    doc_ids = [d.id for d in db.scalars(select(models.AuctioneerDocument).where(models.AuctioneerDocument.auctioneer_id == auctioneer_id)).all()]
+    rows = db.scalars(
+        select(models.EntityHistory)
+        .where(models.EntityHistory.property_id.is_(None))
+        .order_by(models.EntityHistory.created_at)
+    ).all()
+    hist = [h for h in rows if (h.entity_type == "Auctioneer" and h.entity_id == auctioneer_id)
+            or (h.entity_type == "PortalAccess" and h.entity_id in portal_ids)
+            or (h.entity_type == "AuctioneerDocument" and h.entity_id in doc_ids)]
+    return {"auctioneer_id": auctioneer_id, "alteracoes": hist}
+
+
 @app.patch("/api/leiloeiros/{auctioneer_id}")
 def update_auctioneer(auctioneer_id: int, data: schemas.AuctioneerUpdate, db: Session = Depends(get_db)):
     a = auctioneer_or_404(db, auctioneer_id)
-    for key, value in data.model_dump(exclude_unset=True).items():
-        setattr(a, key, value)
+    before = _snapshot(a, AUCTIONEER_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(a, changes)
+    db.flush()
+    after = _snapshot(a, AUCTIONEER_FIELDS)
+    event = record_global_event(db, "LEILOEIRO_ATUALIZADO", "Auctioneer", a.id, {"changes": list(changes.keys())}, ["leiloeiros"])
+    record_global_history(db, "Auctioneer", a.id, "UPDATE", before, after, event.id)
     db.commit(); db.refresh(a)
     return _auctioneer_out(a, with_children=True)
+
+
+@app.delete("/api/leiloeiros/{auctioneer_id}")
+def delete_auctioneer(auctioneer_id: int, db: Session = Depends(get_db)):
+    """Exclui um leiloeiro e seus portais/documentos (cascade). Registra histórico/
+    evento sem segredos. Se estiver associado a algum leilão, a associação é
+    desfeita (auctions.auctioneer_id → None), preservando o texto histórico."""
+    a = auctioneer_or_404(db, auctioneer_id)
+    linked = db.scalars(select(models.Auction).where(models.Auction.auctioneer_id == auctioneer_id)).all()
+    for auction in linked:
+        auction.auctioneer_id = None  # preserva o texto `auctioneer` (histórico)
+    before = _snapshot(a, AUCTIONEER_FIELDS)
+    event = record_global_event(db, "LEILOEIRO_REMOVIDO", "Auctioneer", a.id, before | {"leiloes_desvinculados": [x.id for x in linked]}, ["leiloeiros"])
+    record_global_history(db, "Auctioneer", a.id, "DELETE", before, None, event.id)
+    db.delete(a); db.commit()
+    return {"removido": auctioneer_id, "leiloes_desvinculados": [x.id for x in linked]}
 
 
 @app.post("/api/leiloeiros/{auctioneer_id}/portais", status_code=201)
@@ -916,7 +1225,12 @@ def add_portal_access(auctioneer_id: int, data: schemas.PortalAccessCreate, db: 
     else:
         payload["secret"] = None
     portal = models.PortalAccess(auctioneer_id=auctioneer_id, **payload)
-    db.add(portal); db.commit(); db.refresh(portal)
+    db.add(portal); db.flush()
+    # TASK 75.2: histórico/evento SEM segredo (apenas has_secret).
+    snap = _portal_history_snapshot(portal)
+    event = record_global_event(db, "PORTAL_ADICIONADO", "PortalAccess", portal.id, snap, ["leiloeiros"])
+    record_global_history(db, "PortalAccess", portal.id, "CREATE", None, snap, event.id)
+    db.commit(); db.refresh(portal)
     # Resposta NÃO inclui o secret (apenas has_secret).
     return _portal_out(portal)
 
@@ -924,24 +1238,47 @@ def add_portal_access(auctioneer_id: int, data: schemas.PortalAccessCreate, db: 
 @app.patch("/api/leiloeiros/{auctioneer_id}/portais/{portal_id}")
 def update_portal_access(auctioneer_id: int, portal_id: int, data: schemas.PortalAccessUpdate, db: Session = Depends(get_db)):
     """Edita dados NÃO secretos do portal (e, opcionalmente, troca a credencial —
-    sempre cifrada). A resposta nunca inclui o secret."""
+    sempre cifrada). A resposta nunca inclui o secret. O histórico NUNCA grava o
+    valor da credencial: before/after usam apenas has_secret (TASK 75.1/75.2)."""
     auctioneer_or_404(db, auctioneer_id)
     portal = db.get(models.PortalAccess, portal_id)
     if not portal or portal.auctioneer_id != auctioneer_id:
         raise HTTPException(404, "Portal/acesso não encontrado")
+    before = _portal_history_snapshot(portal)
     fields = data.model_dump(exclude_unset=True)
+    secret_changed = False
     if "secret" in fields:
         plaintext = fields.pop("secret")
         if plaintext:
             if not secrets_crypto.is_configured():
                 raise HTTPException(503, "Armazenamento de credenciais indisponível: PORTAL_SECRET_KEY não configurada.")
             portal.secret = secrets_crypto.encrypt_secret(plaintext)
+            secret_changed = True
         else:
             portal.secret = None
+            secret_changed = True
     for key, value in fields.items():
         setattr(portal, key, value)
+    db.flush()
+    after = _portal_history_snapshot(portal)
+    event = record_global_event(db, "PORTAL_ATUALIZADO", "PortalAccess", portal.id, {"changes": list(fields.keys()), "credencial_alterada": secret_changed}, ["leiloeiros"])
+    record_global_history(db, "PortalAccess", portal.id, "UPDATE", before, after, event.id)
     db.commit(); db.refresh(portal)
     return _portal_out(portal)
+
+
+@app.delete("/api/leiloeiros/{auctioneer_id}/portais/{portal_id}")
+def delete_portal_access(auctioneer_id: int, portal_id: int, db: Session = Depends(get_db)):
+    """Exclui um portal/acesso. Histórico/evento SEM segredo (só has_secret)."""
+    auctioneer_or_404(db, auctioneer_id)
+    portal = db.get(models.PortalAccess, portal_id)
+    if not portal or portal.auctioneer_id != auctioneer_id:
+        raise HTTPException(404, "Portal/acesso não encontrado")
+    before = _portal_history_snapshot(portal)
+    event = record_global_event(db, "PORTAL_REMOVIDO", "PortalAccess", portal.id, before, ["leiloeiros"])
+    record_global_history(db, "PortalAccess", portal.id, "DELETE", before, None, event.id)
+    db.delete(portal); db.commit()
+    return {"removido": portal_id, "auctioneer_id": auctioneer_id}
 
 
 @app.get("/api/leiloeiros/{auctioneer_id}/portais/{portal_id}/credencial")
@@ -971,8 +1308,26 @@ def reveal_portal_secret(auctioneer_id: int, portal_id: int, x_portal_admin_toke
 def add_auctioneer_document(auctioneer_id: int, data: schemas.AuctioneerDocumentCreate, db: Session = Depends(get_db)):
     auctioneer_or_404(db, auctioneer_id)
     doc = models.AuctioneerDocument(auctioneer_id=auctioneer_id, **data.model_dump())
-    db.add(doc); db.commit(); db.refresh(doc)
+    db.add(doc); db.flush()
+    payload = data.model_dump(mode="json")
+    event = record_global_event(db, "DOCUMENTO_LEILOEIRO_ADICIONADO", "AuctioneerDocument", doc.id, payload | {"auctioneer_id": auctioneer_id}, ["leiloeiros"])
+    record_global_history(db, "AuctioneerDocument", doc.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(doc)
     return _auctioneer_doc_out(doc)
+
+
+@app.delete("/api/leiloeiros/{auctioneer_id}/documentos/{document_id}")
+def delete_auctioneer_document(auctioneer_id: int, document_id: int, db: Session = Depends(get_db)):
+    """Exclui um documento do leiloeiro. Registra histórico/evento."""
+    auctioneer_or_404(db, auctioneer_id)
+    doc = db.get(models.AuctioneerDocument, document_id)
+    if not doc or doc.auctioneer_id != auctioneer_id:
+        raise HTTPException(404, "Documento do leiloeiro não encontrado")
+    before = _snapshot(doc, AUCTIONEER_DOC_FIELDS)
+    event = record_global_event(db, "DOCUMENTO_LEILOEIRO_REMOVIDO", "AuctioneerDocument", doc.id, before | {"auctioneer_id": auctioneer_id}, ["leiloeiros"])
+    record_global_history(db, "AuctioneerDocument", doc.id, "DELETE", before, None, event.id)
+    db.delete(doc); db.commit()
+    return {"removido": document_id, "auctioneer_id": auctioneer_id}
 
 
 @app.post("/api/imoveis/{property_id}/leilao/leiloeiro")
@@ -983,9 +1338,14 @@ def link_auction_auctioneer(property_id: int, data: schemas.AuctionAuctioneerLin
     auction = current_auction(prop)
     if auction is None:
         raise HTTPException(400, "Imóvel não possui leilão cadastrado")
+    before = {"auctioneer_id": auction.auctioneer_id, "auctioneer": auction.auctioneer}
     auction.auctioneer_id = auctioneer.id
     if not (auction.auctioneer or "").strip():
         auction.auctioneer = auctioneer.name
+    db.flush()
+    payload = {"auction_id": auction.id, "auctioneer_id": auctioneer.id, "auctioneer_nome": auctioneer.name}
+    event = record_event(db, prop, "LEILAO_LEILOEIRO_ASSOCIADO", "Auction", auction.id, payload, ["financeiro", "checklist"])
+    record_history(db, prop, "Auction", auction.id, "UPDATE", before, {"auctioneer_id": auction.auctioneer_id, "auctioneer": auction.auctioneer}, event.id)
     db.commit()
     return {"property_id": property_id, "auction_id": auction.id, "auctioneer_id": auctioneer.id, "auctioneer_nome": auctioneer.name}
 

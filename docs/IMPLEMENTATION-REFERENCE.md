@@ -518,3 +518,53 @@ O commit da Task 4 registra resultados reportados de 514 testes backend aprovado
 
 - A proteção é por token de operação único, não por usuário/perfil (o projeto não tem
   camada de autenticação de usuários). Autorização por usuário fica como evolução.
+
+
+---
+
+## 19. CRUD cadastral, histórico e comissão canônica — Task 75.2 (20/09/2026)
+
+### Arquivos principais
+- `backend/app/finance.py`: `CANONICAL_COST_CATEGORY` + `canonical_cost_key()`;
+  comissão com precedência Auction→Cost (sem dupla contagem); `comissao_detalhe` no
+  resultado; `comissao_desconhecida = not commission_informed`.
+- `backend/app/main.py`: helpers `_snapshot()`, `_apply_updates()`,
+  `_portal_history_snapshot()` (sem secret) + listas de campos por entidade; novos
+  endpoints PATCH/DELETE (custos, dívidas, comparáveis), PATCH (matrícula, edital,
+  processo, imóvel, leilão), POST movimentação (append-only), CRUD leiloeiro/portal/
+  doc com histórico/evento, `GET /api/leiloeiros/{id}/historico`.
+- `backend/app/services.py`: `record_global_event()` / `record_global_history()`
+  (histórico/evento sem imóvel, `property_id=None`) para leiloeiros/portais.
+- `backend/app/schemas.py`: `CostUpdate`, `DebtUpdate`, `ComparableUpdate`,
+  `ProcessUpdate`, `ProcessMovementCreate`, `RegistrationUpdate`,
+  `AuctionNoticeUpdate`, `PropertyUpdate`, `AuctionUpdate`.
+- Frontend: serviços `finance.ts`/`market.ts`/`processes.ts`/`registration.ts`/
+  `properties.ts` com update/delete; seções com edição/exclusão inline; nova
+  `PropertyEditSection.tsx` (aba Cadastro).
+- `tests/test_task752_crud.py`: ciclos CREATE→GET→UPDATE→GET→HISTORY, DELETE,
+  comissão canônica, histórico de portal sem segredo.
+
+### Contrato funcional
+- **Dado cadastral/factual** (imóvel, leilão, custo, dívida, comparável, matrícula,
+  edital, processo, premissas, ocupação): editável; cada alteração grava
+  `EntityHistory` (before/after) e emite `DomainEvent` com domínios afetados.
+  Edição NÃO cria análise; a reanálise incremental só roda pela regra de impacto já
+  existente (endpoint `/reanalisar` ou `/analisar`).
+- **Documento**: metadados editáveis; conteúdo nunca sobrescrito (nova versão).
+- **Análise / FinancialAnalysis histórico / Risk / Verdict**: imutáveis — sem
+  edição. Nova análise só por reanálise explícita (V9→V10).
+- **Append-only**: movimentações processuais, eventos, histórico, versões de
+  documento — novo fato = novo registro.
+- **Comissão de arrematação**: categoria canônica une o custo cadastrado "Comissão
+  do arrematante" ao conceito de comissão; precedência Auction > Cost; sem dupla
+  contagem; nunca transforma desconhecido em zero silencioso.
+- **Segredo**: a credencial de portal nunca entra em before/after/evento/log/
+  histórico — apenas `has_secret`.
+
+### DELETE — classificação
+- **Pode excluir** (dado cadastral, com confirmação + histórico/evento): custo,
+  dívida, comparável, leiloeiro, portal, documento do leiloeiro.
+- **Não excluir fisicamente**: análises, vereditos/riscos históricos, versões de
+  documento, movimentações, eventos, históricos (usar nova versão/registro/status).
+- **Sem DELETE** (apenas edição): imóvel, leilão, matrícula, edital, processo,
+  premissas, resultado de checklist.

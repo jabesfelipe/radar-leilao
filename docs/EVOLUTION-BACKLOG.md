@@ -442,3 +442,25 @@ com falha fechada. Ficam como evolução pós-MVP:
    manager externo em vez de chave em `.env` (fora do escopo atual por decisão da task).
 4. **Upload binário de documentos do leiloeiro**: hoje são metadados; reutilizar a infra
    documental de imóveis para anexos binários dedicados do leiloeiro.
+
+---
+
+# 15. Evoluções derivadas da Task 75.2 (CRUD cadastral padronizado)
+
+Entregue na 75.2: edição/exclusão de dados cadastrais com histórico (before/after) +
+evento, comissão de arrematação canônica (precedência Auction>Cost, sem dupla
+contagem), movimentação processual append-only, e histórico de leiloeiro/portal sem
+exposição de segredo. Ficam como evolução pós-MVP:
+
+1. **DELETE de imóvel/leilão com inativação (soft delete)**: hoje imóvel e leilão só
+   têm edição (sem DELETE) para preservar análises/vereditos associados. Avaliar
+   inativação por status + arquivamento, mantendo o histórico.
+2. **Reanálise incremental automática a partir do evento cadastral**: hoje a edição
+   emite o `DomainEvent` mas a reanálise é disparada manualmente (`/reanalisar`).
+   Avaliar enfileiramento/opt-in para reanálise guiada por impacto.
+3. **Edição assistida de movimentações processuais**: correção de erro de digitação
+   em andamento é append-only (novo registro) por decisão de auditoria; avaliar uma
+   correção explícita rastreada (supersede) se houver demanda operacional.
+4. **Normalização de categorias de custo na UI**: o mapa canônico vive no backend;
+   avaliar um seletor de categoria sugerida no formulário de custo para reduzir
+   divergência de texto livre.

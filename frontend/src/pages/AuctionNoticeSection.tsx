@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Gavel, Plus, RefreshCw } from 'lucide-react'
+import { Gavel, Pencil, Plus, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Textarea } from '../components/ui'
-import { createNotice, getNotice, type AuctionNotice } from '../services/registration'
+import { createNotice, getNotice, updateNotice, type AuctionNotice } from '../services/registration'
 import { listAuctioneers, linkAuctionAuctioneer, type Auctioneer } from '../services/auctioneers'
 
 type AuctionNoticeSectionProps = {
@@ -58,6 +58,8 @@ export function AuctionNoticeSection({ propertyId }: AuctionNoticeSectionProps) 
   const [auctioneers, setAuctioneers] = useState<Auctioneer[]>([])
   const [selectedAuctioneer, setSelectedAuctioneer] = useState('')
   const [linking, setLinking] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState<NoticeForm>(initialForm)
 
   const loadNotice = useCallback(async () => {
     setLoading(true)
@@ -90,6 +92,42 @@ export function AuctionNoticeSection({ propertyId }: AuctionNoticeSectionProps) 
       setSaveError(cause instanceof Error ? cause.message : 'Não foi possível associar o leiloeiro.')
     } finally {
       setLinking(false)
+    }
+  }
+
+  const beginEdit = () => {
+    if (!current) return
+    setEditForm({
+      identifier: current.identifier || '', notice_date: current.notice_date || '',
+      auction_stage: current.auction_stage || '', appraisal_value: current.appraisal_value == null ? '' : String(current.appraisal_value),
+      minimum_value: current.minimum_value == null ? '' : String(current.minimum_value), auction_date: current.auction_date || '',
+      auctioneer: current.auctioneer || '', observations: current.observations || '',
+    })
+    setSaveError(''); setSuccessMessage(''); setEditing(true)
+  }
+
+  const submitEdit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!current) return
+    setSaving(true); setSaveError(''); setSuccessMessage('')
+    try {
+      await updateNotice(propertyId, current.id, {
+        identifier: editForm.identifier.trim() || undefined,
+        notice_date: editForm.notice_date || undefined,
+        auction_stage: editForm.auction_stage.trim() || undefined,
+        appraisal_value: editForm.appraisal_value.trim() ? Number(editForm.appraisal_value) : undefined,
+        minimum_value: editForm.minimum_value.trim() ? Number(editForm.minimum_value) : undefined,
+        auction_date: editForm.auction_date || undefined,
+        auctioneer: editForm.auctioneer.trim() || undefined,
+        observations: editForm.observations.trim() || undefined,
+      })
+      setEditing(false)
+      setSuccessMessage('Edital atualizado. O histórico registra a alteração.')
+      await loadNotice()
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Não foi possível atualizar o edital.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -179,8 +217,28 @@ export function AuctionNoticeSection({ propertyId }: AuctionNoticeSectionProps) 
                 <p className="eyebrow">EDITAL ATUAL</p>
                 <h3>{current.identifier || 'Sem identificador'}</h3>
               </div>
-              {current.document_version_id && <Badge tone="info" size="sm">Vinculado a documento</Badge>}
+              <div className="crud-actions">
+                {current.document_version_id && <Badge tone="info" size="sm">Vinculado a documento</Badge>}
+                {!editing && <Button variant="ghost" size="sm" onClick={beginEdit}><Pencil size={14} /> Editar</Button>}
+              </div>
             </div>
+            {editing ? (
+              <form className="dossier-form" onSubmit={submitEdit} noValidate>
+                <Input label="Identificador" value={editForm.identifier} onChange={(e) => setEditForm((f) => ({ ...f, identifier: e.target.value }))} />
+                <Input label="Data do edital (opcional)" type="date" value={editForm.notice_date} onChange={(e) => setEditForm((f) => ({ ...f, notice_date: e.target.value }))} />
+                <Input label="Praça/Fase (opcional)" value={editForm.auction_stage} onChange={(e) => setEditForm((f) => ({ ...f, auction_stage: e.target.value }))} />
+                <Input label="Valor de avaliação (opcional)" type="number" step="0.01" value={editForm.appraisal_value} onChange={(e) => setEditForm((f) => ({ ...f, appraisal_value: e.target.value }))} />
+                <Input label="Valor mínimo (opcional)" type="number" step="0.01" value={editForm.minimum_value} onChange={(e) => setEditForm((f) => ({ ...f, minimum_value: e.target.value }))} />
+                <Input label="Data do leilão (opcional)" type="date" value={editForm.auction_date} onChange={(e) => setEditForm((f) => ({ ...f, auction_date: e.target.value }))} />
+                <Input label="Leiloeiro (opcional)" value={editForm.auctioneer} onChange={(e) => setEditForm((f) => ({ ...f, auctioneer: e.target.value }))} />
+                <Textarea label="Observações (opcional)" value={editForm.observations} onChange={(e) => setEditForm((f) => ({ ...f, observations: e.target.value }))} className="dossier-form-full" />
+                <div className="dossier-form-actions">
+                  {saveError && <Alert tone="danger">{saveError}</Alert>}
+                  <Button variant="ghost" type="button" onClick={() => setEditing(false)} disabled={saving}>Cancelar</Button>
+                  <Button type="submit" loading={saving}>Salvar alterações</Button>
+                </div>
+              </form>
+            ) : (
             <dl className="dossier-facts">
               <Fact label="Data do edital" value={formatDate(current.notice_date)} />
               <Fact label="Praça/Fase" value={current.auction_stage} />
@@ -190,6 +248,7 @@ export function AuctionNoticeSection({ propertyId }: AuctionNoticeSectionProps) 
               <Fact label="Leiloeiro" value={current.auctioneer} />
               <Fact label="Observações" value={current.observations} />
             </dl>
+            )}
             {auctioneers.length > 0 && (
               <div className="auction-link-auctioneer">
                 <p className="eyebrow">ASSOCIAR LEILOEIRO CADASTRADO</p>

@@ -200,4 +200,48 @@ describe('FinancialSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Tentar novamente' }))
     await waitFor(() => expect(screen.getByText('IPTU 2026')).toBeInTheDocument())
   })
+
+  // TASK 75.2: edição e exclusão de custo (recalcula financeiro, sem nova análise).
+  it('edita um custo e recalcula o financeiro', async () => {
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      if (method === 'PATCH' && /\/custos\/1$/.test(url)) {
+        return jsonResponse({ custo: { ...cost, amount: 1500 }, financeiro: financeBody.financeiro })
+      }
+      if (url.includes('/custos')) return jsonResponse({ property_id: 5, custos: [cost], historico: [] })
+      if (url.includes('/dividas')) return jsonResponse({ property_id: 5, dividas: [], historico: [] })
+      if (url.includes('/financeiro')) return jsonResponse(financeBody)
+      throw new Error(`sem rota para ${url}`)
+    })
+    render(<FinancialSection propertyId={5} />)
+    await screen.findByText('IPTU 2026')
+    fireEvent.click(screen.getByRole('button', { name: /Editar/ }))
+    fireEvent.change(screen.getByLabelText('Valor (opcional)'), { target: { value: '1500' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar alterações' }))
+    expect(await screen.findByText(/Custo atualizado/)).toBeInTheDocument()
+    const patchCall = vi.mocked(fetch).mock.calls.find((c) => /\/custos\/1$/.test(String(c[0])) && (c[1] as RequestInit)?.method === 'PATCH')
+    expect(patchCall).toBeTruthy()
+  })
+
+  it('exclui um custo após confirmação', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      const method = (init?.method ?? 'GET').toUpperCase()
+      if (method === 'DELETE' && /\/custos\/1$/.test(url)) {
+        return jsonResponse({ removido: 1, financeiro: financeBody.financeiro })
+      }
+      if (url.includes('/custos')) return jsonResponse({ property_id: 5, custos: [cost], historico: [] })
+      if (url.includes('/dividas')) return jsonResponse({ property_id: 5, dividas: [], historico: [] })
+      if (url.includes('/financeiro')) return jsonResponse(financeBody)
+      throw new Error(`sem rota para ${url}`)
+    })
+    render(<FinancialSection propertyId={5} />)
+    await screen.findByText('IPTU 2026')
+    fireEvent.click(screen.getByRole('button', { name: /Excluir/ }))
+    expect(await screen.findByText(/Custo excluído/)).toBeInTheDocument()
+    const delCall = vi.mocked(fetch).mock.calls.find((c) => /\/custos\/1$/.test(String(c[0])) && (c[1] as RequestInit)?.method === 'DELETE')
+    expect(delCall).toBeTruthy()
+  })
 })

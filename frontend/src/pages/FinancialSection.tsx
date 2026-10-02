@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Coins, Plus, RefreshCw, Target, Wallet } from 'lucide-react'
+import { Coins, Pencil, Plus, RefreshCw, Target, Trash2, Wallet } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Select } from '../components/ui'
 import {
-  createCost, createDebt, formatMoney, formatPercent, getFinance, listCosts, listDebts, saveFinanceAssumptions,
+  createCost, createDebt, deleteCost, deleteDebt, formatMoney, formatPercent, getFinance, listCosts, listDebts,
+  saveFinanceAssumptions, updateCost, updateDebt,
   type Cost, type Debt, type FinanceAssumptions, type FinanceResult,
 } from '../services/finance'
 
@@ -89,6 +90,12 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
   const [savingDebt, setSavingDebt] = useState(false)
   const [debtFeedback, setDebtFeedback] = useState('')
   const [debtError, setDebtError] = useState('')
+
+  // TASK 75.2: edição/exclusão de custos e dívidas (inline, por item).
+  const [editCostId, setEditCostId] = useState<number | null>(null)
+  const [editCostForm, setEditCostForm] = useState<CostForm>(initialCost)
+  const [editDebtId, setEditDebtId] = useState<number | null>(null)
+  const [editDebtForm, setEditDebtForm] = useState<DebtForm>(initialDebt)
 
   // Premissas financeiras e resultado (Task 3).
   const [result, setResult] = useState<FinanceResult | null>(null)
@@ -200,6 +207,87 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
       setDebtError(cause instanceof Error ? cause.message : 'Não foi possível cadastrar a dívida.')
     } finally {
       setSavingDebt(false)
+    }
+  }
+
+  const beginEditCost = (cost: Cost) => {
+    setEditCostId(cost.id)
+    setEditCostForm({ category: cost.category, description: cost.description, amount: cost.amount == null ? '' : String(cost.amount), recurring: Boolean(cost.recurring) })
+    setCostError(''); setCostFeedback('')
+  }
+
+  const submitEditCost = async (event: FormEvent<HTMLFormElement>, costId: number) => {
+    event.preventDefault()
+    setSavingCost(true); setCostError(''); setCostFeedback('')
+    try {
+      const { custo, financeiro } = await updateCost(propertyId, costId, {
+        category: editCostForm.category.trim(),
+        description: editCostForm.description.trim(),
+        amount: editCostForm.amount.trim() ? Number(editCostForm.amount) : undefined,
+        recurring: editCostForm.recurring,
+      })
+      setCosts((cur) => cur.map((c) => (c.id === costId ? custo : c)))
+      setResult(financeiro)
+      setEditCostId(null)
+      setCostFeedback('Custo atualizado. O financeiro foi recalculado.')
+    } catch (cause) {
+      setCostError(cause instanceof Error ? cause.message : 'Não foi possível atualizar o custo.')
+    } finally {
+      setSavingCost(false)
+    }
+  }
+
+  const removeCost = async (cost: Cost) => {
+    if (!window.confirm(`Excluir o custo "${cost.description}"? Esta ação é registrada no histórico.`)) return
+    setCostError(''); setCostFeedback('')
+    try {
+      const { financeiro } = await deleteCost(propertyId, cost.id)
+      setCosts((cur) => cur.filter((c) => c.id !== cost.id))
+      setResult(financeiro)
+      setCostFeedback('Custo excluído. O financeiro foi recalculado.')
+    } catch (cause) {
+      setCostError(cause instanceof Error ? cause.message : 'Não foi possível excluir o custo.')
+    }
+  }
+
+  const beginEditDebt = (debt: Debt) => {
+    setEditDebtId(debt.id)
+    setEditDebtForm({ category: debt.category, creditor: debt.creditor || '', amount: debt.amount == null ? '' : String(debt.amount), reference_date: debt.reference_date || '', status: debt.status || '' })
+    setDebtError(''); setDebtFeedback('')
+  }
+
+  const submitEditDebt = async (event: FormEvent<HTMLFormElement>, debtId: number) => {
+    event.preventDefault()
+    setSavingDebt(true); setDebtError(''); setDebtFeedback('')
+    try {
+      const { divida, financeiro } = await updateDebt(propertyId, debtId, {
+        category: editDebtForm.category.trim(),
+        creditor: editDebtForm.creditor.trim() || undefined,
+        amount: editDebtForm.amount.trim() ? Number(editDebtForm.amount) : undefined,
+        reference_date: editDebtForm.reference_date || undefined,
+        status: editDebtForm.status.trim() || undefined,
+      })
+      setDebts((cur) => cur.map((d) => (d.id === debtId ? divida : d)))
+      setResult(financeiro)
+      setEditDebtId(null)
+      setDebtFeedback('Dívida atualizada. O financeiro foi recalculado.')
+    } catch (cause) {
+      setDebtError(cause instanceof Error ? cause.message : 'Não foi possível atualizar a dívida.')
+    } finally {
+      setSavingDebt(false)
+    }
+  }
+
+  const removeDebt = async (debt: Debt) => {
+    if (!window.confirm(`Excluir a dívida "${debt.category}"? Esta ação é registrada no histórico.`)) return
+    setDebtError(''); setDebtFeedback('')
+    try {
+      const { financeiro } = await deleteDebt(propertyId, debt.id)
+      setDebts((cur) => cur.filter((d) => d.id !== debt.id))
+      setResult(financeiro)
+      setDebtFeedback('Dívida excluída. O financeiro foi recalculado.')
+    } catch (cause) {
+      setDebtError(cause instanceof Error ? cause.message : 'Não foi possível excluir a dívida.')
     }
   }
 
@@ -322,14 +410,34 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
           <div className="finance-list">
             {costs.map((cost) => (
               <Card key={cost.id} padding="md" className="finance-card">
-                <div className="finance-card-head">
-                  <strong>{cost.description}</strong>
-                  {cost.recurring && <Badge tone="info" size="sm">Recorrente</Badge>}
-                </div>
-                <div className="finance-card-meta">
-                  <span>{cost.category}</span>
-                  <strong>{formatMoney(cost.amount)}</strong>
-                </div>
+                {editCostId === cost.id ? (
+                  <form className="dossier-form" onSubmit={(e) => void submitEditCost(e, cost.id)} noValidate>
+                    <Input label="Categoria" value={editCostForm.category} onChange={(e) => setEditCostForm((c) => ({ ...c, category: e.target.value }))} required />
+                    <Input label="Descrição" value={editCostForm.description} onChange={(e) => setEditCostForm((c) => ({ ...c, description: e.target.value }))} required />
+                    <Input label="Valor (opcional)" type="number" step="0.01" value={editCostForm.amount} onChange={(e) => setEditCostForm((c) => ({ ...c, amount: e.target.value }))} />
+                    <label className="finance-check"><input type="checkbox" checked={editCostForm.recurring} onChange={(e) => setEditCostForm((c) => ({ ...c, recurring: e.target.checked }))} /><span>Custo recorrente</span></label>
+                    <div className="dossier-form-actions">
+                      {costError && <Alert tone="danger">{costError}</Alert>}
+                      <Button variant="ghost" type="button" onClick={() => setEditCostId(null)} disabled={savingCost}>Cancelar</Button>
+                      <Button type="submit" loading={savingCost}>Salvar alterações</Button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="finance-card-head">
+                      <strong>{cost.description}</strong>
+                      <div className="crud-actions">
+                        {cost.recurring && <Badge tone="info" size="sm">Recorrente</Badge>}
+                        <Button variant="ghost" size="sm" onClick={() => beginEditCost(cost)}><Pencil size={14} /> Editar</Button>
+                        <Button variant="ghost" size="sm" onClick={() => void removeCost(cost)}><Trash2 size={14} /> Excluir</Button>
+                      </div>
+                    </div>
+                    <div className="finance-card-meta">
+                      <span>{cost.category}</span>
+                      <strong>{formatMoney(cost.amount)}</strong>
+                    </div>
+                  </>
+                )}
               </Card>
             ))}
           </div>
@@ -360,16 +468,37 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
           <div className="finance-list">
             {debts.map((debt) => (
               <Card key={debt.id} padding="md" className="finance-card">
-                <div className="finance-card-head">
-                  <strong>{debt.category}</strong>
-                  {debt.status && <Badge tone="warning" size="sm">{debt.status}</Badge>}
-                </div>
-                <dl className="dossier-facts">
-                  <Fact label="Credor" value={debt.creditor} />
-                  <Fact label="Valor" value={formatMoney(debt.amount)} />
-                  <Fact label="Referência" value={formatDate(debt.reference_date)} />
-                  {debt.evidence_id != null && <Fact label="Evidência" value={`#${debt.evidence_id}`} />}
-                </dl>
+                {editDebtId === debt.id ? (
+                  <form className="dossier-form" onSubmit={(e) => void submitEditDebt(e, debt.id)} noValidate>
+                    <Input label="Categoria" value={editDebtForm.category} onChange={(e) => setEditDebtForm((d) => ({ ...d, category: e.target.value }))} required />
+                    <Input label="Credor (opcional)" value={editDebtForm.creditor} onChange={(e) => setEditDebtForm((d) => ({ ...d, creditor: e.target.value }))} />
+                    <Input label="Valor (opcional)" type="number" step="0.01" value={editDebtForm.amount} onChange={(e) => setEditDebtForm((d) => ({ ...d, amount: e.target.value }))} />
+                    <Input label="Data de referência (opcional)" type="date" value={editDebtForm.reference_date} onChange={(e) => setEditDebtForm((d) => ({ ...d, reference_date: e.target.value }))} />
+                    <Input label="Status (opcional)" value={editDebtForm.status} onChange={(e) => setEditDebtForm((d) => ({ ...d, status: e.target.value }))} />
+                    <div className="dossier-form-actions">
+                      {debtError && <Alert tone="danger">{debtError}</Alert>}
+                      <Button variant="ghost" type="button" onClick={() => setEditDebtId(null)} disabled={savingDebt}>Cancelar</Button>
+                      <Button type="submit" loading={savingDebt}>Salvar alterações</Button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="finance-card-head">
+                      <strong>{debt.category}</strong>
+                      <div className="crud-actions">
+                        {debt.status && <Badge tone="warning" size="sm">{debt.status}</Badge>}
+                        <Button variant="ghost" size="sm" onClick={() => beginEditDebt(debt)}><Pencil size={14} /> Editar</Button>
+                        <Button variant="ghost" size="sm" onClick={() => void removeDebt(debt)}><Trash2 size={14} /> Excluir</Button>
+                      </div>
+                    </div>
+                    <dl className="dossier-facts">
+                      <Fact label="Credor" value={debt.creditor} />
+                      <Fact label="Valor" value={formatMoney(debt.amount)} />
+                      <Fact label="Referência" value={formatDate(debt.reference_date)} />
+                      {debt.evidence_id != null && <Fact label="Evidência" value={`#${debt.evidence_id}`} />}
+                    </dl>
+                  </>
+                )}
               </Card>
             ))}
           </div>

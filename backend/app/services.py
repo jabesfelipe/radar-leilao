@@ -438,6 +438,19 @@ def record_checklist_history(db: Session, item: models.ChecklistItem, action: st
     db.add(models.EntityHistory(property_id=None, entity_type="ChecklistItem", entity_id=item.id, action=action, before_data=before, after_data=after, cause_event_id=event_id))
 
 
+def record_global_event(db: Session, event_type: str, aggregate_type: str, aggregate_id: int | None, payload: dict, domains: list[str]):
+    """Evento de domínio NÃO atrelado a um imóvel (ex.: leiloeiro/portal — TASK 75.2).
+    property_id=None. NUNCA incluir segredos no payload."""
+    event = models.DomainEvent(property_id=None, event_type=event_type, aggregate_type=aggregate_type, aggregate_id=aggregate_id, payload=payload, affected_domains=domains)
+    db.add(event); db.flush(); return event
+
+
+def record_global_history(db: Session, entity_type: str, entity_id: int, action: str, before: dict | None, after: dict | None, event_id: int | None = None):
+    """Histórico de alteração NÃO atrelado a um imóvel (property_id=None). before/after
+    NUNCA contêm segredos (ex.: credencial de portal → apenas has_secret)."""
+    db.add(models.EntityHistory(property_id=None, entity_type=entity_type, entity_id=entity_id, action=action, before_data=before, after_data=after, cause_event_id=event_id))
+
+
 def create_checklist_item(db: Session, data: dict) -> models.ChecklistItem:
     item = models.ChecklistItem(**data, version=1)
     db.add(item); db.flush()

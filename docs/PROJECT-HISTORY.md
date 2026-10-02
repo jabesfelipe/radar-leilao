@@ -2007,3 +2007,29 @@ imóvel 633 preservado (V1–V9, sem V10, sem LLM).
   permanece validação manual (não simulado).
 - **Containers**: rebuild de backend (agora com `cryptography`) e frontend; stack no ar,
   migrations em `0014_leiloeiros`.
+
+
+## TASK 75.2 — Padronização geral de CRUD, edição e histórico (20/09/2026)
+
+Padronização dos módulos para edição segura de dados cadastrais com rastreabilidade,
+sem destruir histórico nem criar análises indevidas. Reutiliza EntityHistory,
+DomainEvent, record_history/record_event, versionamento documental/análises. Imóvel
+633 preservado (V1–V9, sem V10).
+
+- **Regra oficial**: dado cadastral é editável e gera histórico (before/after) +
+  evento; documento tem versionamento; eventos e análises são imutáveis; nova
+  análise só por reanálise explícita.
+- **Comissão do arrematante (GAP crítico)**: categoria canônica em finance.py; custo
+  "Comissão do arrematante" agora reconhecido como comissão de arrematação, com
+  precedência Auction > Cost e sem dupla contagem. Fim do estado "R$ 11.100 +
+  DESCONHECIDA".
+- **CRUD novo**: editar/excluir custos, dívidas e comparáveis (recalculam
+  financeiro/mercado); editar matrícula, edital, processo (metadados); movimentação
+  processual append-only; editar imóvel e leilão (sem criar análise); CRUD de
+  leiloeiro/portal/doc com histórico/evento globais; secret nunca no histórico.
+- **Frontend**: edição/exclusão inline reutilizando componentes; aba Cadastro
+  (PropertyEditSection); ocupação deixa claro atual × histórico × nova avaliação.
+- **Validação real**: backend 576 passed/2 skipped; frontend tsc OK + vitest 113
+  passed; 633 com 9 análises e zero V10.
+- **Fora de escopo** respeitado (sem novo serviço/infra/LLM/refatoração ampla; V1–V9
+  e regras do Verdict intocadas).

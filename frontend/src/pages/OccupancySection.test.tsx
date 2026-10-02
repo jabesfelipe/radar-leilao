@@ -52,11 +52,12 @@ describe('OccupancySection', () => {
     render(<OccupancySection propertyId={5} />)
     await screen.findByText('Nenhuma ocupação registrada')
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Registrar ocupação' })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: 'Atualizar situação' })[0])
     fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'OCUPADO' } })
     fireEvent.click(screen.getByRole('button', { name: 'Salvar ocupação' }))
 
-    expect(await screen.findByText('Ocupação registrada com sucesso.')).toBeInTheDocument()
+    // TASK 75.2: a atualização cria nova avaliação e preserva o histórico.
+    expect(await screen.findByText(/nova avaliação de ocupação registrada/i)).toBeInTheDocument()
     const postCall = vi.mocked(fetch).mock.calls[1]
     expect(postCall[0]).toContain('/api/imoveis/5/ocupacao')
     expect(JSON.parse(String((postCall[1] as RequestInit).body)).status).toBe('OCUPADO')
@@ -70,10 +71,18 @@ describe('OccupancySection', () => {
     render(<OccupancySection propertyId={5} />)
     await screen.findByText('Nenhuma ocupação registrada')
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Registrar ocupação' })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: 'Atualizar situação' })[0])
     fireEvent.click(screen.getByRole('button', { name: 'Salvar ocupação' }))
 
     expect(await screen.findByText('Dados inválidos')).toBeInTheDocument()
+  })
+
+  it('mostra o histórico preservado de avaliações de ocupação', async () => {
+    const anterior = { ...occupancy, id: 2, status: 'DESCONHECIDO' as const, created_at: '2026-01-01T10:00:00Z' }
+    const atual = { ...occupancy, id: 3, created_at: '2026-02-01T10:00:00Z' }
+    vi.mocked(fetch).mockReturnValueOnce(response({ property_id: 5, situacao_atual: atual, ultimo_registro: atual, historico: [anterior, atual] }))
+    render(<OccupancySection propertyId={5} />)
+    expect(await screen.findByText(/Histórico de avaliações de ocupação/)).toBeInTheDocument()
   })
 
   it('trata erro ao carregar e permite tentar novamente', async () => {

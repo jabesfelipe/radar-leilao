@@ -342,3 +342,127 @@ class AuctioneerDocumentCreate(BaseModel):
 
 class AuctionAuctioneerLink(BaseModel):
     auctioneer_id: int
+
+
+# ============================================================================
+# TASK 75.2 — Schemas de EDIÇÃO (PATCH) de dados cadastrais/factuais.
+# Todos os campos são opcionais (exclude_unset no handler): só altera o que vier.
+# Dado cadastral é editável e gera EntityHistory (before/after) + DomainEvent.
+# ============================================================================
+class CostUpdate(BaseModel):
+    category: str | None = None
+    description: str | None = None
+    amount: Decimal | None = None
+    recurring: bool | None = None
+
+    @field_validator("amount")
+    @classmethod
+    def _nao_negativo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("amount não pode ser negativo")
+        return v
+
+
+class DebtUpdate(BaseModel):
+    category: str | None = None
+    creditor: str | None = None
+    amount: Decimal | None = None
+    reference_date: date | None = None
+    status: str | None = None
+    evidence_id: int | None = None
+
+    @field_validator("amount")
+    @classmethod
+    def _nao_negativo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("amount não pode ser negativo")
+        return v
+
+
+class ComparableUpdate(BaseModel):
+    kind: str | None = None
+    price: Decimal | None = None
+    rent: Decimal | None = None
+    area_m2: Decimal | None = None
+    source: str | None = None
+    url: str | None = None
+
+
+class ProcessMovementCreate(BaseModel):
+    """Nova movimentação processual (append-only; nunca editada destrutivamente)."""
+    movement_date: date | None = None
+    description: str = Field(min_length=1)
+    source: str = "Cadastro manual"
+
+
+class ProcessUpdate(BaseModel):
+    number: str | None = None
+    court: str | None = None
+    comarca: str | None = None
+    nature: str | None = None
+    subject: str | None = None
+    status: str | None = None
+    polo_active: str | None = None
+    polo_passive: str | None = None
+    distribution_date: date | None = None
+    observations: str | None = None
+    source: str | None = None
+    impact: str | None = None
+
+
+class RegistrationUpdate(BaseModel):
+    registration_number: str | None = None
+    registry_office: str | None = None
+    comarca: str | None = None
+    consultation_date: date | None = None
+    holder: str | None = None
+    observations: str | None = None
+    document_version_id: int | None = None
+
+
+class AuctionNoticeUpdate(BaseModel):
+    identifier: str | None = None
+    item: str | None = None
+    notice_date: date | None = None
+    auction_stage: str | None = None
+    appraisal_value: Decimal | None = None
+    minimum_value: Decimal | None = None
+    auction_date: date | None = None
+    auctioneer: str | None = None
+    observations: str | None = None
+
+
+class PropertyUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2)
+    address: str | None = None
+    city: str | None = Field(default=None, min_length=1)
+    state: str | None = Field(default=None, min_length=2, max_length=2)
+    property_type: str | None = None
+    neighborhood: str | None = None
+    area_m2: Decimal | None = None
+    private_area_m2: Decimal | None = None
+    bedrooms: int | None = None
+    parking_spots: int | None = None
+    description: str | None = None
+    origin: str | None = None
+    origin_property_code: str | None = None
+    inscription: str | None = None
+    modality: str | None = None
+    system: str | None = None
+    status: str | None = None
+
+
+class AuctionUpdate(BaseModel):
+    auction_date: date | None = None
+    auction_stage: str | None = None
+    appraisal_value: Decimal | None = None
+    bid_value: Decimal | None = None
+    first_auction_date: datetime | None = None
+    first_auction_value: Decimal | None = None
+    second_auction_date: datetime | None = None
+    second_auction_value: Decimal | None = None
+    acquisition_value: Decimal | None = None
+    commission_percent: Decimal | None = None
+    commission_fixed: Decimal | None = None
+    auctioneer: str | None = None
+    notice_url: str | None = None

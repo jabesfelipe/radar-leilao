@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Plus, RefreshCw, Scale, Search } from 'lucide-react'
+import { ListPlus, Pencil, Plus, RefreshCw, Scale, Search } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Textarea } from '../components/ui'
 import {
-  createProcess, linkJudicialProcess, listProcesses, searchJudicial,
+  addProcessMovement, createProcess, linkJudicialProcess, listProcesses, searchJudicial, updateProcess,
   type JudicialSearchResult, type LegalProcess,
 } from '../services/processes'
 
@@ -89,6 +89,12 @@ export function ProcessSection({ propertyId }: ProcessSectionProps) {
   const [searchError, setSearchError] = useState('')
   const [searchResult, setSearchResult] = useState<JudicialSearchResult | null>(null)
   const [linkingId, setLinkingId] = useState<number | null>(null)
+
+  // TASK 75.2: edição cadastral do processo + movimentação append-only.
+  const [editId, setEditId] = useState<number | null>(null)
+  const [editForm, setEditForm] = useState<ProcessForm>(initialForm)
+  const [movementFor, setMovementFor] = useState<number | null>(null)
+  const [movementDesc, setMovementDesc] = useState('')
 
   const loadProcesses = useCallback(async () => {
     setLoading(true)
@@ -193,6 +199,53 @@ export function ProcessSection({ propertyId }: ProcessSectionProps) {
     }
   }
 
+  const beginEdit = (p: LegalProcess) => {
+    setEditId(p.id)
+    setEditForm({
+      number: p.number, court: p.court || '', comarca: p.comarca || '', nature: p.nature || '',
+      subject: p.subject || '', status: p.status || '', polo_active: p.polo_active || '',
+      polo_passive: p.polo_passive || '', distribution_date: p.distribution_date || '',
+      source: p.source || '', impact: p.impact || '', observations: p.observations || '',
+    })
+    setSaveError(''); setSuccessMessage('')
+  }
+
+  const submitEdit = async (event: FormEvent<HTMLFormElement>, id: number) => {
+    event.preventDefault()
+    setSaving(true); setSaveError(''); setSuccessMessage('')
+    try {
+      const { processo } = await updateProcess(propertyId, id, {
+        number: editForm.number.trim(), court: optional(editForm.court), comarca: optional(editForm.comarca),
+        nature: optional(editForm.nature), subject: optional(editForm.subject), status: optional(editForm.status),
+        polo_active: optional(editForm.polo_active), polo_passive: optional(editForm.polo_passive),
+        distribution_date: editForm.distribution_date || undefined, source: optional(editForm.source),
+        impact: optional(editForm.impact), observations: optional(editForm.observations),
+      })
+      setProcesses((cur) => cur.map((p) => (p.id === id ? processo : p)))
+      setEditId(null)
+      setSuccessMessage('Processo atualizado. O histórico registra a alteração.')
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Não foi possível atualizar o processo.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const submitMovement = async (event: FormEvent<HTMLFormElement>, id: number) => {
+    event.preventDefault()
+    if (!movementDesc.trim()) return
+    setSaving(true); setSaveError(''); setSuccessMessage('')
+    try {
+      await addProcessMovement(propertyId, id, { description: movementDesc.trim() })
+      setMovementFor(null); setMovementDesc('')
+      setSuccessMessage('Movimentação adicionada (novo registro — histórico preservado).')
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Não foi possível adicionar a movimentação.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Section title="Processos Jurídicos" description="Pesquise processos pela Judicial API e acompanhe o dossiê jurídico do imóvel." className="dossier-section" actions={<><Button variant="secondary" onClick={() => { setSearchOpen((v) => !v); setSearchError('') }}><Search size={16} /> Pesquisar processos</Button><Button onClick={openForm}><Plus size={16} /> Novo processo</Button></>}>
       {searchOpen && (
@@ -276,23 +329,58 @@ export function ProcessSection({ propertyId }: ProcessSectionProps) {
                   {process.status && <Badge tone="warning" size="sm">{process.status}</Badge>}
                 </div>
               </div>
-              <dl className="dossier-facts">
-                <Fact label="Tribunal" value={process.court} />
-                <Fact label="Comarca" value={process.comarca} />
-                <Fact label="Natureza" value={process.nature} />
-                <Fact label="Assunto" value={process.subject} />
-                <Fact label="Polo ativo" value={process.polo_active} />
-                <Fact label="Polo passivo" value={process.polo_passive} />
-                <Fact label="Distribuição" value={formatDate(process.distribution_date)} />
-                <Fact label="Fonte" value={process.source} />
-                <Fact label="Vínculo" value={process.link_origin ? originLabel(process.link_origin) : null} />
-                <Fact label="Impacto" value={process.impact} />
-                <Fact label="Observações" value={process.observations} />
-                {process.evidence_id != null && <Fact label="Evidência" value={`#${process.evidence_id}`} />}
-              </dl>
-              <div className="process-card-actions">
-                <Button variant="secondary" size="sm" loading={linkingId === process.id} onClick={() => void handleLink(process.id)}>Vincular ao imóvel</Button>
-              </div>
+              {editId === process.id ? (
+                <form className="dossier-form" onSubmit={(e) => void submitEdit(e, process.id)} noValidate>
+                  <Input label="Número do processo" value={editForm.number} onChange={(e) => setEditForm((f) => ({ ...f, number: e.target.value }))} required className="dossier-form-full" />
+                  <Input label="Tribunal" value={editForm.court} onChange={(e) => setEditForm((f) => ({ ...f, court: e.target.value }))} />
+                  <Input label="Comarca" value={editForm.comarca} onChange={(e) => setEditForm((f) => ({ ...f, comarca: e.target.value }))} />
+                  <Input label="Natureza" value={editForm.nature} onChange={(e) => setEditForm((f) => ({ ...f, nature: e.target.value }))} />
+                  <Input label="Assunto" value={editForm.subject} onChange={(e) => setEditForm((f) => ({ ...f, subject: e.target.value }))} />
+                  <Input label="Status" value={editForm.status} onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value }))} />
+                  <Input label="Data de distribuição" type="date" value={editForm.distribution_date} onChange={(e) => setEditForm((f) => ({ ...f, distribution_date: e.target.value }))} />
+                  <Input label="Polo ativo" value={editForm.polo_active} onChange={(e) => setEditForm((f) => ({ ...f, polo_active: e.target.value }))} />
+                  <Input label="Polo passivo" value={editForm.polo_passive} onChange={(e) => setEditForm((f) => ({ ...f, polo_passive: e.target.value }))} />
+                  <Input label="Fonte" value={editForm.source} onChange={(e) => setEditForm((f) => ({ ...f, source: e.target.value }))} />
+                  <Textarea label="Impacto" value={editForm.impact} onChange={(e) => setEditForm((f) => ({ ...f, impact: e.target.value }))} className="dossier-form-full" />
+                  <Textarea label="Observações" value={editForm.observations} onChange={(e) => setEditForm((f) => ({ ...f, observations: e.target.value }))} className="dossier-form-full" />
+                  <div className="dossier-form-actions">
+                    {saveError && <Alert tone="danger">{saveError}</Alert>}
+                    <Button variant="ghost" type="button" onClick={() => setEditId(null)} disabled={saving}>Cancelar</Button>
+                    <Button type="submit" loading={saving}>Salvar alterações</Button>
+                  </div>
+                </form>
+              ) : (
+                <>
+                  <dl className="dossier-facts">
+                    <Fact label="Tribunal" value={process.court} />
+                    <Fact label="Comarca" value={process.comarca} />
+                    <Fact label="Natureza" value={process.nature} />
+                    <Fact label="Assunto" value={process.subject} />
+                    <Fact label="Polo ativo" value={process.polo_active} />
+                    <Fact label="Polo passivo" value={process.polo_passive} />
+                    <Fact label="Distribuição" value={formatDate(process.distribution_date)} />
+                    <Fact label="Fonte" value={process.source} />
+                    <Fact label="Vínculo" value={process.link_origin ? originLabel(process.link_origin) : null} />
+                    <Fact label="Impacto" value={process.impact} />
+                    <Fact label="Observações" value={process.observations} />
+                    {process.evidence_id != null && <Fact label="Evidência" value={`#${process.evidence_id}`} />}
+                  </dl>
+                  {movementFor === process.id && (
+                    <form className="dossier-form" onSubmit={(e) => void submitMovement(e, process.id)} noValidate>
+                      <Input label="Nova movimentação (andamento)" value={movementDesc} onChange={(e) => setMovementDesc(e.target.value)} required className="dossier-form-full" />
+                      <div className="dossier-form-actions">
+                        <Button variant="ghost" type="button" onClick={() => { setMovementFor(null); setMovementDesc('') }}>Cancelar</Button>
+                        <Button type="submit" loading={saving}>Adicionar movimentação</Button>
+                      </div>
+                    </form>
+                  )}
+                  <div className="process-card-actions">
+                    <Button variant="ghost" size="sm" onClick={() => beginEdit(process)}><Pencil size={14} /> Editar</Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setMovementFor(process.id); setMovementDesc('') }}><ListPlus size={14} /> Movimentação</Button>
+                    <Button variant="secondary" size="sm" loading={linkingId === process.id} onClick={() => void handleLink(process.id)}>Vincular ao imóvel</Button>
+                  </div>
+                </>
+              )}
             </Card>
           ))}
         </div>

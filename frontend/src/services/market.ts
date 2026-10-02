@@ -69,7 +69,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function listComparables(propertyId: number): Promise<MarketComparable[]> {
-  const payload = await request<{ comparaveis: MarketComparable[] }>(`/api/imoveis/${propertyId}`)
+  const payload = await request<{ comparaveis: MarketComparable[] }>(`/api/imoveis/${propertyId}/comparaveis`)
   return payload.comparaveis ?? []
 }
 
@@ -113,6 +113,22 @@ export function createComparable(propertyId: number, payload: ComparableCreate):
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+}
+
+// TASK 75.2: edição/exclusão de comparável. Recalcula a visão de mercado e o
+// financeiro no backend (histórico before/after + evento). Análises não mudam.
+export type ComparableUpdate = Partial<ComparableCreate>
+
+export function updateComparable(propertyId: number, comparableId: number, payload: ComparableUpdate): Promise<{ comparavel: MarketComparable; mercado: MarketResponse['mercado'] }> {
+  return request<{ comparavel: MarketComparable; mercado: MarketResponse['mercado'] }>(`/api/imoveis/${propertyId}/comparaveis/${comparableId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteComparable(propertyId: number, comparableId: number): Promise<{ removido: number }> {
+  return request<{ removido: number }>(`/api/imoveis/${propertyId}/comparaveis/${comparableId}`, { method: 'DELETE' })
 }
 
 export function getOccupancy(propertyId: number): Promise<OccupancyResponse> {

@@ -94,6 +94,18 @@ export function createRegistration(propertyId: number, payload: RegistrationCrea
   })
 }
 
+// TASK 75.2: edição dos metadados da matrícula (histórico before/after). O
+// documento anexo não é sobrescrito (versionamento documental à parte).
+export type RegistrationUpdate = Partial<RegistrationCreate>
+
+export function updateRegistration(propertyId: number, registrationId: number, payload: RegistrationUpdate): Promise<{ matricula: PropertyRegistration }> {
+  return request<{ matricula: PropertyRegistration }>(`/api/imoveis/${propertyId}/matricula/${registrationId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function getNotice(propertyId: number): Promise<AuctionNoticeResponse> {
   return request<AuctionNoticeResponse>(`/api/imoveis/${propertyId}/edital`)
 }
@@ -101,6 +113,18 @@ export function getNotice(propertyId: number): Promise<AuctionNoticeResponse> {
 export function createNotice(propertyId: number, payload: AuctionNoticeCreate): Promise<AuctionNotice> {
   return request<AuctionNotice>(`/api/imoveis/${propertyId}/edital`, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+// TASK 75.2: edição dos metadados do edital (histórico before/after). Documento
+// original preservado (versionamento documental à parte).
+export type AuctionNoticeUpdate = Partial<AuctionNoticeCreate>
+
+export function updateNotice(propertyId: number, noticeId: number, payload: AuctionNoticeUpdate): Promise<{ edital: AuctionNotice }> {
+  return request<{ edital: AuctionNotice }>(`/api/imoveis/${propertyId}/edital/${noticeId}`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })

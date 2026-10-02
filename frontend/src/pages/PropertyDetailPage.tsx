@@ -13,6 +13,7 @@ import { ChecklistSection } from './ChecklistSection'
 import { RiskSection } from './RiskSection'
 import { VerdictSection } from './VerdictSection'
 import { HistorySection } from './HistorySection'
+import { PropertyEditSection } from './PropertyEditSection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -21,6 +22,7 @@ type PropertyDetailPageProps = {
 
 const detailSections = [
   { id: 'visao-geral', label: 'Visão geral' },
+  { id: 'cadastro', label: 'Cadastro' },
   { id: 'leilao', label: 'Leilão' },
   { id: 'documentos', label: 'Documentos' },
   { id: 'matricula', label: 'Matrícula' },
@@ -192,6 +194,8 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
                 </div>
               )}
             </Section>
+          ) : activeSection === 'cadastro' ? (
+            <PropertyEditSection key={refreshKey} propertyId={property.id} onSaved={() => void loadProperty()} />
           ) : activeSection === 'leilao' ? (
             <Section title="Leilão" description="Dados do leilão e fontes oficiais cadastradas." className="detail-section">
               <div className="detail-facts">

@@ -128,6 +128,29 @@ export function searchJudicial(propertyId: number, criteria: JudicialSearchCrite
   })
 }
 
+// TASK 75.2: edição dos dados CADASTRAIS do processo (histórico before/after +
+// evento). NÃO edita movimentações (append-only) nem a correlação determinística.
+export type ProcessUpdate = Partial<Omit<ProcessCreate, 'evidence_id'>>
+
+export function updateProcess(propertyId: number, processId: number, payload: ProcessUpdate): Promise<{ processo: LegalProcess }> {
+  return request<{ processo: LegalProcess }>(`/api/imoveis/${propertyId}/processos/${processId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export type ProcessMovementCreate = { movement_date?: string; description: string; source?: string }
+
+// Movimentação processual é APPEND-ONLY: cada andamento é um novo registro.
+export function addProcessMovement(propertyId: number, processId: number, payload: ProcessMovementCreate): Promise<{ process_id: number; movimentacao: { id: number; description: string } }> {
+  return request<{ process_id: number; movimentacao: { id: number; description: string } }>(`/api/imoveis/${propertyId}/processos/${processId}/movimentacoes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function linkJudicialProcess(propertyId: number, processId: number, payload: JudicialLink): Promise<{ property_id: number; processo: LegalProcess }> {
   return request<{ property_id: number; processo: LegalProcess }>(`/api/imoveis/${propertyId}/juridico/processos/${processId}/vincular`, {
     method: 'POST',

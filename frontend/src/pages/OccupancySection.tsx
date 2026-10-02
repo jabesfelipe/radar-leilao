@@ -24,8 +24,15 @@ const statusTone: Record<OccupancyStatus, 'warning' | 'success' | 'neutral'> = {
   DESCONHECIDO: 'neutral',
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return ''
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString('pt-BR')
+}
+
 export function OccupancySection({ propertyId }: OccupancySectionProps) {
   const [occupancy, setOccupancy] = useState<Occupancy | null>(null)
+  const [history, setHistory] = useState<Occupancy[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
@@ -40,6 +47,7 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
     try {
       const data = await getOccupancy(propertyId)
       setOccupancy(data.situacao_atual)
+      setHistory(data.historico ?? [])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar a ocupação.')
     } finally {
@@ -70,7 +78,7 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
       })
       setFormOpen(false)
       setForm(initialForm)
-      setSuccessMessage('Ocupação registrada com sucesso.')
+      setSuccessMessage('Nova avaliação de ocupação registrada. As avaliações anteriores foram preservadas no histórico.')
       await loadOccupancy()
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : 'Não foi possível registrar a ocupação.')
@@ -80,7 +88,7 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
   }
 
   return (
-    <Section title="Ocupação" description="Situação de ocupação registrada para o imóvel." className="dossier-section" actions={<Button onClick={openForm}><Plus size={16} /> Registrar ocupação</Button>}>
+    <Section title="Ocupação" description="Avaliação factual da ocupação. Cada atualização cria uma nova avaliação e preserva o histórico anterior (nada é apagado)." className="dossier-section" actions={<Button onClick={openForm}><Plus size={16} /> Atualizar situação</Button>}>
       {successMessage && <Alert tone="success" title="Registro concluído" className="dossier-feedback">{successMessage}</Alert>}
 
       {formOpen && (
@@ -109,23 +117,42 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
           <Button variant="secondary" onClick={() => void loadOccupancy()}><RefreshCw size={16} /> Tentar novamente</Button>
         </Card>
       ) : !occupancy ? (
-        <Card padding="none"><EmptyState title="Nenhuma ocupação registrada" description="Registre a situação de ocupação para compor o dossiê." icon={<Home size={24} />} action={<Button onClick={openForm}><Plus size={16} /> Registrar ocupação</Button>} /></Card>
+        <Card padding="none"><EmptyState title="Nenhuma ocupação registrada" description="Registre a situação de ocupação para compor o dossiê." icon={<Home size={24} />} action={<Button onClick={openForm}><Plus size={16} /> Atualizar situação</Button>} /></Card>
       ) : (
-        <Card padding="lg" className="dossier-current">
-          <div className="dossier-current-head">
-            <div>
-              <p className="eyebrow">SITUAÇÃO ATUAL</p>
-              <h3>{occupancy.status}</h3>
+        <>
+          <Card padding="lg" className="dossier-current">
+            <div className="dossier-current-head">
+              <div>
+                <p className="eyebrow">SITUAÇÃO ATUAL</p>
+                <h3>{occupancy.status}</h3>
+              </div>
+              <Badge tone={statusTone[occupancy.status] ?? 'neutral'} size="md">{occupancy.status}</Badge>
             </div>
-            <Badge tone={statusTone[occupancy.status] ?? 'neutral'} size="md">{occupancy.status}</Badge>
-          </div>
-          <dl className="dossier-facts">
-            <Fact label="Perfil do ocupante" value={occupancy.occupant_profile} />
-            <Fact label="Custo estimado" value={occupancy.estimated_cost == null ? 'Não informado' : formatMoney(occupancy.estimated_cost)} />
-            <Fact label="Meses estimados" value={occupancy.estimated_months == null ? 'Não informado' : String(occupancy.estimated_months)} />
-            {occupancy.evidence_id != null && <Fact label="Evidência" value={`#${occupancy.evidence_id}`} />}
-          </dl>
-        </Card>
+            <dl className="dossier-facts">
+              <Fact label="Perfil do ocupante" value={occupancy.occupant_profile} />
+              <Fact label="Custo estimado" value={occupancy.estimated_cost == null ? 'Não informado' : formatMoney(occupancy.estimated_cost)} />
+              <Fact label="Meses estimados" value={occupancy.estimated_months == null ? 'Não informado' : String(occupancy.estimated_months)} />
+              {occupancy.evidence_id != null && <Fact label="Evidência" value={`#${occupancy.evidence_id}`} />}
+            </dl>
+          </Card>
+
+          {history.length > 1 && (
+            <div className="dossier-history">
+              <p className="dossier-history-title">Histórico de avaliações de ocupação (preservado)</p>
+              <div className="dossier-timeline">
+                {history.slice().reverse().map((item, index) => (
+                  <div key={item.id} className="dossier-timeline-item">
+                    <span className="dossier-timeline-dot" />
+                    <div>
+                      <strong>{item.status}{index === 0 ? ' · atual' : ''}</strong>
+                      <span>{formatDate(item.created_at)}{item.occupant_profile ? ` · ${item.occupant_profile}` : ''}{item.estimated_cost != null ? ` · ${formatMoney(item.estimated_cost)}` : ''}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </Section>
   )

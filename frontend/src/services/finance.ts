@@ -81,6 +81,22 @@ export function createCost(propertyId: number, payload: CostCreate): Promise<Cos
   })
 }
 
+// TASK 75.2: edição/exclusão de custo. O backend registra histórico before/after +
+// evento e devolve o financeiro recalculado (não cria nova análise).
+export type CostUpdate = Partial<CostCreate>
+
+export function updateCost(propertyId: number, costId: number, payload: CostUpdate): Promise<{ custo: Cost; financeiro: FinanceResult }> {
+  return request<{ custo: Cost; financeiro: FinanceResult }>(`/api/imoveis/${propertyId}/custos/${costId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteCost(propertyId: number, costId: number): Promise<{ removido: number; financeiro: FinanceResult }> {
+  return request<{ removido: number; financeiro: FinanceResult }>(`/api/imoveis/${propertyId}/custos/${costId}`, { method: 'DELETE' })
+}
+
 export async function listDebts(propertyId: number): Promise<Debt[]> {
   const payload = await request<DebtsResponse>(`/api/imoveis/${propertyId}/dividas`)
   return payload.dividas
@@ -92,6 +108,20 @@ export function createDebt(propertyId: number, payload: DebtCreate): Promise<Deb
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+}
+
+export type DebtUpdate = Partial<DebtCreate>
+
+export function updateDebt(propertyId: number, debtId: number, payload: DebtUpdate): Promise<{ divida: Debt; financeiro: FinanceResult }> {
+  return request<{ divida: Debt; financeiro: FinanceResult }>(`/api/imoveis/${propertyId}/dividas/${debtId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteDebt(propertyId: number, debtId: number): Promise<{ removido: number; financeiro: FinanceResult }> {
+  return request<{ removido: number; financeiro: FinanceResult }>(`/api/imoveis/${propertyId}/dividas/${debtId}`, { method: 'DELETE' })
 }
 
 export function formatMoney(value?: number | string | null) {

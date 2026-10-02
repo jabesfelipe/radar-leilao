@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { FileSignature, Plus, RefreshCw } from 'lucide-react'
+import { FileSignature, Pencil, Plus, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Textarea } from '../components/ui'
-import { createRegistration, getRegistration, type PropertyRegistration } from '../services/registration'
+import { createRegistration, getRegistration, updateRegistration, type PropertyRegistration } from '../services/registration'
 
 type RegistrationSectionProps = {
   propertyId: number
@@ -42,6 +42,8 @@ export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState<RegistrationForm>(initialForm)
 
   const loadRegistration = useCallback(async () => {
     setLoading(true)
@@ -102,6 +104,39 @@ export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
     }
   }
 
+  const beginEdit = () => {
+    if (!current) return
+    setEditForm({
+      registration_number: current.registration_number || '', registry_office: current.registry_office || '',
+      comarca: current.comarca || '', consultation_date: current.consultation_date || '',
+      holder: current.holder || '', observations: current.observations || '',
+    })
+    setSaveError(''); setSuccessMessage(''); setEditing(true)
+  }
+
+  const submitEdit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!current) return
+    setSaving(true); setSaveError(''); setSuccessMessage('')
+    try {
+      await updateRegistration(propertyId, current.id, {
+        registration_number: editForm.registration_number.trim() || undefined,
+        registry_office: editForm.registry_office.trim() || undefined,
+        comarca: editForm.comarca.trim() || undefined,
+        consultation_date: editForm.consultation_date || undefined,
+        holder: editForm.holder.trim() || undefined,
+        observations: editForm.observations.trim() || undefined,
+      })
+      setEditing(false)
+      setSuccessMessage('Matrícula atualizada. O histórico registra a alteração.')
+      await loadRegistration()
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Não foi possível atualizar a matrícula.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Section title="Matrícula" description="Registros da matrícula do imóvel e seu histórico de consultas." className="dossier-section" actions={<Button onClick={openForm}><Plus size={16} /> Novo registro</Button>}>
       {successMessage && <Alert tone="success" title="Registro concluído" className="dossier-feedback">{successMessage}</Alert>}
@@ -141,15 +176,34 @@ export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
                 <p className="eyebrow">MATRÍCULA ATUAL</p>
                 <h3>{current.registration_number || 'Sem número informado'}</h3>
               </div>
-              {current.document_version_id && <Badge tone="info" size="sm">Vinculada a documento</Badge>}
+              <div className="crud-actions">
+                {current.document_version_id && <Badge tone="info" size="sm">Vinculada a documento</Badge>}
+                {!editing && <Button variant="ghost" size="sm" onClick={beginEdit}><Pencil size={14} /> Editar</Button>}
+              </div>
             </div>
-            <dl className="dossier-facts">
-              <Fact label="Cartório" value={current.registry_office} />
-              <Fact label="Comarca" value={current.comarca} />
-              <Fact label="Consulta" value={formatDate(current.consultation_date)} />
-              <Fact label="Titular" value={current.holder} />
-              <Fact label="Observações" value={current.observations} />
-            </dl>
+            {editing ? (
+              <form className="dossier-form" onSubmit={submitEdit} noValidate>
+                <Input label="Número da matrícula" value={editForm.registration_number} onChange={(e) => setEditForm((f) => ({ ...f, registration_number: e.target.value }))} />
+                <Input label="Cartório (opcional)" value={editForm.registry_office} onChange={(e) => setEditForm((f) => ({ ...f, registry_office: e.target.value }))} />
+                <Input label="Comarca (opcional)" value={editForm.comarca} onChange={(e) => setEditForm((f) => ({ ...f, comarca: e.target.value }))} />
+                <Input label="Data da consulta (opcional)" type="date" value={editForm.consultation_date} onChange={(e) => setEditForm((f) => ({ ...f, consultation_date: e.target.value }))} />
+                <Input label="Titular (opcional)" value={editForm.holder} onChange={(e) => setEditForm((f) => ({ ...f, holder: e.target.value }))} />
+                <Textarea label="Observações (opcional)" value={editForm.observations} onChange={(e) => setEditForm((f) => ({ ...f, observations: e.target.value }))} className="dossier-form-full" />
+                <div className="dossier-form-actions">
+                  {saveError && <Alert tone="danger">{saveError}</Alert>}
+                  <Button variant="ghost" type="button" onClick={() => setEditing(false)} disabled={saving}>Cancelar</Button>
+                  <Button type="submit" loading={saving}>Salvar alterações</Button>
+                </div>
+              </form>
+            ) : (
+              <dl className="dossier-facts">
+                <Fact label="Cartório" value={current.registry_office} />
+                <Fact label="Comarca" value={current.comarca} />
+                <Fact label="Consulta" value={formatDate(current.consultation_date)} />
+                <Fact label="Titular" value={current.holder} />
+                <Fact label="Observações" value={current.observations} />
+              </dl>
+            )}
           </Card>
 
           {history.length > 0 && (

@@ -153,6 +153,38 @@ export function createProperty(payload: PropertyCreate): Promise<Property> {
   })
 }
 
+// TASK 75.2: edição cadastral do imóvel (histórico + evento; NÃO cria análise).
+export type PropertyUpdate = Partial<Omit<Property, 'id' | 'created_at'>>
+
+export function updateProperty(id: number, payload: PropertyUpdate): Promise<Property> {
+  return request<Property>(`/api/imoveis/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+// TASK 75.2: edição cadastral do leilão corrente (recalcula o financeiro).
+export type AuctionUpdate = {
+  auction_stage?: string
+  appraisal_value?: number
+  bid_value?: number
+  acquisition_value?: number
+  commission_percent?: number
+  commission_fixed?: number
+  first_auction_value?: number
+  second_auction_value?: number
+  auctioneer?: string
+}
+
+export function updateAuction(propertyId: number, auctionId: number, payload: AuctionUpdate): Promise<{ leilao: AuctionSummary; financeiro: Record<string, unknown> }> {
+  return request<{ leilao: AuctionSummary; financeiro: Record<string, unknown> }>(`/api/imoveis/${propertyId}/leilao/${auctionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 export function createPropertyFull(payload: PropertyFullCreate): Promise<PropertyFullResult> {
   return request<PropertyFullResult>('/api/imoveis/completo', {
     method: 'POST',

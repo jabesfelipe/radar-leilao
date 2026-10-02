@@ -55,6 +55,39 @@ COST_STATUS_NAO_APLICAVEL = "NAO_APLICAVEL"
 # DESCONHECIDO (não como zero silencioso) e tornam o resultado provisório.
 MATERIAL_ACQUISITION_COSTS = ("itbi", "registro")
 
+# Mapa CANÔNICO de categoria de custo → chave do breakdown (TASK 75.2). O cadastro
+# de custo (texto livre em Cost.category) é normalizado e roteado para uma chave
+# canônica única. Diversos sinônimos convergem para a MESMA chave, de modo que o
+# motor reconheça, por exemplo, "Comissão do arrematante" como a comissão de
+# arrematação (chave "comissao") em vez de jogá-la em "outros".
+CANONICAL_COST_CATEGORY: dict[str, str] = {
+    "ITBI": "itbi",
+    "REGISTRO": "registro", "ESCRITURA": "registro", "CARTORIO": "registro",
+    "CONDOMINIO": "condominio",
+    "IPTU": "iptu",
+    "DEBITOS": "debitos", "DEBITO": "debitos",
+    "JURIDICO": "custos_juridicos", "CUSTOS_JURIDICOS": "custos_juridicos",
+    "HONORARIOS": "custos_juridicos", "HONORARIOS_ADVOCATICIOS": "custos_juridicos",
+    "DESOCUPACAO": "desocupacao", "DESPEJO": "desocupacao",
+    "REFORMA": "reforma",
+    "CARREGAMENTO": "carregamento",
+    # Comissão de arrematação (leiloeiro) — todos os sinônimos convergem para
+    # "comissao", a MESMA chave usada pela comissão parametrizada no Auction.
+    "COMISSAO": "comissao",
+    "COMISSAO_ARREMATACAO": "comissao",
+    "COMISSAO_ARREMATANTE": "comissao",
+    "COMISSAO_DO_ARREMATANTE": "comissao",
+    "COMISSAO_DO_LEILOEIRO": "comissao",
+    "COMISSAO_LEILOEIRO": "comissao",
+    "OUTROS": "outros",
+}
+
+
+def canonical_cost_key(category: Any) -> str:
+    """Resolve a categoria canônica (chave do breakdown) de um custo cadastrado.
+    Categorias desconhecidas caem em 'outros' (nunca ignoradas silenciosamente)."""
+    return CANONICAL_COST_CATEGORY.get(normalize_category(category), "outros")
+
 
 @dataclass(frozen=True)
 class SaleAssumptions:
@@ -365,13 +398,32 @@ def calculate_financial(
     acquisition = decimal(bid)
     appraisal_value = decimal(appraisal) if present(appraisal) else None
 
+    # ---- Comissão de arrematação: categoria canônica + precedência (TASK 75.2) ----
+    # Precedência SEM dupla contagem:
+    #   1) comissão parametrizada no Auction (commission_fixed/commission_percent);
+    #   2) senão, soma dos custos cadastrados cuja categoria canônica é "comissao".
+    # Quando (1) existe, custos de comissão NÃO são somados de novo (o Auction
+    # governa) — evita o cenário "comissão = R$11.100 e comissao=DESCONHECIDA".
+    commission_cost_total = sum(
+        (decimal(c.get("amount")) for c in costs if canonical_cost_key(c.get("category")) == "comissao"),
+        ZERO,
+    )
+    has_commission_cost = any(canonical_cost_key(c.get("category")) == "comissao" for c in costs)
     commission_informed = False
+    commission_source = None
     if present(commission_fixed):
         commission = decimal(commission_fixed)
         commission_informed = True
+        commission_source = "AUCTION_FIXO"
     elif present(commission_percent):
         commission = acquisition * decimal(commission_percent) / HUNDRED
         commission_informed = True
+        commission_source = "AUCTION_PERCENTUAL"
+    elif has_commission_cost:
+        # Comissão informada via custo cadastrado (categoria canônica "comissao").
+        commission = commission_cost_total
+        commission_informed = True
+        commission_source = "CUSTO_CADASTRADO"
     else:
         commission = ZERO
 
@@ -394,16 +446,18 @@ def calculate_financial(
     informed["comissao"] = commission_informed
     informed["desocupacao"] = present(occupancy.get("estimated_cost"))
 
+    # Custos cadastrados roteados pela categoria CANÔNICA. Custos de comissão são
+    # tratados acima (precedência); aqui só são somados em "comissao" quando a
+    # comissão veio justamente do custo cadastrado (evita dupla contagem quando o
+    # Auction já parametriza a comissão).
     for cost in costs:
         amount = decimal(cost.get("amount"))
-        category = normalize_category(cost.get("category"))
-        target = {
-            "ITBI": "itbi", "REGISTRO": "registro", "ESCRITURA": "registro",
-            "CONDOMINIO": "condominio", "IPTU": "iptu", "DEBITOS": "debitos",
-            "DEBITO": "debitos", "JURIDICO": "custos_juridicos",
-            "CUSTOS_JURIDICOS": "custos_juridicos", "DESOCUPACAO": "desocupacao",
-            "REFORMA": "reforma", "CARREGAMENTO": "carregamento", "OUTROS": "outros",
-        }.get(category, "outros")
+        target = canonical_cost_key(cost.get("category"))
+        if target == "comissao":
+            # Já consolidado em `commission`/breakdown["comissao"] por precedência.
+            # Não soma de novo: se a fonte foi o Auction, o custo é ignorado para
+            # fins de comissão (não há dupla contagem).
+            continue
         breakdown[target] += amount
         informed[target] = True
 
@@ -505,9 +559,10 @@ def calculate_financial(
 
     # ---- Preço máximo (Task 2 / Task 4: seguro) ----
     # Custos MATERIAIS desconhecidos que, se tratados como zero, SUPERESTIMARIAM o
-    # teto de lance. A comissão de arrematação também é material: quando não há nem
-    # percentual nem valor fixo informado, é desconhecida (não zero silencioso).
-    comissao_desconhecida = not (present(commission_percent) or present(commission_fixed))
+    # teto de lance. A comissão de arrematação também é material: ela é DESCONHECIDA
+    # apenas quando NÃO há percentual/valor no Auction E NÃO há custo cadastrado de
+    # comissão (TASK 75.2 — a comissão informada via custo passa a ser reconhecida).
+    comissao_desconhecida = not commission_informed
     unknown_for_max: list[str] = []
     for essencial in MATERIAL_ACQUISITION_COSTS:
         if not informed[essencial]:
@@ -519,12 +574,18 @@ def calculate_financial(
     if sale.tributo_pct is None:
         unknown_for_max.append("tributo_venda")
 
+    # Quando a comissão veio de custo cadastrado (valor fixo), ela entra como
+    # commission_fixed no cálculo do teto — tratada como custo fixo conhecido,
+    # mantendo a precedência e sem dupla contagem (breakdown["comissao"] = commission).
+    commission_fixed_for_max = commission_fixed if present(commission_fixed) else (
+        commission if commission_source == "CUSTO_CADASTRADO" else None
+    )
     fixed_costs_for_max = total - breakdown["aquisicao"] - breakdown["comissao"]
     max_price = calculate_max_acquisition_price(
         sale_value=estimated_market,
         fixed_costs=fixed_costs_for_max,
         commission_pct=(decimal(commission_percent) / HUNDRED) if present(commission_percent) else None,
-        commission_fixed=commission_fixed if present(commission_fixed) else None,
+        commission_fixed=commission_fixed_for_max,
         sale=sale,
         goal=goal,
         unknown_costs=unknown_for_max,
@@ -580,6 +641,14 @@ def calculate_financial(
         "desconto_percentual": discount_percent,
         "margem_absoluta": margin_absolute,
         "margem_percentual": margin_percent,
+        # Comissão de arrematação: origem e status (TASK 75.2). Fonte pode ser o
+        # Auction (percentual/fixo) ou um custo cadastrado de categoria "comissao".
+        "comissao_detalhe": {
+            "valor": commission,
+            "informada": commission_informed,
+            "origem": commission_source,  # AUCTION_FIXO | AUCTION_PERCENTUAL | CUSTO_CADASTRADO | None
+            "status": (COST_STATUS_INFORMADO if commission_informed else COST_STATUS_DESCONHECIDO),
+        },
         # Novos indicadores de venda (Task 2)
         "custo_saida": custo_saida,
         "custo_saida_detalhe": custo_saida_detalhe,

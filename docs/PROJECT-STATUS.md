@@ -1390,3 +1390,89 @@ A proteção do endpoint de recuperação usa um token de operação único
 (`PORTAL_ADMIN_TOKEN`), não um controle de acesso por usuário/perfil (não há camada de
 autenticação de usuários no projeto). É suficiente para o MVP local e falha fechada;
 autenticação/autorização por usuário fica como evolução (ver EVOLUTION-BACKLOG).
+
+
+## 25. TASK 75.2 — PADRONIZAÇÃO GERAL DE CRUD, EDIÇÃO E HISTÓRICO — 20/09/2026
+
+Auditoria e padronização dos módulos para que dados cadastrais sejam editáveis com
+rastreabilidade, sem destruir histórico e sem criar análises indevidas. Reutiliza
+toda a infra existente (`EntityHistory`, `DomainEvent`, `record_history`,
+`record_event`, `TimestampMixin`, versionamento documental/análises). Sem nova
+arquitetura. Imóvel 633 preservado (V1–V9, sem V10).
+
+### 25.1 Regra oficial (classificação da informação)
+> **Dado cadastral/factual é editável e gera histórico (before/after) + evento.
+> Documento tem versionamento (nunca sobrescrito). Eventos e análises são imutáveis.
+> Nova análise somente mediante reanálise explícita.**
+
+### 25.2 Matriz de comportamento por domínio
+
+| Domínio | Criar | Editar | Excluir | Histórico | Evento | Observação |
+|---|---|---|---|---|---|---|
+| Imóvel | sim | **sim (novo)** | não | sim | IMOVEL_ATUALIZADO | edição não cria análise |
+| Leilão | sim | **sim (novo)** | não | sim | LEILAO_ATUALIZADO | recalcula financeiro |
+| Custo | sim | **sim (novo)** | **sim (novo)** | sim | CUSTO_ATUALIZADO/REMOVIDO | recalcula financeiro |
+| Dívida | sim | **sim (novo)** | **sim (novo)** | sim | DIVIDA_ATUALIZADA/REMOVIDA | recalcula financeiro |
+| Comparável (mercado) | sim | **sim (novo)** | **sim (novo)** | **sim (novo)** | COMPARAVEL_ATUALIZADO/REMOVIDO | recalcula mercado |
+| Premissas financeiras | — | sim (já existia) | não | sim | PREMISSAS_FINANCEIRAS_ATUALIZADAS | resultado via motor |
+| Matrícula | sim | **sim (novo)** | não | sim | MATRICULA_ATUALIZADA | documento não sobrescrito |
+| Edital | sim | **sim (novo)** | não | sim | EDITAL_ATUALIZADO | documento não sobrescrito |
+| Processo (cadastral) | sim | **sim (novo)** | não | sim | PROCESSO_ATUALIZADO | correlação não alterada |
+| Movimentação processual | **sim (novo)** | não (append-only) | não | sim | MOVIMENTACAO_PROCESSUAL_ADICIONADA | novo fato = novo registro |
+| Ocupação | sim (append) | — (novo registro) | não | sim | OCUPACAO_ATUALIZADA | histórico preservado |
+| Checklist (resultado) | — | sim (já existia) | não | sim | CHECKLIST_ATUALIZADO | não cria análise |
+| Leiloeiro | sim | sim | **sim (novo)** | **sim (novo)** | LEILOEIRO_* | histórico global (sem imóvel) |
+| Portal | sim | sim | **sim (novo)** | **sim (novo)** | PORTAL_* | **secret nunca no histórico** |
+| Doc. do leiloeiro | sim | — | **sim (novo)** | **sim (novo)** | DOCUMENTO_LEILOEIRO_* | |
+| Documento/Versão | sim | metadados | não | sim | DOCUMENTO_VERSAO_* | versionamento (V1→Vn) |
+| Análise / Verdict / Risco | — | **NÃO (imutável)** | não | — | — | só por reanálise explícita |
+
+(**negrito** = entregue na 75.2.)
+
+### 25.3 Correção da comissão do arrematante (GAP crítico)
+`finance.py` ganhou um **mapa canônico de categorias** (`CANONICAL_COST_CATEGORY` +
+`canonical_cost_key`). Um custo cadastrado como "Comissão do arrematante" (e
+sinônimos) agora é reconhecido como a comissão de arrematação (chave `comissao`),
+não mais jogado em "outros". **Precedência sem dupla contagem**: (1) comissão
+parametrizada no Auction (`commission_percent`/`commission_fixed`); (2) senão, soma
+dos custos de categoria comissão. Quando o Auction define a comissão, o custo de
+comissão NÃO é somado de novo. Elimina o estado inconsistente
+"comissão = R$ 11.100 e `comissao_arrematacao` = DESCONHECIDA". O resultado expõe
+`comissao_detalhe` {valor, informada, origem, status}.
+
+### 25.4 Backend (endpoints novos)
+`PATCH/DELETE` de custos e dívidas; `GET/PATCH/DELETE` de comparáveis (CREATE passou
+a gravar histórico); `PATCH` de matrícula, edital, processo; `POST` de movimentação
+processual (append-only); `PATCH /api/imoveis/{id}` (imóvel); `PATCH
+/api/imoveis/{id}/leilao/{auction_id}`; CRUD de leiloeiro/portal/doc com histórico e
+evento globais (`record_global_event`/`record_global_history`, `property_id=None`);
+`GET /api/leiloeiros/{id}/historico`. Todas as edições/exclusões cadastrais devolvem
+o financeiro recalculado quando pertinente e **não** criam análise.
+
+### 25.5 Segurança da credencial (mantida/reforçada)
+A credencial de portal continua cifrada e protegida (Task 75.1). O histórico/evento
+de portal **nunca** inclui o `secret`: `_portal_history_snapshot` expõe apenas
+`has_secret`. Confirmado por teste (nenhuma senha aparece em
+`GET /api/leiloeiros/{id}/historico`).
+
+### 25.6 Frontend
+Edição/exclusão inline (reutilizando os componentes existentes) em Financeiro
+(custos/dívidas), Mercado (comparáveis), Matrícula, Edital, Processos (+movimentação
+append-only), e nova aba **Cadastro** (`PropertyEditSection`) para imóvel + leilão.
+Ocupação deixa claro que cada atualização cria uma nova avaliação e preserva o
+histórico. Exclusões pedem confirmação; indicadores (financeiro/mercado) são
+atualizados após a operação.
+
+### 25.7 Testes (evidência real, PostgreSQL real, sem LLM/DataJud)
+- **Backend: 576 passed, 2 skipped, 0 falhas** (562 → +14 em `tests/test_task752_crud.py`):
+  ciclos CREATE→GET→UPDATE→GET→HISTORY e DELETE; comissão canônica (via custo e via
+  Auction, sem dupla contagem); histórico de portal sem segredo.
+- **Frontend: `tsc --noEmit` OK; `vitest run` = 113 passed (18 arquivos)**, incluindo os
+  novos testes de edição/exclusão (Financeiro, Mercado, Ocupação).
+- **Imóvel 633 intacto**: `analyses` 9/9, `financial_analyses` 9/9, `verdicts` 9/9,
+  `checklist_executions` V1–V9 (+ 1 CADASTRO). **Zero V10** em qualquer tabela.
+
+### 25.8 Fora de escopo (respeitado)
+Nenhum microserviço/AWS/Redis/S3/MinIO/novo banco/vector DB/agente/LLM/RAG/scraping;
+sem refatoração arquitetural ampla; regras canônicas do Verdict e a sequência V1–V9
+não foram alteradas.
