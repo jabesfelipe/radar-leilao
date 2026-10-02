@@ -464,3 +464,15 @@ exposição de segredo. Ficam como evolução pós-MVP:
 4. **Normalização de categorias de custo na UI**: o mapa canônico vive no backend;
    avaliar um seletor de categoria sugerida no formulário de custo para reduzir
    divergência de texto livre.
+
+## 16. Fechamento 75.2.1 — GAPs residuais de CRUD/UI
+
+A Task 75.2.1 fecha os últimos GAPs cadastrais identificados na auditoria do MVP. Após sua implementação, estes itens deixam de ser pendências funcionais:
+
+1. Exclusão de leiloeiro pela UI.
+2. Exclusão de portal pela UI.
+3. Edição e exclusão de documento do leiloeiro.
+4. Edição, exclusão e histórico de fontes do imóvel.
+5. Cobertura automatizada dos fluxos e validação final do stack.
+
+As evoluções estruturais continuam em Fase 2. Não entram como escopo desta task nova arquitetura, novas integrações, LLM/RAG, scraping, DataJud real ou nova engine.
