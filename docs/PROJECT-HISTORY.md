@@ -2033,3 +2033,10 @@ DomainEvent, record_history/record_event, versionamento documental/análises. Im
   passed; 633 com 9 análises e zero V10.
 - **Fora de escopo** respeitado (sem novo serviço/infra/LLM/refatoração ampla; V1–V9
   e regras do Verdict intocadas).
+
+## TASK 75.2.1 — Fechamento final de CRUD/UI e validação (02/10/2026)
+
+Task final proposta para fechar exclusivamente os GAPs residuais da 75.2: exclusão de leiloeiro e portal na UI; edição/exclusão de documentos do leiloeiro; edição/exclusão/histórico de fontes do imóvel; testes e validação final. A regra de segurança da 75.1 e o padrão de histórico da 75.2 são preservados.
+
+### Resultado esperado
+Após a implementação, os fluxos cadastrais devem estar completos sem gerar nova análise. O imóvel 633 deve continuar com V1–V9, sem V10, sem LLM/DataJud real, e o commit/testes devem ser registrados nesta documentação.
