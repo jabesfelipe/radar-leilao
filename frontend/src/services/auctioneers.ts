@@ -83,6 +83,10 @@ export type PortalAccessCreate = {
   status?: string
 }
 
+// Edição de portal: todos os campos opcionais. `secret` só é enviado quando o
+// operador deseja TROCAR a credencial (o backend cifra; nunca retorna o valor).
+export type PortalAccessUpdate = Partial<PortalAccessCreate>
+
 export const listAuctioneers = () => request<Auctioneer[]>('/api/leiloeiros')
 export const getAuctioneer = (id: number) => request<Auctioneer>(`/api/leiloeiros/${id}`)
 
@@ -95,8 +99,24 @@ export const updateAuctioneer = (id: number, payload: Partial<AuctioneerCreate>)
 export const addPortalAccess = (id: number, payload: PortalAccessCreate) =>
   request<PortalAccess>(`/api/leiloeiros/${id}/portais`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
-export const revealPortalSecret = (auctioneerId: number, portalId: number) =>
-  request<{ portal_id: number; username?: string | null; secret?: string | null }>(`/api/leiloeiros/${auctioneerId}/portais/${portalId}/credencial`)
+export const updatePortalAccess = (auctioneerId: number, portalId: number, payload: PortalAccessUpdate) =>
+  request<PortalAccess>(`/api/leiloeiros/${auctioneerId}/portais/${portalId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
+// TASK 75.1: a credencial só é recuperada com o token de administração, enviado
+// no header X-Portal-Admin-Token. Sem token, o backend recusa (401/503).
+export const revealPortalSecret = (auctioneerId: number, portalId: number, adminToken: string) =>
+  request<{ portal_id: number; username?: string | null; secret?: string | null }>(
+    `/api/leiloeiros/${auctioneerId}/portais/${portalId}/credencial`,
+    { headers: { 'X-Portal-Admin-Token': adminToken } },
+  )
 
 export const addAuctioneerDocument = (id: number, payload: { doc_type: string; name: string; file_path?: string; version?: number; observations?: string }) =>
   request<AuctioneerDocument>(`/api/leiloeiros/${id}/documentos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
+// GAP 3: associa um leiloeiro cadastrado ao leilão corrente do imóvel. O backend
+// preserva o texto histórico (`auctioneer`) e grava a FK `auctioneer_id`.
+export const linkAuctionAuctioneer = (propertyId: number, auctioneerId: number) =>
+  request<{ property_id: number; auction_id: number; auctioneer_id: number; auctioneer_nome: string }>(
+    `/api/imoveis/${propertyId}/leilao/leiloeiro`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ auctioneer_id: auctioneerId }) },
+  )

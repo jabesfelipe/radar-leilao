@@ -1983,3 +1983,27 @@ Detalhes e evidências em PROJECT-STATUS §23.
 ### Pendência
 - E2E de navegador (Playwright) não executado — sem ambiente de browser automation;
   validação de UI permanece manual.
+
+
+## TASK 75.1 — Correções finais de segurança, UI e validação (20/09/2026)
+
+Fechamento dos GAPs da Task 75 sem tocar arquitetura/engines nem as 27 canonical keys;
+imóvel 633 preservado (V1–V9, sem V10, sem LLM).
+
+- **Segurança da credencial (GAP 1/2)**: a senha de portal deixou de ser texto puro.
+  Passou a ser cifrada com Fernet/AES (`cryptography`), chave `PORTAL_SECRET_KEY` vinda
+  do ambiente (nunca no banco). Sem chave, o sistema recusa salvar (503, falha fechada).
+  Valor persistido com prefixo `enc:v1:`.
+- **Endpoint de recuperação protegido**: `GET .../credencial` passou a exigir o header
+  `X-Portal-Admin-Token` (== `PORTAL_ADMIN_TOKEN`). Sem token configurado → 503; token
+  ausente/errado → 401. Auditoria sem gravar o valor. GETs comuns só expõem `has_secret`.
+- **UI (GAP 3)**: edição de leiloeiro e de portal (com troca de credencial cifrada),
+  cadastro de documentos, e associação de leiloeiro cadastrado ao leilão
+  (`AuctionNoticeSection`). Novo `PATCH .../portais/{id}` no backend.
+- **Validação real**: backend 562 passed / 2 skipped (de 558, +4 testes de segurança);
+  frontend tsc OK + vitest 108 passed; E2E HTTP no stack vivo confirmou não-vazamento +
+  401 sem token + 200 com token; 633 intacto (9 análises).
+- **E2E de navegador (Playwright)**: NÃO executado — projeto sem browser automation;
+  permanece validação manual (não simulado).
+- **Containers**: rebuild de backend (agora com `cryptography`) e frontend; stack no ar,
+  migrations em `0014_leiloeiros`.

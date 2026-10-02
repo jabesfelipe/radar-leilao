@@ -479,3 +479,42 @@ O commit da Task 4 registra resultados reportados de 514 testes backend aprovado
 - Consulta real ao DataJud ainda depende de configuração e validação externa; testes gated/skipped não comprovam funcionamento real.
 - A qualidade dos comparáveis de mercado e a avaliação real de liquidez/conservação permanecem itens de evolução.
 - Não há declaração de fechamento do MVP até a conclusão do roteiro E2E financeiro.
+
+
+---
+
+## 18. Segurança de credenciais de portal — Task 75.1 (20/09/2026)
+
+### Arquivos principais
+
+- `backend/app/secrets_crypto.py` (novo): criptografia reversível das credenciais.
+  `encrypt_secret`/`decrypt_secret` (Fernet/AES), `is_configured`, prefixo `enc:v1:`,
+  `SecretKeyNotConfigured`. A chave vem de `settings.portal_secret_key` (env).
+- `backend/app/config.py`: `portal_secret_key` e `portal_admin_token` (env-only).
+- `backend/app/main.py`: `add_portal_access` cifra o secret (503 se não configurado);
+  `update_portal_access` (`PATCH /api/leiloeiros/{id}/portais/{portal_id}`);
+  `reveal_portal_secret` exige header `X-Portal-Admin-Token` e decifra sob demanda.
+- `backend/app/schemas.py`: `PortalAccessUpdate`.
+- `frontend/src/services/auctioneers.ts`: `updatePortalAccess`, `linkAuctionAuctioneer`,
+  `revealPortalSecret(adminToken)` (envia o header).
+- `frontend/src/pages/AuctioneersPage.tsx`: edição de leiloeiro/portal, documentos,
+  prompt do token para revelar credencial.
+- `frontend/src/pages/AuctionNoticeSection.tsx`: associação de leiloeiro ao leilão.
+- `tests/test_task75_backend.py`: testes de segurança (cifra, 401/503, PATCH).
+- `.env.example` / `docker-compose.yml`: `PORTAL_SECRET_KEY`, `PORTAL_ADMIN_TOKEN`.
+- `backend/requirements.txt`: `cryptography==44.0.0`.
+
+### Contrato funcional
+
+- A credencial de um portal NUNCA é persistida em texto puro: é cifrada (Fernet) com
+  chave de ambiente. Sem a chave, o sistema recusa armazenar (falha fechada; 503).
+- A credencial só é devolvida pelo endpoint dedicado e protegido por token de operação
+  (`X-Portal-Admin-Token`). Sem token configurado → 503; token ausente/errado → 401.
+- GETs comuns (listagem/detalhe) expõem apenas `has_secret`, nunca o valor.
+- A recuperação é auditada (log de acesso) sem gravar o valor do segredo.
+- `decrypt_secret` só retorna valores com prefixo `enc:v1:` (não vaza legado em claro).
+
+### Limitação conhecida (MVP)
+
+- A proteção é por token de operação único, não por usuário/perfil (o projeto não tem
+  camada de autenticação de usuários). Autorização por usuário fica como evolução.

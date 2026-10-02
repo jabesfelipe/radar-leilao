@@ -14,6 +14,9 @@ langchain-text-splitters==0.3.5
 langgraph==0.2.60
 openai==1.59.7
 pytest==8.3.4
+# Criptografia reversível de credenciais de portal (TASK 75.1): Fernet/AES com
+# chave vinda de ambiente (nunca no banco). Sem Vault/Secrets Manager externos.
+cryptography==44.0.0
 # OCR local-first (opcional, ativado por OCR_ENABLED). Compatível com Python 3.12.
 pytesseract==0.3.13
 pdf2image==1.17.0

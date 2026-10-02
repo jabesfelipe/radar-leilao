@@ -60,6 +60,12 @@ services:
       JUDICIAL_API_BASE_URL: ${JUDICIAL_API_BASE_URL:-http://judicial_api:8010}
       JUDICIAL_API_KEY: ${JUDICIAL_API_CONSUMER_KEY:-}
       JUDICIAL_API_TIMEOUT_SECONDS: ${JUDICIAL_API_TIMEOUT_SECONDS:-30}
+      # Segurança de credenciais de portal (TASK 75.1). PORTAL_SECRET_KEY habilita a
+      # criptografia reversível (Fernet/AES) das senhas; PORTAL_ADMIN_TOKEN protege o
+      # endpoint de recuperação. Ambas vêm de ambiente/secret — NUNCA versionadas.
+      # Sem elas, o sistema recusa armazenar/revelar credenciais (falha fechada).
+      PORTAL_SECRET_KEY: ${PORTAL_SECRET_KEY:-}
+      PORTAL_ADMIN_TOKEN: ${PORTAL_ADMIN_TOKEN:-}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     healthcheck:

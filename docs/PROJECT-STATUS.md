@@ -1317,3 +1317,76 @@ Removida a marca "FUNDAÇÃO / Estrutura inicial" do `PageContainer`.
 - Cenários financeiros configuráveis e aluguel/yield seguem conforme o engine atual.
 - Edição de portal/credencial e documentos via UI do leiloeiro: cadastro entregue;
   edição avançada é evolução.
+
+
+## 24. TASK 75.1 — CORREÇÕES FINAIS DE SEGURANÇA, UI E VALIDAÇÃO — 20/09/2026
+
+Fechamento dos GAPs levantados sobre a Task 75, sem alterar arquitetura/engines nem
+as 27 canonical keys. Imóvel 633 permanece intacto (V1–V9, sem V10, sem LLM).
+
+### 24.1 GAP 1/2 — Credencial de portal nunca em texto puro (criptografia reversível)
+Antes, `portal_accesses.secret` era gravado como texto puro (apenas omitido das
+respostas). Agora a credencial é **cifrada** antes de persistir e só é decifrada sob
+demanda no endpoint protegido.
+
+- **Mecanismo**: Fernet (AES-128-CBC + HMAC) da biblioteca `cryptography==44.0.0`.
+  Escolhido por ser criptografia **reversível** — o app precisa recuperar a senha para
+  uso, então hash irreversível não serve. Descartados AWS Secrets Manager/Vault/Redis
+  (proibidos pela task; MVP local-first).
+- **Chave fora do banco**: `PORTAL_SECRET_KEY` vem do ambiente (`.env`/compose), nunca
+  versionada nem gravada no banco. Aceita uma chave Fernet pronta OU uma passphrase
+  (derivada por SHA-256). Implementação em `backend/app/secrets_crypto.py`
+  (`encrypt_secret`/`decrypt_secret`/`is_configured`), valor persistido com prefixo
+  `enc:v1:`.
+- **Falha fechada**: sem `PORTAL_SECRET_KEY`, o backend **recusa** salvar a credencial
+  (HTTP 503) em vez de guardar texto puro. `decrypt_secret` retorna `None` para valores
+  sem o prefixo (não vaza eventual legado em claro).
+
+### 24.2 Endpoint de recuperação protegido e auditável
+`GET /api/leiloeiros/{id}/portais/{portal_id}/credencial` agora exige o header
+`X-Portal-Admin-Token` igual a `PORTAL_ADMIN_TOKEN` (ambiente). Falha fechada: sem o
+token configurado → **503**; token ausente/errado → **401**. Registra evento de
+auditoria sem gravar o valor do segredo. O payload comum continua expondo apenas
+`{"has_secret": true}` — nunca `{"secret": "..."}`.
+
+### 24.3 GAP 3 — UI de Leiloeiros completa + associação ao leilão
+- `AuctioneersPage`: edição de leiloeiro, **edição de portal** (`PATCH .../portais/{id}`,
+  troca opcional da credencial — sempre cifrada), e UI de **documentos** (vincular).
+- A recuperação da credencial na UI pede o token de administração e o envia no header.
+- **Associação leiloeiro↔leilão** (`AuctionNoticeSection`): seletor de leiloeiro
+  cadastrado + ação "Associar ao leilão" (`POST /api/imoveis/{id}/leilao/leiloeiro`),
+  preservando o texto histórico `auctioneer`.
+- Novo endpoint backend `PATCH /api/leiloeiros/{id}/portais/{portal_id}`
+  (`update_portal_access`) + schema `PortalAccessUpdate`.
+
+### 24.4 Testes (evidência real, PostgreSQL real, sem LLM/DataJud real)
+- **Backend: 562 passed, 2 skipped, 0 falhas** (558 → +4 testes de segurança 75.1 em
+  `tests/test_task75_backend.py`): secret persistido cifrado (prefixo `enc:v1:`, sem o
+  texto puro no banco), reveal sem token → 401, reveal sem proteção configurada → 503,
+  `PATCH` de portal com troca de credencial cifrada.
+- **Frontend: `tsc --noEmit` OK; `vitest run` = 108 passed (18 arquivos)**. Novos/ajustes:
+  `AuctioneersPage.test.tsx` (reveal exige token no header; sem token não chama o
+  endpoint) e `AuctionNoticeSection.test.tsx` (associação de leiloeiro ao leilão).
+- **E2E HTTP sobre o stack vivo** (não é navegador): criar leiloeiro+portal → a
+  listagem **não** contém a senha; reveal **sem** token → 401; reveal **com** token →
+  200 devolvendo a senha decifrada.
+- **Imóvel 633 intacto**: `checklist_executions` V1–V9 (exatamente 9), `verdicts`
+  máx=9/9 distintas, `financial_analyses` máx=9/9. Nenhuma V10, nenhuma análise LLM
+  nova. Artefato de verificação (1 leiloeiro) removido → 0 residuais.
+
+### 24.5 Containers / migrations
+`docker compose build backend frontend` (imagem backend agora inclui `cryptography`),
+`docker compose up -d`. Health: backend `/health` ok, frontend HTTP 200. Migrations em
+`0014_leiloeiros` (head == current). `.env.example` e `docker-compose.yml` documentam
+`PORTAL_SECRET_KEY` e `PORTAL_ADMIN_TOKEN`.
+
+### 24.6 E2E de navegador (Playwright) — NÃO executado (limitação declarada)
+O projeto continua sem Playwright/Cypress e o ambiente não dispõe de browser
+automation. Os fluxos de navegador permanecem como validação **manual**; os testes
+HTTP/jsdom acima não contam como prova de E2E de navegador. (Não foi simulado.)
+
+### 24.7 Limitação de MVP (declarada)
+A proteção do endpoint de recuperação usa um token de operação único
+(`PORTAL_ADMIN_TOKEN`), não um controle de acesso por usuário/perfil (não há camada de
+autenticação de usuários no projeto). É suficiente para o MVP local e falha fechada;
+autenticação/autorização por usuário fica como evolução (ver EVOLUTION-BACKLOG).

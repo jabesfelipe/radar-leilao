@@ -424,3 +424,22 @@ O módulo Jurídico só deve ser considerado concluído quando:
 - Spec específica do módulo Jurídico → requisitos detalhados da implementação jurídica.
 
 **Regra:** a spec específica continua sendo a fonte detalhada dos requisitos do módulo; este documento define a sequência executiva e a divisão em tasks.
+
+---
+
+# 14. Evoluções derivadas da Task 75.1 (segurança de credenciais)
+
+Entregue na Task 75.1: credenciais de portal cifradas (Fernet/AES, chave de ambiente)
+e endpoint de recuperação protegido por token de operação (`X-Portal-Admin-Token`),
+com falha fechada. Ficam como evolução pós-MVP:
+
+1. **Autenticação/autorização por usuário**: hoje a recuperação da credencial usa um
+   token de operação único, não um controle por usuário/perfil (o projeto não tem
+   camada de autenticação de usuários). Evoluir para login + perfis + trilha de
+   auditoria por identidade quando houver múltiplos operadores.
+2. **Rotação de chave (`PORTAL_SECRET_KEY`)**: suportar múltiplas chaves/versões
+   (o prefixo `enc:v1:` já reserva espaço para versionamento) e re-cifragem em lote.
+3. **Cofre de segredos gerenciado**: quando sair do MVP local, considerar um KMS/secret
+   manager externo em vez de chave em `.env` (fora do escopo atual por decisão da task).
+4. **Upload binário de documentos do leiloeiro**: hoje são metadados; reutilizar a infra
+   documental de imóveis para anexos binários dedicados do leiloeiro.

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Gavel, Plus, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Textarea } from '../components/ui'
 import { createNotice, getNotice, type AuctionNotice } from '../services/registration'
+import { listAuctioneers, linkAuctionAuctioneer, type Auctioneer } from '../services/auctioneers'
 
 type AuctionNoticeSectionProps = {
   propertyId: number
@@ -53,6 +54,10 @@ export function AuctionNoticeSection({ propertyId }: AuctionNoticeSectionProps) 
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  // GAP 3: associação de leiloeiro cadastrado ao leilão corrente.
+  const [auctioneers, setAuctioneers] = useState<Auctioneer[]>([])
+  const [selectedAuctioneer, setSelectedAuctioneer] = useState('')
+  const [linking, setLinking] = useState(false)
 
   const loadNotice = useCallback(async () => {
     setLoading(true)
@@ -69,6 +74,24 @@ export function AuctionNoticeSection({ propertyId }: AuctionNoticeSectionProps) 
   }, [propertyId])
 
   useEffect(() => { void loadNotice() }, [loadNotice])
+  useEffect(() => { void listAuctioneers().then(setAuctioneers).catch(() => setAuctioneers([])) }, [])
+
+  const handleLinkAuctioneer = async () => {
+    if (!selectedAuctioneer) return
+    setLinking(true)
+    setSaveError('')
+    setSuccessMessage('')
+    try {
+      const r = await linkAuctionAuctioneer(propertyId, Number(selectedAuctioneer))
+      setSuccessMessage(`Leiloeiro "${r.auctioneer_nome}" associado ao leilão.`)
+      setSelectedAuctioneer('')
+      await loadNotice()
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : 'Não foi possível associar o leiloeiro.')
+    } finally {
+      setLinking(false)
+    }
+  }
 
   const openForm = () => {
     setForm(initialForm)
@@ -167,6 +190,27 @@ export function AuctionNoticeSection({ propertyId }: AuctionNoticeSectionProps) 
               <Fact label="Leiloeiro" value={current.auctioneer} />
               <Fact label="Observações" value={current.observations} />
             </dl>
+            {auctioneers.length > 0 && (
+              <div className="auction-link-auctioneer">
+                <p className="eyebrow">ASSOCIAR LEILOEIRO CADASTRADO</p>
+                <div className="auction-link-row">
+                  <select
+                    aria-label="Leiloeiro cadastrado"
+                    className="auction-link-select"
+                    value={selectedAuctioneer}
+                    onChange={(event) => setSelectedAuctioneer(event.target.value)}
+                  >
+                    <option value="">Selecione um leiloeiro…</option>
+                    {auctioneers.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name}{a.company ? ` · ${a.company}` : ''}</option>
+                    ))}
+                  </select>
+                  <Button variant="secondary" size="sm" type="button" disabled={!selectedAuctioneer} loading={linking} onClick={() => void handleLinkAuctioneer()}>
+                    Associar ao leilão
+                  </Button>
+                </div>
+              </div>
+            )}
           </Card>
 
           {history.length > 0 && (

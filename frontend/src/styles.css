@@ -601,5 +601,9 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .portal-row span { color: var(--color-text-muted); font-size: 12px; }
 .portal-secret { padding: 4px 8px; border-radius: 6px; background: #1b2730; color: #e8edf0; font-size: 12px; }
 .portal-form { display: grid; gap: 10px; padding: 12px; border: 1px dashed var(--color-border); border-radius: 8px; }
+.auctioneer-head-actions { display: flex; align-items: center; gap: 8px; }
+.auction-link-auctioneer { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border); display: grid; gap: 8px; }
+.auction-link-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.auction-link-select { flex: 1 1 240px; min-width: 220px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 13px; }
 
 .finance-hint { margin: 10px 0 0; color: var(--color-text-soft); font-size: 11px; line-height: 1.5; }

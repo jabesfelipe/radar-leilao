@@ -13,9 +13,15 @@ from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from backend.app import models
+from backend.app.config import settings
 from backend.app.database import get_db
 from backend.app.main import app
 from backend.app.finance import SaleAssumptions, calculate_break_even
+
+# TASK 75.1: chave/token usados apenas no ambiente de teste (nunca versionados em
+# produção). A chave habilita a criptografia reversível; o token protege o endpoint.
+_TEST_PORTAL_KEY = "chave-de-teste-portal-75-1"
+_TEST_ADMIN_TOKEN = "token-admin-teste-75-1"
 
 try:
     from fastapi.testclient import TestClient
@@ -55,12 +61,15 @@ def test_break_even_custos_saida_inviabilizam():
 
 # ---------------------------------------------------------------- fixture HTTP
 @pytest.fixture
-def client(postgres_engine):
+def client(postgres_engine, monkeypatch):
     if TestClient is None:
         pytest.skip("fastapi.testclient indisponível")
     tables = set(inspect(postgres_engine).get_table_names())
     if not REQUIRED_TABLES.issubset(tables):
         pytest.skip("Migrations 0014 (leiloeiros) ainda não aplicadas")
+    # Habilita criptografia + proteção do endpoint só para o teste (restaurado ao fim).
+    monkeypatch.setattr(settings, "portal_secret_key", _TEST_PORTAL_KEY, raising=False)
+    monkeypatch.setattr(settings, "portal_admin_token", _TEST_ADMIN_TOKEN, raising=False)
     connection = postgres_engine.connect()
     transaction = connection.begin()
     session = Session(bind=connection, autoflush=False, join_transaction_mode="create_savepoint")
@@ -112,10 +121,60 @@ def test_credencial_so_via_endpoint_dedicado(client):
     aid = resp.json()["id"]
     portal = client.post(f"/api/leiloeiros/{aid}/portais", json={"portal": "P", "username": "u", "secret": "REVELAR-123"}).json()
     pid = portal["id"]
-    # O endpoint dedicado retorna a credencial (ação explícita/auditável).
-    reveal = client.get(f"/api/leiloeiros/{aid}/portais/{pid}/credencial")
+    # O endpoint dedicado retorna a credencial (ação explícita/auditável), MAS exige
+    # o token de administração no header X-Portal-Admin-Token (TASK 75.1).
+    reveal = client.get(f"/api/leiloeiros/{aid}/portais/{pid}/credencial", headers={"X-Portal-Admin-Token": _TEST_ADMIN_TOKEN})
     assert reveal.status_code == 200
     assert reveal.json()["secret"] == "REVELAR-123"
+
+
+# ---------------------------------------------------- TASK 75.1 — segurança
+def test_secret_persistido_e_cifrado_nao_texto_puro(client):
+    """A credencial NUNCA é gravada em texto puro: o valor no banco é um token
+    cifrado (prefixo enc:v1:) e não contém a senha original."""
+    aid = client.post("/api/leiloeiros", json={"name": "Cripto"}).json()["id"]
+    portal = client.post(f"/api/leiloeiros/{aid}/portais", json={"portal": "P", "secret": "SENHA-CLARA-999"}).json()
+    pid = portal["id"]
+    # Inspeção direta do valor armazenado (não via API).
+    session = next(iter(app.dependency_overrides[get_db]()))
+    stored = session.get(models.PortalAccess, pid).secret
+    assert stored is not None
+    assert stored.startswith("enc:v1:")
+    assert "SENHA-CLARA-999" not in stored
+
+
+def test_credencial_sem_token_e_recusada(client):
+    """Sem o header de administração, o endpoint de recuperação falha fechada (401)."""
+    aid = client.post("/api/leiloeiros", json={"name": "Protegido"}).json()["id"]
+    pid = client.post(f"/api/leiloeiros/{aid}/portais", json={"portal": "P", "secret": "X-123"}).json()["id"]
+    sem_token = client.get(f"/api/leiloeiros/{aid}/portais/{pid}/credencial")
+    assert sem_token.status_code == 401
+    token_errado = client.get(f"/api/leiloeiros/{aid}/portais/{pid}/credencial", headers={"X-Portal-Admin-Token": "errado"})
+    assert token_errado.status_code == 401
+
+
+def test_credencial_sem_protecao_configurada_falha_fechada(client, monkeypatch):
+    """Se o PORTAL_ADMIN_TOKEN não está configurado, o acesso é negado (503) — nunca público."""
+    aid = client.post("/api/leiloeiros", json={"name": "SemToken"}).json()["id"]
+    pid = client.post(f"/api/leiloeiros/{aid}/portais", json={"portal": "P", "secret": "Y-123"}).json()["id"]
+    monkeypatch.setattr(settings, "portal_admin_token", None, raising=False)
+    resp = client.get(f"/api/leiloeiros/{aid}/portais/{pid}/credencial", headers={"X-Portal-Admin-Token": "qualquer"})
+    assert resp.status_code == 503
+
+
+def test_update_portal_troca_credencial_cifrada(client):
+    """PATCH do portal edita dados e, opcionalmente, troca a credencial (cifrada).
+    A resposta nunca inclui o secret."""
+    aid = client.post("/api/leiloeiros", json={"name": "Edita Portal"}).json()["id"]
+    pid = client.post(f"/api/leiloeiros/{aid}/portais", json={"portal": "P0", "secret": "antiga"}).json()["id"]
+    resp = client.patch(f"/api/leiloeiros/{aid}/portais/{pid}", json={"portal": "P1", "username": "novo@x", "secret": "nova-senha"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert "secret" not in body
+    assert body["portal"] == "P1" and body["username"] == "novo@x" and body["has_secret"] is True
+    # A nova credencial é a que o endpoint protegido devolve.
+    reveal = client.get(f"/api/leiloeiros/{aid}/portais/{pid}/credencial", headers={"X-Portal-Admin-Token": _TEST_ADMIN_TOKEN})
+    assert reveal.json()["secret"] == "nova-senha"
 
 
 def test_documento_e_associacao_leilao(client):

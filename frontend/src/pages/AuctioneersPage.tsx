@@ -1,27 +1,39 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Plus, Gavel, KeyRound, Eye, RefreshCw } from 'lucide-react'
+import { Plus, Gavel, KeyRound, Eye, RefreshCw, Pencil, FileText } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
 import {
-  listAuctioneers, createAuctioneer, addPortalAccess, revealPortalSecret,
-  type Auctioneer, type PortalAccessCreate,
+  listAuctioneers, createAuctioneer, updateAuctioneer, addPortalAccess, updatePortalAccess,
+  revealPortalSecret, addAuctioneerDocument,
+  type Auctioneer, type PortalAccess, type PortalAccessCreate, type AuctioneerCreate,
 } from '../services/auctioneers'
 
-const emptyForm = { name: '', document: '', company: '', registration: '', phone: '', email: '', website: '', address: '', observations: '' }
+const emptyForm = { name: '', document: '', company: '', registration: '', phone: '', email: '', website: '', address: '', observations: '', status: 'ATIVO' }
 const emptyPortal: PortalAccessCreate = { portal: '', url: '', username: '', secret: '', access_type: '', two_factor_enabled: false }
+const emptyDoc = { doc_type: 'OUTROS', name: '', file_path: '', observations: '' }
+
+type FormState = typeof emptyForm
 
 export function AuctioneersPage() {
   const [auctioneers, setAuctioneers] = useState<Auctioneer[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
-  const [form, setForm] = useState(emptyForm)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [form, setForm] = useState<FormState>(emptyForm)
   const [fieldError, setFieldError] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
+  // Portal: criação (portalFor) ou edição (editingPortal).
   const [portalFor, setPortalFor] = useState<number | null>(null)
   const [portal, setPortal] = useState<PortalAccessCreate>(emptyPortal)
+  const [editingPortal, setEditingPortal] = useState<{ auctioneerId: number; portalId: number } | null>(null)
+  const [portalEdit, setPortalEdit] = useState<PortalAccessCreate>(emptyPortal)
   const [revealed, setRevealed] = useState<Record<number, string>>({})
+
+  // Documentos.
+  const [docFor, setDocFor] = useState<number | null>(null)
+  const [doc, setDoc] = useState(emptyDoc)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -29,15 +41,27 @@ export function AuctioneersPage() {
   }, [])
   useEffect(() => { void load() }, [load])
 
+  const openCreate = () => { setForm(emptyForm); setEditingId(null); setFieldError(''); setFormOpen(true) }
+  const openEdit = (a: Auctioneer) => {
+    setForm({
+      name: a.name, document: a.document ?? '', company: a.company ?? '', registration: a.registration ?? '',
+      phone: a.phone ?? '', email: a.email ?? '', website: a.website ?? '', address: a.address ?? '',
+      observations: a.observations ?? '', status: a.status ?? 'ATIVO',
+    })
+    setEditingId(a.id); setFieldError(''); setFormOpen(true)
+  }
+
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!form.name.trim() || form.name.trim().length < 2) { setFieldError('Informe o nome do leiloeiro.'); return }
     setSaving(true); setMessage('')
     try {
-      await createAuctioneer({ ...form })
-      setForm(emptyForm); setFormOpen(false); setMessage('Leiloeiro cadastrado.')
+      const payload: AuctioneerCreate = { ...form }
+      if (editingId) { await updateAuctioneer(editingId, payload); setMessage('Leiloeiro atualizado.') }
+      else { await createAuctioneer(payload); setMessage('Leiloeiro cadastrado.') }
+      setForm(emptyForm); setFormOpen(false); setEditingId(null)
       await load()
-    } catch (c) { setFieldError(c instanceof Error ? c.message : 'Não foi possível cadastrar.') } finally { setSaving(false) }
+    } catch (c) { setFieldError(c instanceof Error ? c.message : 'Não foi possível salvar.') } finally { setSaving(false) }
   }
 
   const submitPortal = async (e: FormEvent, auctioneerId: number) => {
@@ -51,16 +75,52 @@ export function AuctioneersPage() {
     } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao adicionar portal.') } finally { setSaving(false) }
   }
 
-  const reveal = async (auctioneerId: number, portalId: number) => {
+  const openPortalEdit = (auctioneerId: number, p: PortalAccess) => {
+    setPortalEdit({
+      portal: p.portal, url: p.url ?? '', username: p.username ?? '', secret: '',
+      access_type: p.access_type ?? '', two_factor_enabled: p.two_factor_enabled, status: p.status,
+    })
+    setEditingPortal({ auctioneerId, portalId: p.id })
+  }
+
+  const submitPortalEdit = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!editingPortal) return
+    setSaving(true)
     try {
-      const r = await revealPortalSecret(auctioneerId, portalId)
+      // Só envia `secret` quando o operador digitou uma nova credencial (troca).
+      const payload: PortalAccessCreate = { ...portalEdit }
+      if (!payload.secret) delete payload.secret
+      await updatePortalAccess(editingPortal.auctioneerId, editingPortal.portalId, payload)
+      setEditingPortal(null); setMessage('Portal/acesso atualizado.')
+      await load()
+    } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao atualizar portal.') } finally { setSaving(false) }
+  }
+
+  const submitDoc = async (e: FormEvent, auctioneerId: number) => {
+    e.preventDefault()
+    if (!doc.name.trim()) return
+    setSaving(true)
+    try {
+      await addAuctioneerDocument(auctioneerId, { ...doc })
+      setDoc(emptyDoc); setDocFor(null); setMessage('Documento vinculado.')
+      await load()
+    } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao vincular documento.') } finally { setSaving(false) }
+  }
+
+  const reveal = async (auctioneerId: number, portalId: number) => {
+    // TASK 75.1: credencial exige token de administração (header). Pede ao operador.
+    const token = window.prompt('Token de administração (X-Portal-Admin-Token) para recuperar a credencial:')
+    if (!token) return
+    try {
+      const r = await revealPortalSecret(auctioneerId, portalId, token)
       setRevealed((cur) => ({ ...cur, [portalId]: r.secret ?? '(sem credencial)' }))
     } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao recuperar credencial.') }
   }
 
   return (
     <Section title="Leiloeiros" description="Cadastro de leiloeiros, portais/acessos e documentos. Credenciais são protegidas." className="dossier-section"
-      actions={<Button onClick={() => { setForm(emptyForm); setFieldError(''); setFormOpen(true) }}><Plus size={16} /> Novo leiloeiro</Button>}>
+      actions={<Button onClick={openCreate}><Plus size={16} /> Novo leiloeiro</Button>}>
       {message && <Alert tone="success" title="Pronto" className="dossier-feedback">{message}</Alert>}
 
       {formOpen && (
@@ -75,8 +135,8 @@ export function AuctioneersPage() {
             <Input label="Site (opcional)" value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} />
             <Input label="Endereço (opcional)" value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
             <div className="dossier-form-actions">
-              <Button variant="ghost" type="button" onClick={() => setFormOpen(false)} disabled={saving}>Cancelar</Button>
-              <Button type="submit" loading={saving}>Salvar leiloeiro</Button>
+              <Button variant="ghost" type="button" onClick={() => { setFormOpen(false); setEditingId(null) }} disabled={saving}>Cancelar</Button>
+              <Button type="submit" loading={saving}>{editingId ? 'Salvar alterações' : 'Salvar leiloeiro'}</Button>
             </div>
           </form>
         </Card>
@@ -85,14 +145,17 @@ export function AuctioneersPage() {
       {loading ? <LoadingState label="Carregando leiloeiros…" /> : error ? (
         <Card padding="lg"><Alert tone="danger" title="Não foi possível carregar">{error}</Alert><Button variant="secondary" onClick={() => void load()}><RefreshCw size={16} /> Tentar novamente</Button></Card>
       ) : auctioneers.length === 0 ? (
-        <Card padding="none"><EmptyState title="Nenhum leiloeiro" description="Cadastre leiloeiros, seus portais e documentos." icon={<Gavel size={24} />} action={<Button onClick={() => setFormOpen(true)}><Plus size={16} /> Novo leiloeiro</Button>} /></Card>
+        <Card padding="none"><EmptyState title="Nenhum leiloeiro" description="Cadastre leiloeiros, seus portais e documentos." icon={<Gavel size={24} />} action={<Button onClick={openCreate}><Plus size={16} /> Novo leiloeiro</Button>} /></Card>
       ) : (
         <div className="auctioneer-list">
           {auctioneers.map((a) => (
             <Card key={a.id} padding="lg" className="auctioneer-card">
               <div className="process-card-head">
                 <div><p className="eyebrow">LEILOEIRO</p><h3>{a.name}</h3></div>
-                <Badge tone={a.status === 'ATIVO' ? 'success' : 'neutral'} size="sm">{a.status}</Badge>
+                <div className="auctioneer-head-actions">
+                  <Badge tone={a.status === 'ATIVO' ? 'success' : 'neutral'} size="sm">{a.status}</Badge>
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(a)}><Pencil size={14} /> Editar</Button>
+                </div>
               </div>
               <dl className="dossier-facts">
                 <Fact label="Empresa" value={a.company} />
@@ -115,10 +178,23 @@ export function AuctioneersPage() {
                     {p.has_secret && (
                       <Button variant="ghost" size="sm" onClick={() => void reveal(a.id, p.id)}><Eye size={14} /> Ver credencial</Button>
                     )}
+                    <Button variant="ghost" size="sm" onClick={() => openPortalEdit(a.id, p)}><Pencil size={14} /> Editar</Button>
                     {revealed[p.id] !== undefined && <code className="portal-secret">{revealed[p.id]}</code>}
                   </div>
                 ))}
-                {portalFor === a.id ? (
+
+                {editingPortal?.auctioneerId === a.id ? (
+                  <form className="portal-form" onSubmit={(e) => void submitPortalEdit(e)}>
+                    <Input label="Portal" value={portalEdit.portal} onChange={(e) => setPortalEdit((p) => ({ ...p, portal: e.target.value }))} required />
+                    <Input label="URL" value={portalEdit.url} onChange={(e) => setPortalEdit((p) => ({ ...p, url: e.target.value }))} />
+                    <Input label="Usuário/E-mail" value={portalEdit.username} onChange={(e) => setPortalEdit((p) => ({ ...p, username: e.target.value }))} />
+                    <Input label="Nova senha (deixe vazio p/ manter)" type="password" value={portalEdit.secret} onChange={(e) => setPortalEdit((p) => ({ ...p, secret: e.target.value }))} />
+                    <div className="dossier-form-actions">
+                      <Button variant="ghost" type="button" onClick={() => setEditingPortal(null)}>Cancelar</Button>
+                      <Button type="submit" loading={saving}>Salvar portal</Button>
+                    </div>
+                  </form>
+                ) : portalFor === a.id ? (
                   <form className="portal-form" onSubmit={(e) => void submitPortal(e, a.id)}>
                     <Input label="Portal" value={portal.portal} onChange={(e) => setPortal((p) => ({ ...p, portal: e.target.value }))} required />
                     <Input label="URL" value={portal.url} onChange={(e) => setPortal((p) => ({ ...p, url: e.target.value }))} />
@@ -131,6 +207,33 @@ export function AuctioneersPage() {
                   </form>
                 ) : (
                   <Button variant="secondary" size="sm" onClick={() => { setPortal(emptyPortal); setPortalFor(a.id) }}><Plus size={14} /> Adicionar portal</Button>
+                )}
+              </div>
+
+              <div className="auctioneer-portals">
+                <p className="eyebrow">DOCUMENTOS</p>
+                {(a.documentos ?? []).length === 0 ? <p className="hub-muted">Nenhum documento vinculado.</p> : (a.documentos ?? []).map((d) => (
+                  <div key={d.id} className="portal-row">
+                    <FileText size={15} />
+                    <div>
+                      <strong>{d.name}</strong>
+                      <span>{d.doc_type} · v{d.version}{d.observations ? ` · ${d.observations}` : ''}</span>
+                    </div>
+                  </div>
+                ))}
+                {docFor === a.id ? (
+                  <form className="portal-form" onSubmit={(e) => void submitDoc(e, a.id)}>
+                    <Input label="Nome do documento" value={doc.name} onChange={(e) => setDoc((d) => ({ ...d, name: e.target.value }))} required />
+                    <Input label="Tipo" value={doc.doc_type} onChange={(e) => setDoc((d) => ({ ...d, doc_type: e.target.value }))} />
+                    <Input label="Caminho/arquivo (opcional)" value={doc.file_path} onChange={(e) => setDoc((d) => ({ ...d, file_path: e.target.value }))} />
+                    <Input label="Observações (opcional)" value={doc.observations} onChange={(e) => setDoc((d) => ({ ...d, observations: e.target.value }))} />
+                    <div className="dossier-form-actions">
+                      <Button variant="ghost" type="button" onClick={() => setDocFor(null)}>Cancelar</Button>
+                      <Button type="submit" loading={saving}>Vincular documento</Button>
+                    </div>
+                  </form>
+                ) : (
+                  <Button variant="secondary" size="sm" onClick={() => { setDoc(emptyDoc); setDocFor(a.id) }}><Plus size={14} /> Vincular documento</Button>
                 )}
               </div>
             </Card>

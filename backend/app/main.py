@@ -1,5 +1,5 @@
 from typing import Literal
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
 from .logging_config import configure_logging, get_logger
-from . import models, schemas
+from . import models, schemas, secrets_crypto
 from .ai.agents import ChecklistAgent, DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
 from .ai.gateway import build_gateway, sanitize_error
 from .ai.orchestrator import AnalysisOrchestrator
@@ -905,24 +905,66 @@ def update_auctioneer(auctioneer_id: int, data: schemas.AuctioneerUpdate, db: Se
 @app.post("/api/leiloeiros/{auctioneer_id}/portais", status_code=201)
 def add_portal_access(auctioneer_id: int, data: schemas.PortalAccessCreate, db: Session = Depends(get_db)):
     auctioneer_or_404(db, auctioneer_id)
-    portal = models.PortalAccess(auctioneer_id=auctioneer_id, **data.model_dump())
+    payload = data.model_dump()
+    plaintext = payload.pop("secret", None)
+    # TASK 75.1: a credencial é CIFRADA antes de persistir (nunca texto puro).
+    # Falha-fechada: sem chave configurada, recusa salvar a credencial.
+    if plaintext:
+        if not secrets_crypto.is_configured():
+            raise HTTPException(503, "Armazenamento de credenciais indisponível: PORTAL_SECRET_KEY não configurada.")
+        payload["secret"] = secrets_crypto.encrypt_secret(plaintext)
+    else:
+        payload["secret"] = None
+    portal = models.PortalAccess(auctioneer_id=auctioneer_id, **payload)
     db.add(portal); db.commit(); db.refresh(portal)
     # Resposta NÃO inclui o secret (apenas has_secret).
     return _portal_out(portal)
 
 
-@app.get("/api/leiloeiros/{auctioneer_id}/portais/{portal_id}/credencial")
-def reveal_portal_secret(auctioneer_id: int, portal_id: int, db: Session = Depends(get_db)):
-    """Endpoint DEDICADO e auditável para recuperar a credencial de um portal.
-
-    Separado da listagem por desenho (TASK 75 §19): a senha só sai daqui, nunca em
-    GETs comuns. Registra um evento de auditoria sem gravar o valor do segredo."""
+@app.patch("/api/leiloeiros/{auctioneer_id}/portais/{portal_id}")
+def update_portal_access(auctioneer_id: int, portal_id: int, data: schemas.PortalAccessUpdate, db: Session = Depends(get_db)):
+    """Edita dados NÃO secretos do portal (e, opcionalmente, troca a credencial —
+    sempre cifrada). A resposta nunca inclui o secret."""
     auctioneer_or_404(db, auctioneer_id)
     portal = db.get(models.PortalAccess, portal_id)
     if not portal or portal.auctioneer_id != auctioneer_id:
         raise HTTPException(404, "Portal/acesso não encontrado")
-    log.info("credencial de portal acessada: auctioneer_id=%s portal_id=%s (valor nao registrado)", auctioneer_id, portal_id)
-    return {"portal_id": portal.id, "username": portal.username, "secret": portal.secret}
+    fields = data.model_dump(exclude_unset=True)
+    if "secret" in fields:
+        plaintext = fields.pop("secret")
+        if plaintext:
+            if not secrets_crypto.is_configured():
+                raise HTTPException(503, "Armazenamento de credenciais indisponível: PORTAL_SECRET_KEY não configurada.")
+            portal.secret = secrets_crypto.encrypt_secret(plaintext)
+        else:
+            portal.secret = None
+    for key, value in fields.items():
+        setattr(portal, key, value)
+    db.commit(); db.refresh(portal)
+    return _portal_out(portal)
+
+
+@app.get("/api/leiloeiros/{auctioneer_id}/portais/{portal_id}/credencial")
+def reveal_portal_secret(auctioneer_id: int, portal_id: int, x_portal_admin_token: str | None = Header(default=None), db: Session = Depends(get_db)):
+    """Endpoint DEDICADO, PROTEGIDO e auditável para recuperar a credencial.
+
+    TASK 75.1: a senha só sai daqui (nunca em GETs comuns), exige o header
+    ``X-Portal-Admin-Token`` igual ao ``PORTAL_ADMIN_TOKEN`` do ambiente (falha
+    fechada: sem token configurado, o acesso é negado — nunca público). Registra
+    um evento de auditoria sem gravar o valor do segredo e descifra sob demanda."""
+    expected = settings.portal_admin_token
+    if not expected:
+        # Falha fechada: sem token de operação configurado, não liberamos a credencial.
+        log.warning("tentativa de acesso a credencial sem PORTAL_ADMIN_TOKEN configurado: auctioneer_id=%s portal_id=%s", auctioneer_id, portal_id)
+        raise HTTPException(503, "Recuperação de credencial indisponível: proteção de acesso não configurada (PORTAL_ADMIN_TOKEN).")
+    if not x_portal_admin_token or x_portal_admin_token != expected:
+        raise HTTPException(401, "Token de administração ausente ou inválido para recuperar a credencial.")
+    auctioneer_or_404(db, auctioneer_id)
+    portal = db.get(models.PortalAccess, portal_id)
+    if not portal or portal.auctioneer_id != auctioneer_id:
+        raise HTTPException(404, "Portal/acesso não encontrado")
+    log.info("credencial de portal acessada (autorizada): auctioneer_id=%s portal_id=%s (valor nao registrado)", auctioneer_id, portal_id)
+    return {"portal_id": portal.id, "username": portal.username, "secret": secrets_crypto.decrypt_secret(portal.secret)}
 
 
 @app.post("/api/leiloeiros/{auctioneer_id}/documentos", status_code=201)

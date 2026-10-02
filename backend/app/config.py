@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     judicial_api_base_url: str = "http://judicial_api:8010"
     judicial_api_key: str | None = None
     judicial_api_timeout_seconds: float = 30.0
+    # Segurança de credenciais de portal (TASK 75.1). A credencial é guardada
+    # CRIPTOGRAFADA (Fernet/AES) com chave vinda de ambiente — nunca no banco nem
+    # versionada. Sem a chave, o sistema recusa armazenar/revelar (falha fechada).
+    # portal_admin_token protege o endpoint de recuperação (header X-Portal-Admin-Token).
+    portal_secret_key: str | None = None
+    portal_admin_token: str | None = None
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     @model_validator(mode="after")

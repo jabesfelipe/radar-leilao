@@ -46,7 +46,10 @@ describe('AuctioneersPage', () => {
     expect(postCall[0]).toContain('/api/leiloeiros')
   })
 
-  it('revela a credencial apenas via ação explícita (endpoint dedicado)', async () => {
+  it('revela a credencial apenas via ação explícita, exigindo token de administração', async () => {
+    // TASK 75.1: o endpoint de recuperação é protegido; a UI pede o token e o
+    // envia no header X-Portal-Admin-Token. Sem token, nenhuma chamada é feita.
+    vi.spyOn(window, 'prompt').mockReturnValue('token-admin-123')
     vi.mocked(fetch)
       .mockReturnValueOnce(response([auctioneer]))
       .mockReturnValueOnce(response({ portal_id: 10, username: 'u@x', secret: 'minha-senha' }))
@@ -56,5 +59,17 @@ describe('AuctioneersPage', () => {
     await waitFor(() => expect(screen.getByText('minha-senha')).toBeInTheDocument())
     const revealCall = vi.mocked(fetch).mock.calls[1]
     expect(revealCall[0]).toContain('/portais/10/credencial')
+    const headers = (revealCall[1] as RequestInit).headers as Record<string, string>
+    expect(headers['X-Portal-Admin-Token']).toBe('token-admin-123')
+  })
+
+  it('não chama o endpoint de credencial quando o token não é informado', async () => {
+    vi.spyOn(window, 'prompt').mockReturnValue(null)
+    vi.mocked(fetch).mockReturnValueOnce(response([auctioneer]))
+    render(<AuctioneersPage />)
+    await screen.findByRole('heading', { name: 'Leiloeiro X' })
+    fireEvent.click(screen.getByRole('button', { name: /Ver credencial/ }))
+    // Só a chamada de listagem inicial deve ter ocorrido.
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(1)
   })
 })

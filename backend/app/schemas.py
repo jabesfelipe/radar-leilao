@@ -319,6 +319,19 @@ class PortalAccessCreate(BaseModel):
     status: str = "ATIVO"
 
 
+class PortalAccessUpdate(BaseModel):
+    portal: str | None = None
+    url: str | None = None
+    username: str | None = None
+    # Troca opcional da credencial (sempre cifrada no backend). Nunca retornada.
+    secret: str | None = None
+    access_type: str | None = None
+    two_factor_enabled: bool | None = None
+    observations: str | None = None
+    status: str | None = None
+    last_validated_at: datetime | None = None
+
+
 class AuctioneerDocumentCreate(BaseModel):
     doc_type: str = "OUTROS"
     name: str = Field(min_length=1)
