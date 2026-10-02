@@ -1,4 +1,4 @@
-import { LayoutDashboard, Building2, FileText, Scale, Wallet, BarChart3, Home, ClipboardCheck, ShieldAlert, BadgeCheck, History, X } from 'lucide-react'
+import { LayoutDashboard, Building2, FileText, Scale, Wallet, BarChart3, Home, ClipboardCheck, ShieldAlert, BadgeCheck, History, Gavel, X } from 'lucide-react'
 import { IconButton } from './ui'
 
 type NavigationItem = {
@@ -19,6 +19,7 @@ export const navigationItems: NavigationItem[] = [
   { path: '/riscos', label: 'Riscos', icon: ShieldAlert },
   { path: '/veredito', label: 'Veredito', icon: BadgeCheck },
   { path: '/historico', label: 'Histórico', icon: History },
+  { path: '/leiloeiros', label: 'Leiloeiros', icon: Gavel },
 ]
 
 type SidebarProps = {
@@ -59,7 +60,7 @@ export function Sidebar({ currentPath, isOpen, onNavigate, onClose }: SidebarPro
           <span className="status-dot" />
           <div>
             <strong>Ambiente local</strong>
-            <small>Fundação v0.1</small>
+            <small>Radar Leilão</small>
           </div>
         </div>
       </aside>

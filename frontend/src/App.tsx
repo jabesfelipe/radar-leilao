@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, ClipboardCheck, FileText, ShieldCheck } from 'lucide-react'
-import { Badge, Card, EmptyState, Section } from './components/ui'
 import { Layout } from './components/Layout'
 import { PageContainer } from './components/PageContainer'
 import { PropertiesPage } from './pages/PropertiesPage'
 import { PropertyDetailPage } from './pages/PropertyDetailPage'
+import { AuctioneersPage } from './pages/AuctioneersPage'
+import {
+  DashboardHub, FinancialHub, JuridicalHub, RisksHub, VerdictsHub,
+  MarketHub, OccupancyHub, ChecklistHub, DocumentsHub, HistoryHub,
+} from './pages/hubs'
 import { navigationItems } from './components/Sidebar'
 
 const defaultPath = '/dashboard'
@@ -36,6 +39,8 @@ function App() {
     setCurrentPath(path)
   }
 
+  const openProperty = (id: number) => navigate(`/imoveis/${id}`)
+
   const detailPropertyId = matchPropertyDetail(currentPath)
   if (detailPropertyId !== null) {
     return (
@@ -51,66 +56,44 @@ function App() {
 
   return (
     <Layout currentPath={currentPath} onNavigate={navigate}>
-      <PageContainer title={page.label} description={pageDescription[page.path]}>
-        <FoundationPage path={page.path} onNavigate={navigate} />
+      <PageContainer title={page.label} description={pageDescription[page.path] ?? ''}>
+        <HubRouter path={page.path} onOpenProperty={openProperty} />
       </PageContainer>
     </Layout>
   )
 }
 
 const pageDescription: Record<string, string> = {
-  '/dashboard': 'Visão geral da operação e dos módulos do Radar Leilão.',
+  '/dashboard': 'Painel de decisão: indicadores, pipeline e alertas calculados dos dados reais.',
   '/imoveis': 'Cadastre e acompanhe os imóveis que fazem parte do seu radar.',
-  '/documentos': 'Espaço reservado para documentos e rastreabilidade documental.',
-  '/juridico': 'Espaço reservado para informações e acompanhamentos jurídicos.',
-  '/financeiro': 'Espaço reservado para a visão financeira dos imóveis.',
-  '/mercado': 'Espaço reservado para referências e análises de mercado.',
-  '/ocupacao': 'Espaço reservado para informações de ocupação.',
-  '/checklist': 'Espaço reservado para o Checklist Mestre.',
-  '/riscos': 'Espaço reservado para riscos identificados e seu acompanhamento.',
-  '/veredito': 'Espaço reservado para o veredito consolidado de cada análise.',
-  '/historico': 'Espaço reservado para o histórico de análises e alterações.',
+  '/documentos': 'Central documental: todos os documentos do Radar, com filtros e rastreabilidade.',
+  '/juridico': 'Central jurídica: processos, correlação e riscos consolidados.',
+  '/financeiro': 'Central financeira: preço máximo, TCO, break-even, ROI e margem por imóvel.',
+  '/mercado': 'Comparáveis de venda e aluguel reunidos por imóvel.',
+  '/ocupacao': 'Situação de ocupação e impacto para a decisão.',
+  '/checklist': 'Checklist Mestre consolidado por imóvel.',
+  '/riscos': 'Riscos consolidados por severidade, com rastreabilidade à evidência.',
+  '/veredito': 'Vereditos consolidados e seus indicadores de decisão.',
+  '/historico': 'Linha do tempo global das ações e análises do Radar.',
+  '/leiloeiros': 'Cadastro de leiloeiros, portais/acessos e documentos.',
 }
 
-function FoundationPage({ path, onNavigate }: { path: string; onNavigate: (path: string) => void }) {
-  if (path === '/imoveis') return <PropertiesPage onOpenProperty={(id) => onNavigate(`/imoveis/${id}`)} />
-
-  if (path === '/dashboard') {
-    return (
-      <Section className="foundation-section">
-        <div className="foundation-grid">
-          <Card variant="brand" padding="lg" className="welcome-card">
-            <div className="welcome-icon"><ShieldCheck size={24} /></div>
-            <div>
-              <p className="eyebrow">BASE OPERACIONAL</p>
-              <h3>Seu radar está pronto para evoluir.</h3>
-              <p>A fundação visual está organizada para receber os próximos módulos do produto.</p>
-            </div>
-          </Card>
-          <Card padding="lg" className="foundation-card">
-            <BarChart3 size={20} />
-            <strong>11 módulos</strong>
-            <span>Navegação principal configurada</span>
-          </Card>
-          <Card padding="lg" className="foundation-card">
-            <ClipboardCheck size={20} />
-            <strong>Interface em pt-BR</strong>
-            <span>Identidade visual consistente</span>
-            <Badge tone="success" size="sm">Base ativa</Badge>
-          </Card>
-        </div>
-      </Section>
-    )
+function HubRouter({ path, onOpenProperty }: { path: string; onOpenProperty: (id: number) => void }) {
+  switch (path) {
+    case '/imoveis': return <PropertiesPage onOpenProperty={onOpenProperty} />
+    case '/dashboard': return <DashboardHub onOpenProperty={onOpenProperty} />
+    case '/documentos': return <DocumentsHub onOpenProperty={onOpenProperty} />
+    case '/juridico': return <JuridicalHub onOpenProperty={onOpenProperty} />
+    case '/financeiro': return <FinancialHub onOpenProperty={onOpenProperty} />
+    case '/mercado': return <MarketHub onOpenProperty={onOpenProperty} />
+    case '/ocupacao': return <OccupancyHub onOpenProperty={onOpenProperty} />
+    case '/checklist': return <ChecklistHub onOpenProperty={onOpenProperty} />
+    case '/riscos': return <RisksHub onOpenProperty={onOpenProperty} />
+    case '/veredito': return <VerdictsHub onOpenProperty={onOpenProperty} />
+    case '/historico': return <HistoryHub onOpenProperty={onOpenProperty} />
+    case '/leiloeiros': return <AuctioneersPage />
+    default: return <DashboardHub onOpenProperty={onOpenProperty} />
   }
-
-  return (
-    <EmptyState
-      className="module-placeholder"
-      icon={<FileText size={24} />}
-      title={navigationItems.find((item) => item.path === path)?.label ?? 'Módulo'}
-      description="Esta página define o ponto de entrada visual do módulo. Funcionalidades e dados serão adicionados em tarefas futuras."
-    />
-  )
 }
 
 export default App

@@ -278,3 +278,54 @@ class PropertyFullCreate(BaseModel):
     edital: AuctionNoticeFull | None = None
     matricula: RegistrationFull | None = None
     fontes: list[PropertySourceCreate] = Field(default_factory=list)
+
+
+# --- Leiloeiros (TASK 75) ---
+class AuctioneerCreate(BaseModel):
+    name: str = Field(min_length=2)
+    document: str | None = None
+    company: str | None = None
+    registration: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
+    address: str | None = None
+    observations: str | None = None
+    status: str = "ATIVO"
+
+
+class AuctioneerUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2)
+    document: str | None = None
+    company: str | None = None
+    registration: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    website: str | None = None
+    address: str | None = None
+    observations: str | None = None
+    status: str | None = None
+
+
+class PortalAccessCreate(BaseModel):
+    portal: str = Field(min_length=1)
+    url: str | None = None
+    username: str | None = None
+    # Credencial sensível: aceita na escrita, nunca retornada em listagem.
+    secret: str | None = None
+    access_type: str | None = None
+    two_factor_enabled: bool = False
+    observations: str | None = None
+    status: str = "ATIVO"
+
+
+class AuctioneerDocumentCreate(BaseModel):
+    doc_type: str = "OUTROS"
+    name: str = Field(min_length=1)
+    file_path: str | None = None
+    version: int = 1
+    observations: str | None = None
+
+
+class AuctionAuctioneerLink(BaseModel):
+    auctioneer_id: int

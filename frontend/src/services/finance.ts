@@ -130,6 +130,10 @@ export type FinanceResult = {
   resultado_completo?: boolean
   margem_liquida?: number | string | null
   roi_operacao?: number | string | null
+  break_even?: number | string | null
+  break_even_detalhe?: { break_even?: number | string | null; razao?: string }
+  margem_absoluta?: number | string | null
+  margem_percentual?: number | string | null
   preco_maximo?: number | string | null
   preco_maximo_definitivo?: boolean
   preco_maximo_provisorio?: boolean

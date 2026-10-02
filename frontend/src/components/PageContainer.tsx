@@ -1,4 +1,3 @@
-import { Badge } from './ui'
 import type { ReactNode } from 'react'
 
 type PageContainerProps = {
@@ -12,11 +11,10 @@ export function PageContainer({ title, description, children }: PageContainerPro
     <section className="page-container">
       <div className="page-heading">
         <div>
-          <p className="eyebrow">RADAR LEILÃO · FUNDAÇÃO</p>
+          <p className="eyebrow">RADAR LEILÃO</p>
           <h2>{title}</h2>
           <p className="page-description">{description}</p>
         </div>
-        <Badge tone="warning" size="sm" className="module-status">Estrutura inicial</Badge>
       </div>
       {children}
     </section>

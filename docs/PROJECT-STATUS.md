@@ -1,9 +1,9 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: INTEGRAÇÃO JURÍDICA E2E INTEGRADA (Judicial API → correlação → sinal → checklist → risco → veredito); testes automatizados verdes; E2E de NAVEGADOR do fluxo financeiro ainda pendente; MVP ainda NÃO encerrado**
+**Status global: FECHAMENTO FUNCIONAL DO PRODUTO (TASK 75) — 12 menus navegáveis (sem placeholder), hubs globais, domínio Leiloeiros, break-even e nova identidade visual; testes automatizados verdes; E2E de NAVEGADOR (Playwright) ainda pendente por falta de ambiente; MVP ainda NÃO encerrado**
 
-**Última atualização:** 30/09/2026  
-**Última implementação:** integração jurídica E2E — correlação determinística imóvel×processo, classificação do vínculo, reflexo no checklist/Risk Engine/Veredito e seção jurídica no dossiê (migration `0013`). Detalhes na §22.
+**Última atualização:** 01/10/2026  
+**Última implementação:** TASK 75 — fechamento funcional: hubs globais (Dashboard/Documentos/Jurídico/Financeiro/Mercado/Ocupação/Checklist/Riscos/Veredito/Histórico), domínio Leiloeiros com credenciais protegidas (migration `0014`), break-even no Finance Engine e nova identidade visual. Detalhes na §23.
 
 **Próximo passo (impeditivo do encerramento):** executar o E2E financeiro pela INTERFACE em um navegador real e registrar as evidências. Não há automação de navegador (Playwright/Cypress) no projeto, então essa validação permanece manual. Até ela ser concluída e registrada, o MVP NÃO é declarado encerrado.
 
@@ -1247,3 +1247,73 @@ VerdictEngine e a reanálise incremental. Histórico preservado.
   correlação por nome fica em MEDIA/BAIXA (nunca ALTA) — por desenho.
 - A consulta real ao DataJud permanece gated (mocks nos testes).
 - O fluxo financeiro **não** foi alterado; o jurídico só sinaliza risco/pendência.
+
+
+---
+
+## 23. TASK 75 — FECHAMENTO FUNCIONAL DO PRODUTO — 01/10/2026
+
+Transforma o Radar de "módulos parcialmente expostos" em produto navegável de
+ponta a ponta, reutilizando os engines/seções existentes (sem nova arquitetura,
+sem reabrir Finance/Risk/Verdict/Checklist). Histórico preservado.
+
+### 23.1 Hubs globais (nenhum menu placeholder)
+Os 10 menus que eram placeholder (`FoundationPage`/`EmptyState`) viraram hubs reais
+que agregam os dados e levam ao imóvel: **Dashboard** (KPIs, pipeline, alertas),
+**Documentos**, **Jurídico**, **Financeiro**, **Mercado**, **Ocupação**,
+**Checklist**, **Riscos**, **Veredito**, **Histórico**. **Imóveis** já era funcional
+e **Leiloeiros** é novo. Novos endpoints de agregação em `main.py` reutilizam
+`build_finance`, `juridical_overview`, Risk/Verdict persistidos: `/api/dashboard`,
+`/api/imoveis-resumo`, `/api/financeiro`, `/api/juridico`, `/api/riscos`,
+`/api/veredito`, `/api/mercado`, `/api/ocupacao`, `/api/documentos`,
+`/api/historico`, `/api/checklist-global`. Números sempre de fonte determinística.
+
+### 23.2 Domínio Leiloeiros (novo)
+Modelos `Auctioneer`, `PortalAccess`, `AuctioneerDocument` + `auctions.auctioneer_id`
+(FK opcional; o texto `auctioneer` é preservado como histórico). Migration
+`0014_leiloeiros` (reversível). Endpoints: CRUD de leiloeiro, portais/acessos,
+documentos e associação ao leilão (`POST /api/imoveis/{id}/leilao/leiloeiro`).
+
+**Segurança da credencial** (§19/§23 da task): a senha do portal fica em coluna
+separada (`portal_accesses.secret`) e **nunca** é retornada em listagens/detalhe
+(só `has_secret`), nem em logs. A recuperação exige um endpoint dedicado e
+auditável (`GET /api/leiloeiros/{id}/portais/{portal_id}/credencial`), que registra
+o acesso sem gravar o valor. Testes de não exposição cobrem isso.
+
+### 23.3 Break-even (Finance Engine)
+`finance.py::calculate_break_even`: preço mínimo de saída (venda) para resultado
+líquido zero, considerando os custos de saída parametrizados. Fórmula documentada
+(base VENDA: `CT/(1-c-t)`; base GANHO: `CT*(1-t)/(1-c-t)`; denominador ≤ 0 ⇒
+indefinido). Exposto no payload de `GET /api/imoveis/{id}/financeiro` e na
+`FinancialSection` (com margem de segurança). Determinístico, sem LLM, com teste.
+
+### 23.4 Identidade visual
+Nova paleta (grafite `#101820` / azul petróleo `#0F4C5C` / cobre `#E07A2D` + verde/
+amarelo/vermelho de status) nos tokens CSS e nos hardcodes da sidebar/topbar/cards.
+Removida a marca "FUNDAÇÃO / Estrutura inicial" do `PageContainer`.
+
+### 23.5 Testes (evidência real, PostgreSQL real, sem LLM/DataJud real)
+- Backend: **558 passed, 2 skipped, 0 falhas** (de 547 → +11 da Task 75). Novos em
+  `tests/test_task75_backend.py` (break-even, leiloeiro/portal/credencial,
+  não-exposição de senha, hubs, associação).
+- Frontend: `tsc --noEmit` OK; `vitest run` = **106 passed (18 arquivos)**, incluindo
+  `hubs.test.tsx` (3) e `AuctioneersPage.test.tsx` (4, com não-exposição de senha).
+- **Imóvel 633 intacto**: 9 análises (V1–V9) preservadas; nenhuma V10/análise LLM.
+  0 imóveis de teste e 0 leiloeiros residuais no banco (fixtures com rollback).
+
+### 23.6 Pendência impeditiva (declarada, não simulada)
+- **E2E de navegador (Playwright) — NÃO executado**: o projeto não possui Playwright/
+  Cypress e não há ambiente de browser automation aqui. Os fluxos §24/§25 da task
+  (Financeiro e menus no navegador) permanecem como validação **manual**. Os testes
+  HTTP/jsdom não contam como prova de E2E de navegador.
+- Operacional: o container `frontend`/`backend` em execução precisa de rebuild para
+  servir a nova UI/API (a validação desta task rodou em container efêmero sobre o
+  código do host). Nenhum dado de produção foi alterado.
+
+### 23.7 Lacunas reais / Fase 2
+- Documentos do leiloeiro: metadados cadastrados; upload binário reutiliza a infra
+  documental existente de imóveis (não há upload binário dedicado do leiloeiro
+  nesta task — registrado como evolução).
+- Cenários financeiros configuráveis e aluguel/yield seguem conforme o engine atual.
+- Edição de portal/credencial e documentos via UI do leiloeiro: cadastro entregue;
+  edição avançada é evolução.

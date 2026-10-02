@@ -257,11 +257,17 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
               <Fact label="Resultado líquido" value={formatMoney(result.resultado_liquido as number)} />
               <Fact label="Margem líquida" value={formatPercent(result.margem_liquida as number)} />
               <Fact label="ROI da operação" value={formatPercent(result.roi_operacao as number)} />
+              <Fact label="Break-even (saída mínima)" value={formatMoney(result.break_even as number)} />
+              <Fact label="Margem de segurança" value={formatMoney(result.margem_absoluta as number)} />
+              <Fact label="Margem de segurança %" value={formatPercent(result.margem_percentual as number)} />
               <Fact
                 label={result.preco_maximo != null && result.preco_maximo_provisorio ? 'Preço máximo (estimativa provisória)' : 'Preço máximo de arrematação'}
                 value={formatMoney(result.preco_maximo as number)}
               />
             </dl>
+            {result.break_even != null && (
+              <p className="finance-hint">Break-even: preço mínimo de saída para recuperar o investimento considerando os custos de venda parametrizados.</p>
+            )}
             {result.resultado_provisorio && (
               <Alert tone="warning" title="Resultado provisório">Há custos materiais ainda desconhecidos. Este resultado é uma simulação parcial, não um valor validado.</Alert>
             )}

@@ -1956,3 +1956,30 @@ incremental). Detalhes e evidências em PROJECT-STATUS §22.
 - Property não tem CPF/CNPJ estruturado; correlação por nome fica MEDIA/BAIXA.
 - Consulta real ao DataJud permanece gated (mocks nos testes).
 - Fórmula financeira inalterada.
+
+
+## TASK 75 — Fechamento funcional do produto (01/10/2026)
+
+Transforma os menus placeholder em hubs globais navegáveis, adiciona o domínio
+Leiloeiros (com credenciais protegidas), break-even no Finance Engine e nova
+identidade visual. Reutiliza os engines/seções existentes; sem nova arquitetura.
+Detalhes e evidências em PROJECT-STATUS §23.
+
+### Entregue
+- Hubs globais (Dashboard/Documentos/Jurídico/Financeiro/Mercado/Ocupação/Checklist/
+  Riscos/Veredito/Histórico) + endpoints de agregação em `main.py` reutilizando
+  `build_finance`/`juridical_overview`/Risk/Verdict.
+- Domínio Leiloeiros: models `Auctioneer`/`PortalAccess`/`AuctioneerDocument`,
+  migration `0014`, `auctions.auctioneer_id` (preserva texto). Credencial do portal
+  nunca exposta em listagem/log; recuperação só por endpoint dedicado/auditável.
+- Break-even determinístico (`finance.py`), exposto na API e na FinancialSection.
+- Nova identidade visual (grafite/petróleo/cobre); removida a marca "FUNDAÇÃO".
+- Item "Leiloeiros" na sidebar; router de hubs no App.tsx (sem placeholder).
+
+### Evidências
+- Backend: 558 passed, 2 skipped (DataJud gated). Frontend: tsc OK, vitest 106 passed.
+- Imóvel 633 intacto (V1–V9); 0 dados de teste residuais; nenhuma V10/LLM.
+
+### Pendência
+- E2E de navegador (Playwright) não executado — sem ambiente de browser automation;
+  validação de UI permanece manual.

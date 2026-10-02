@@ -6,6 +6,23 @@
 
 ---
 
+## 0.1 Pós-TASK 75 (fechamento funcional) — pendências/evolução registradas
+
+A TASK 75 (01/10/2026) tornou os 12 menus navegáveis (hubs globais), adicionou o
+domínio Leiloeiros (com credenciais protegidas, migration `0014`), break-even no
+Finance Engine e nova identidade visual (ver `PROJECT-STATUS` §23). Ficam como
+evolução/Fase 2:
+
+- **E2E de navegador (Playwright)**: não executado nesta rodada (sem ambiente de
+  browser automation). Validação de UI permanece manual — é a pendência impeditiva
+  do fechamento do MVP visual.
+- **Documentos do leiloeiro**: upload binário dedicado (hoje há metadados; o binário
+  reutiliza a infra documental de imóveis).
+- **Edição avançada de leiloeiro/portal** pela UI (cadastro entregue).
+- Cenários financeiros configuráveis e aluguel/yield seguem o engine atual.
+
+---
+
 ## 0. Pendências imediatas antes do fechamento do MVP
 
 Estas ações são estabilização/validação do que já existe, não novas funcionalidades de Fase 2.

@@ -71,6 +71,9 @@ class Auction(TimestampMixin, Base):
     commission_percent: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
     commission_fixed: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
     auctioneer: Mapped[str] = mapped_column(String(160), default="")
+    # Vínculo opcional ao cadastro estruturado de Leiloeiro (TASK 75). O texto
+    # `auctioneer` é preservado como histórico; a FK permite associar sem duplicar.
+    auctioneer_id: Mapped[int | None] = mapped_column(ForeignKey("auctioneers.id"))
     notice_url: Mapped[str] = mapped_column(String(500), default="")
     # Premissas financeiras correntes (Task 3): meta de preço máximo, corretagem,
     # tributo na venda, valor de venda estimado, prazo e carregamento mensal, além
@@ -474,3 +477,55 @@ class LLMPricing(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     __table_args__ = (UniqueConstraint("provider", "model", name="uq_llm_pricing_provider_model"),)
+
+
+class Auctioneer(TimestampMixin, Base):
+    """Cadastro estruturado de leiloeiro (TASK 75). Um leiloeiro pode ter vários
+    portais/acessos e ser referenciado por vários leilões."""
+    __tablename__ = "auctioneers"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    document: Mapped[str | None] = mapped_column(String(40))  # CPF/CNPJ quando aplicável
+    company: Mapped[str | None] = mapped_column(String(200))
+    registration: Mapped[str | None] = mapped_column(String(120))  # registro/identificação profissional
+    phone: Mapped[str | None] = mapped_column(String(60))
+    email: Mapped[str | None] = mapped_column(String(200))
+    website: Mapped[str | None] = mapped_column(String(300))
+    address: Mapped[str | None] = mapped_column(String(300))
+    observations: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="ATIVO")
+    portals: Mapped[list["PortalAccess"]] = relationship(back_populates="auctioneer", cascade="all, delete-orphan")
+    documents: Mapped[list["AuctioneerDocument"]] = relationship(back_populates="auctioneer", cascade="all, delete-orphan")
+
+
+class PortalAccess(TimestampMixin, Base):
+    """Portal/acesso de um leiloeiro. A credencial (``secret``) é mantida numa
+    COLUNA SEPARADA e NUNCA é retornada em listagens/histórico/logs/evidências nem
+    enviada a LLM/RAG (TASK 75 §19/§23). A recuperação exige endpoint dedicado."""
+    __tablename__ = "portal_accesses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    auctioneer_id: Mapped[int] = mapped_column(ForeignKey("auctioneers.id"), index=True)
+    portal: Mapped[str] = mapped_column(String(200))
+    url: Mapped[str | None] = mapped_column(String(500))
+    username: Mapped[str | None] = mapped_column(String(200))
+    # Credencial sensível — nunca serializada em respostas comuns.
+    secret: Mapped[str | None] = mapped_column(Text)
+    access_type: Mapped[str | None] = mapped_column(String(80))
+    two_factor_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    observations: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(30), default="ATIVO")
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    auctioneer: Mapped[Auctioneer] = relationship(back_populates="portals")
+
+
+class AuctioneerDocument(TimestampMixin, Base):
+    """Documento do leiloeiro (contrato, credenciamento, termos, comprovantes...)."""
+    __tablename__ = "auctioneer_documents"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    auctioneer_id: Mapped[int] = mapped_column(ForeignKey("auctioneers.id"), index=True)
+    doc_type: Mapped[str] = mapped_column(String(80), default="OUTROS")
+    name: Mapped[str] = mapped_column(String(240))
+    file_path: Mapped[str | None] = mapped_column(String(500))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    observations: Mapped[str | None] = mapped_column(Text)
+    auctioneer: Mapped[Auctioneer] = relationship(back_populates="documents")

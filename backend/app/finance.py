@@ -293,6 +293,43 @@ def _resolve_scenario(
     }
 
 
+def calculate_break_even(
+    *,
+    total_cost: Decimal | None,
+    sale: SaleAssumptions | None = None,
+) -> dict[str, Any]:
+    """Preço mínimo de saída (venda) para recuperar o investimento (TASK 75 §10.3).
+
+    Definição: o valor de venda V* no qual o resultado líquido é ZERO, considerando
+    os custos de saída parametrizados (corretagem + tributos). É determinístico,
+    sem LLM. Fórmula (c = corretagem_pct, t = tributo_pct, CT = custo total):
+
+      resultado_liquido = V - V*c - tributos - CT = 0
+
+      - tributo base VENDA:  tributos = V*t      → V* = CT / (1 - c - t)
+      - tributo base GANHO:  tributos = t*(V-CT) → V* = CT*(1 - t) / (1 - c - t)
+
+    Quando o denominador (1 - c - t) <= 0, o break-even é indefinido (os custos de
+    saída consomem toda a receita) e retornamos ``break_even=None`` + motivo. Sem
+    custo total conhecido, também retorna None (não inventa valor)."""
+    sale = sale or SaleAssumptions()
+    if total_cost is None:
+        return {"break_even": None, "razao": "CUSTO_TOTAL_DESCONHECIDO", "premissas": {}}
+    CT = decimal(total_cost)
+    c = sale.corretagem_pct if sale.corretagem_pct is not None else ZERO
+    t = sale.tributo_pct if sale.tributo_pct is not None else ZERO
+    premissas = {"custo_total": CT, "corretagem_pct": c, "tributo_pct": t, "tax_base": sale.tax_base}
+    if sale.tax_base == TAX_BASE_GANHO:
+        denom = Decimal("1") - c - t
+        numerator = CT * (Decimal("1") - t)
+    else:
+        denom = Decimal("1") - c - t
+        numerator = CT
+    if denom <= ZERO:
+        return {"break_even": None, "razao": "CUSTOS_SAIDA_INVIABILIZAM", "premissas": premissas}
+    return {"break_even": numerator / denom, "razao": "OK", "premissas": premissas}
+
+
 def calculate_financial(
     bid: Decimal = ZERO,
     appraisal: Decimal | None = None,
@@ -415,6 +452,10 @@ def calculate_financial(
         resultado_liquido = estimated_market - custo_saida - total
         margem_liquida = resultado_liquido / estimated_market if estimated_market != ZERO else None
         roi_operacao = resultado_liquido / total if total != ZERO else None
+
+    # ---- Break-even (Task 75 §10.3): preço mínimo de saída p/ resultado zero ----
+    break_even_detalhe = calculate_break_even(total_cost=total, sale=sale)
+    break_even = break_even_detalhe["break_even"]
 
     # ---- Classificação de status de cada custo (Task 3, item 2.1) ----
     # Distingue custo INFORMADO/ESTIMADO/DESCONHECIDO. Um custo material não
@@ -550,6 +591,8 @@ def calculate_financial(
         "resultado_completo": resultado_completo,
         "margem_liquida": margem_liquida,
         "roi_operacao": roi_operacao,
+        "break_even": break_even,
+        "break_even_detalhe": break_even_detalhe,
         "yield_mensal": yield_monthly,
         "yield_anual": yield_annual,
         "cenario": "BASE",
