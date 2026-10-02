@@ -1,14 +1,14 @@
 # EVOLUÇÃO DO BACKLOG — RADAR LEILÃO
 
-**Data:** 30/09/2026  
-**Estado de referência:** Task 5 integrada; testes financeiros HTTP adicionados; validação manual E2E pela UI pendente; Fase 2 ainda não iniciada  
+**Data:** 02/10/2026  
+**Estado de referência:** Task 75.1 integrada; segurança de credenciais corrigida; UI de leiloeiros concluída; validação manual E2E pela UI pendente; Fase 2 ainda não iniciada  
 **Escopo:** evolução do Radar Leilão para aprofundar a qualidade da análise de imóveis em leilões extrajudiciais.
 
 ---
 
 ## 0.1 Pós-TASK 75 (fechamento funcional) — pendências/evolução registradas
 
-A TASK 75 (01/10/2026) tornou os 12 menus navegáveis (hubs globais), adicionou o
+A TASK 75 (01/10/2026), complementada pela TASK 75.1 (02/10/2026), tornou os 12 menus navegáveis (hubs globais), adicionou o
 domínio Leiloeiros (com credenciais protegidas, migration `0014`), break-even no
 Finance Engine e nova identidade visual (ver `PROJECT-STATUS` §23). Ficam como
 evolução/Fase 2:
@@ -18,7 +18,6 @@ evolução/Fase 2:
   do fechamento do MVP visual.
 - **Documentos do leiloeiro**: upload binário dedicado (hoje há metadados; o binário
   reutiliza a infra documental de imóveis).
-- **Edição avançada de leiloeiro/portal** pela UI (cadastro entregue).
 - Cenários financeiros configuráveis e aluguel/yield seguem o engine atual.
 
 ---
@@ -31,7 +30,7 @@ Estas ações são estabilização/validação do que já existe, não novas fun
 2. **Premissas incompletas (P1):** confirmar que ITBI, registro, comissão de arrematação, corretagem e tributo ausentes aparecem como pendências e que a estimativa não é tratada como limite confiável de lance.
 3. **Regressão da aplicação (P1):** executar health check e os fluxos principais após atualizar a cópia local; registrar logs e defeitos reproduzíveis.
 4. **DataJud real (P2):** os testes gated/skipped não comprovam uma consulta real; validar somente quando houver configuração e condições de acesso.
-5. **Documentação:** manter README, PROJECT-STATUS, SPEC e IMPLEMENTATION-REFERENCE alinhados ao commit mais recente. A atualização documental de 30/09/2026 deve refletir a Task 5 (commit `6c5f318`).
+5. **Documentação:** manter README, PROJECT-STATUS, SPEC e IMPLEMENTATION-REFERENCE alinhados ao commit mais recente. A atualização documental deve refletir o commit mais recente e manter histórico anterior intacto.
 
 **Critério para fechar:** evidência registrada de UI real, premissas persistidas após recarga, estado provisório/definitivo correto e nenhuma regressão bloqueante. Até então, o status permanece “validação pendente”.
 
