@@ -1,9 +1,9 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: FECHAMENTO FUNCIONAL DO PRODUTO (TASK 75) — 12 menus navegáveis (sem placeholder), hubs globais, domínio Leiloeiros, break-even e nova identidade visual; testes automatizados verdes; E2E de NAVEGADOR (Playwright) ainda pendente por falta de ambiente; MVP ainda NÃO encerrado**
+**Status global: FECHAMENTO FUNCIONAL DO PRODUTO (TASK 75.1) — 12 menus navegáveis (sem placeholder), hubs globais, domínio Leiloeiros, break-even e nova identidade visual; testes automatizados verdes; E2E de NAVEGADOR (Playwright) ainda pendente por falta de ambiente; MVP ainda NÃO encerrado**
 
-**Última atualização:** 01/10/2026  
-**Última implementação:** TASK 75 — fechamento funcional: hubs globais (Dashboard/Documentos/Jurídico/Financeiro/Mercado/Ocupação/Checklist/Riscos/Veredito/Histórico), domínio Leiloeiros com credenciais protegidas (migration `0014`), break-even no Finance Engine e nova identidade visual. Detalhes na §23.
+**Última atualização:** 02/10/2026  
+**Última implementação:** TASK 75.1 — correções finais de segurança, UI e validação: hubs globais (Dashboard/Documentos/Jurídico/Financeiro/Mercado/Ocupação/Checklist/Riscos/Veredito/Histórico), domínio Leiloeiros com credenciais protegidas (migration `0014`), break-even no Finance Engine e nova identidade visual. Detalhes na §23.
 
 **Próximo passo (impeditivo do encerramento):** executar o E2E financeiro pela INTERFACE em um navegador real e registrar as evidências. Não há automação de navegador (Playwright/Cypress) no projeto, então essa validação permanece manual. Até ela ser concluída e registrada, o MVP NÃO é declarado encerrado.
 
