@@ -2040,3 +2040,22 @@ Task final proposta para fechar exclusivamente os GAPs residuais da 75.2: exclus
 
 ### Resultado esperado
 Após a implementação, os fluxos cadastrais devem estar completos sem gerar nova análise. O imóvel 633 deve continuar com V1–V9, sem V10, sem LLM/DataJud real, e o commit/testes devem ser registrados nesta documentação.
+
+
+## TASK 75.2.1 — Fechamento final de CRUD/UI (20/09/2026)
+
+Fechamento dos GAPs pontuais da auditoria 75.2, sem ampliar arquitetura e sem tocar
+o histórico do 633.
+
+- **UI de exclusão**: leiloeiro e portal agora podem ser excluídos pela tela de
+  Leiloeiros (confirmação, atualização de lista, erro visível). Portal nunca expõe
+  o segredo no fluxo.
+- **Documento do leiloeiro**: novo PATCH de metadados (conteúdo/versionamento
+  preservados) + edição/exclusão na UI, com histórico before/after + evento.
+- **Fontes do imóvel**: PATCH/DELETE + histórico/evento no backend e seção de edição/
+  exclusão na UI (aba Cadastro). created_at/id preservados; não cria análise.
+- **Correção**: histórico do leiloeiro passa a resolver portais/documentos pelos
+  DomainEvents (persistem pós-exclusão), mantendo o histórico de exclusões visível.
+- **Validação real**: backend 580 passed/2 skipped; frontend tsc OK + vitest 122
+  passed (19 arquivos); 633 com 9 análises e zero V10 (nenhuma análise nova).
+- Fora de escopo respeitado; nenhuma Task 76.

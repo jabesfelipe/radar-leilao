@@ -5,6 +5,7 @@ import {
   getPropertyDetail, updateProperty, updateAuction,
   type Property, type AuctionSummary,
 } from '../services/properties'
+import { SourcesSection } from './SourcesSection'
 
 type PropertyEditSectionProps = {
   propertyId: number
@@ -222,6 +223,8 @@ export function PropertyEditSection({ propertyId, onSaved }: PropertyEditSection
           </Card>
         )}
       </Section>
+
+      <SourcesSection propertyId={propertyId} />
     </div>
   )
 }

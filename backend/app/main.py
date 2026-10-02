@@ -113,10 +113,19 @@ def create_property_full(data: schemas.PropertyFullCreate, db: Session = Depends
     log.info("cadastro completo concluido: property_id=%s status=%s fontes=%d", prop.id, prop.status, len(data.fontes))
     return {"id": prop.id, "status": prop.status}
 
+PROPERTY_SOURCE_FIELDS = ["source_type", "url", "description", "origin"]
+
 @app.get("/api/imoveis/{property_id}/fontes", response_model=list[schemas.PropertySourceOut])
 def list_sources(property_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id)
     return db.scalars(select(models.PropertySource).where(models.PropertySource.property_id == property_id).order_by(models.PropertySource.created_at)).all()
+
+@app.get("/api/imoveis/{property_id}/fontes/historico")
+def list_sources_history(property_id: int, db: Session = Depends(get_db)):
+    """Histórico de alterações das fontes do imóvel (TASK 75.2.1)."""
+    property_or_404(db, property_id)
+    history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "PropertySource").order_by(models.EntityHistory.created_at)).all()
+    return {"property_id": property_id, "alteracoes": history}
 
 @app.post("/api/imoveis/{property_id}/fontes", response_model=schemas.PropertySourceOut, status_code=201)
 def add_source(property_id: int, data: schemas.PropertySourceCreate, db: Session = Depends(get_db)):
@@ -126,6 +135,38 @@ def add_source(property_id: int, data: schemas.PropertySourceCreate, db: Session
     record_history(db, prop, "PropertySource", source.id, "CREATE", None, data.model_dump(mode="json"), event.id)
     db.commit(); db.refresh(source)
     return source
+
+@app.patch("/api/imoveis/{property_id}/fontes/{source_id}", response_model=schemas.PropertySourceOut)
+def update_source(property_id: int, source_id: int, data: schemas.PropertySourceUpdate, db: Session = Depends(get_db)):
+    """Edita uma fonte do imóvel (TASK 75.2.1). Histórico before/after + evento.
+    Preserva created_at e o ID. Não cria análise."""
+    prop = property_or_404(db, property_id)
+    source = db.get(models.PropertySource, source_id)
+    if not source or source.property_id != property_id:
+        raise HTTPException(404, "Fonte não encontrada para o imóvel")
+    before = _snapshot(source, PROPERTY_SOURCE_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(source, changes)
+    db.flush()
+    after = _snapshot(source, PROPERTY_SOURCE_FIELDS)
+    event = record_event(db, prop, "FONTE_ATUALIZADA", "PropertySource", source.id, {"changes": list(changes.keys())}, ["documental"])
+    record_history(db, prop, "PropertySource", source.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(source)
+    return source
+
+@app.delete("/api/imoveis/{property_id}/fontes/{source_id}")
+def delete_source(property_id: int, source_id: int, db: Session = Depends(get_db)):
+    """Exclui uma fonte do imóvel (dado cadastral). Preserva histórico + evento.
+    Não apaga histórico/eventos anteriores. Não cria análise."""
+    prop = property_or_404(db, property_id)
+    source = db.get(models.PropertySource, source_id)
+    if not source or source.property_id != property_id:
+        raise HTTPException(404, "Fonte não encontrada para o imóvel")
+    before = _snapshot(source, PROPERTY_SOURCE_FIELDS)
+    event = record_event(db, prop, "FONTE_REMOVIDA", "PropertySource", source.id, before, ["documental"])
+    record_history(db, prop, "PropertySource", source.id, "DELETE", before, None, event.id)
+    db.delete(source); db.commit()
+    return {"property_id": property_id, "removido": source_id, "evento_id": event.id}
 
 @app.get("/api/checklist")
 def list_checklist(active: bool | None = None, origin: str | None = None, domain: str | None = None, category: str | None = None, priority: int | None = None, required: bool | None = None, db: Session = Depends(get_db)):
@@ -1166,10 +1207,23 @@ def get_auctioneer(auctioneer_id: int, db: Session = Depends(get_db)):
 
 @app.get("/api/leiloeiros/{auctioneer_id}/historico")
 def auctioneer_history(auctioneer_id: int, db: Session = Depends(get_db)):
-    """Histórico de alterações do leiloeiro, portais e documentos (sem segredos)."""
+    """Histórico de alterações do leiloeiro, portais e documentos (sem segredos).
+
+    As ids de portais/documentos são resolvidas a partir dos DomainEvents do
+    leiloeiro (que PERSISTEM mesmo após a exclusão do filho) + os filhos atuais —
+    assim o histórico de uma exclusão continua visível (TASK 75.2.1)."""
     auctioneer_or_404(db, auctioneer_id)
-    portal_ids = [p.id for p in db.scalars(select(models.PortalAccess).where(models.PortalAccess.auctioneer_id == auctioneer_id)).all()]
-    doc_ids = [d.id for d in db.scalars(select(models.AuctioneerDocument).where(models.AuctioneerDocument.auctioneer_id == auctioneer_id)).all()]
+    portal_ids: set[int] = {p.id for p in db.scalars(select(models.PortalAccess).where(models.PortalAccess.auctioneer_id == auctioneer_id)).all()}
+    doc_ids: set[int] = {d.id for d in db.scalars(select(models.AuctioneerDocument).where(models.AuctioneerDocument.auctioneer_id == auctioneer_id)).all()}
+    # Eventos globais que referenciam este leiloeiro no payload (persistem pós-delete).
+    events = db.scalars(select(models.DomainEvent).where(models.DomainEvent.property_id.is_(None))).all()
+    for ev in events:
+        if (ev.payload or {}).get("auctioneer_id") != auctioneer_id:
+            continue
+        if ev.aggregate_type == "PortalAccess" and ev.aggregate_id is not None:
+            portal_ids.add(ev.aggregate_id)
+        elif ev.aggregate_type == "AuctioneerDocument" and ev.aggregate_id is not None:
+            doc_ids.add(ev.aggregate_id)
     rows = db.scalars(
         select(models.EntityHistory)
         .where(models.EntityHistory.property_id.is_(None))
@@ -1228,7 +1282,7 @@ def add_portal_access(auctioneer_id: int, data: schemas.PortalAccessCreate, db: 
     db.add(portal); db.flush()
     # TASK 75.2: histórico/evento SEM segredo (apenas has_secret).
     snap = _portal_history_snapshot(portal)
-    event = record_global_event(db, "PORTAL_ADICIONADO", "PortalAccess", portal.id, snap, ["leiloeiros"])
+    event = record_global_event(db, "PORTAL_ADICIONADO", "PortalAccess", portal.id, snap | {"auctioneer_id": auctioneer_id}, ["leiloeiros"])
     record_global_history(db, "PortalAccess", portal.id, "CREATE", None, snap, event.id)
     db.commit(); db.refresh(portal)
     # Resposta NÃO inclui o secret (apenas has_secret).
@@ -1261,7 +1315,7 @@ def update_portal_access(auctioneer_id: int, portal_id: int, data: schemas.Porta
         setattr(portal, key, value)
     db.flush()
     after = _portal_history_snapshot(portal)
-    event = record_global_event(db, "PORTAL_ATUALIZADO", "PortalAccess", portal.id, {"changes": list(fields.keys()), "credencial_alterada": secret_changed}, ["leiloeiros"])
+    event = record_global_event(db, "PORTAL_ATUALIZADO", "PortalAccess", portal.id, {"auctioneer_id": auctioneer_id, "changes": list(fields.keys()), "credencial_alterada": secret_changed}, ["leiloeiros"])
     record_global_history(db, "PortalAccess", portal.id, "UPDATE", before, after, event.id)
     db.commit(); db.refresh(portal)
     return _portal_out(portal)
@@ -1275,7 +1329,7 @@ def delete_portal_access(auctioneer_id: int, portal_id: int, db: Session = Depen
     if not portal or portal.auctioneer_id != auctioneer_id:
         raise HTTPException(404, "Portal/acesso não encontrado")
     before = _portal_history_snapshot(portal)
-    event = record_global_event(db, "PORTAL_REMOVIDO", "PortalAccess", portal.id, before, ["leiloeiros"])
+    event = record_global_event(db, "PORTAL_REMOVIDO", "PortalAccess", portal.id, before | {"auctioneer_id": auctioneer_id}, ["leiloeiros"])
     record_global_history(db, "PortalAccess", portal.id, "DELETE", before, None, event.id)
     db.delete(portal); db.commit()
     return {"removido": portal_id, "auctioneer_id": auctioneer_id}
@@ -1312,6 +1366,26 @@ def add_auctioneer_document(auctioneer_id: int, data: schemas.AuctioneerDocument
     payload = data.model_dump(mode="json")
     event = record_global_event(db, "DOCUMENTO_LEILOEIRO_ADICIONADO", "AuctioneerDocument", doc.id, payload | {"auctioneer_id": auctioneer_id}, ["leiloeiros"])
     record_global_history(db, "AuctioneerDocument", doc.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(doc)
+    return _auctioneer_doc_out(doc)
+
+
+@app.patch("/api/leiloeiros/{auctioneer_id}/documentos/{document_id}")
+def update_auctioneer_document(auctioneer_id: int, document_id: int, data: schemas.AuctioneerDocumentUpdate, db: Session = Depends(get_db)):
+    """Edita os METADADOS do documento do leiloeiro (TASK 75.2.1). NÃO sobrescreve
+    conteúdo/versionamento (file_path/version são preservados). Histórico before/after
+    + evento. Só edita doc_type/name/observations."""
+    auctioneer_or_404(db, auctioneer_id)
+    doc = db.get(models.AuctioneerDocument, document_id)
+    if not doc or doc.auctioneer_id != auctioneer_id:
+        raise HTTPException(404, "Documento do leiloeiro não encontrado")
+    before = _snapshot(doc, AUCTIONEER_DOC_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(doc, changes)
+    db.flush()
+    after = _snapshot(doc, AUCTIONEER_DOC_FIELDS)
+    event = record_global_event(db, "DOCUMENTO_LEILOEIRO_ATUALIZADO", "AuctioneerDocument", doc.id, {"auctioneer_id": auctioneer_id, "changes": list(changes.keys())}, ["leiloeiros"])
+    record_global_history(db, "AuctioneerDocument", doc.id, "UPDATE", before, after, event.id)
     db.commit(); db.refresh(doc)
     return _auctioneer_doc_out(doc)
 

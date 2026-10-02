@@ -476,3 +476,19 @@ A Task 75.2.1 fecha os últimos GAPs cadastrais identificados na auditoria do MV
 5. Cobertura automatizada dos fluxos e validação final do stack.
 
 As evoluções estruturais continuam em Fase 2. Não entram como escopo desta task nova arquitetura, novas integrações, LLM/RAG, scraping, DataJud real ou nova engine.
+
+---
+
+# 16. GAPs encerrados na Task 75.2.1 (saíram do backlog)
+
+Os itens abaixo eram tratados como evolução e foram ENTREGUES na Task 75.2.1,
+deixando de ser backlog:
+
+- Edição de metadados do documento do leiloeiro (PATCH + UI), sem sobrescrever
+  conteúdo/versionamento.
+- Exclusão de leiloeiro e de portal pela UI (o backend já tinha os endpoints).
+- CRUD completo das fontes do imóvel: edição e exclusão com histórico (before/after)
+  e evento, além da criação/listagem que já existiam.
+
+Permanece como evolução (não entregue): upload binário dedicado de documentos do
+leiloeiro (hoje apenas metadados; reutilizar a infra documental de imóveis).

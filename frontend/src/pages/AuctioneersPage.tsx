@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Plus, Gavel, KeyRound, Eye, RefreshCw, Pencil, FileText } from 'lucide-react'
+import { Plus, Gavel, KeyRound, Eye, RefreshCw, Pencil, FileText, Trash2 } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
 import {
-  listAuctioneers, createAuctioneer, updateAuctioneer, addPortalAccess, updatePortalAccess,
-  revealPortalSecret, addAuctioneerDocument,
-  type Auctioneer, type PortalAccess, type PortalAccessCreate, type AuctioneerCreate,
+  listAuctioneers, createAuctioneer, updateAuctioneer, deleteAuctioneer, addPortalAccess, updatePortalAccess,
+  deletePortalAccess, revealPortalSecret, addAuctioneerDocument, updateAuctioneerDocument, deleteAuctioneerDocument,
+  type Auctioneer, type PortalAccess, type PortalAccessCreate, type AuctioneerCreate, type AuctioneerDocument,
 } from '../services/auctioneers'
 
 const emptyForm = { name: '', document: '', company: '', registration: '', phone: '', email: '', website: '', address: '', observations: '', status: 'ATIVO' }
@@ -31,9 +31,11 @@ export function AuctioneersPage() {
   const [portalEdit, setPortalEdit] = useState<PortalAccessCreate>(emptyPortal)
   const [revealed, setRevealed] = useState<Record<number, string>>({})
 
-  // Documentos.
+  // Documentos (criação + edição de metadados).
   const [docFor, setDocFor] = useState<number | null>(null)
   const [doc, setDoc] = useState(emptyDoc)
+  const [editingDocId, setEditingDocId] = useState<number | null>(null)
+  const [docEdit, setDocEdit] = useState({ doc_type: '', name: '', observations: '' })
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -118,6 +120,54 @@ export function AuctioneersPage() {
     } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao recuperar credencial.') }
   }
 
+  // TASK 75.2.1: exclusões (confirmação + atualização de lista + erro visível).
+  const removeAuctioneer = async (a: Auctioneer) => {
+    if (!window.confirm(`Excluir o leiloeiro "${a.name}"? Portais e documentos vinculados também serão removidos. A ação é registrada no histórico.`)) return
+    setMessage('')
+    try {
+      await deleteAuctioneer(a.id)
+      setMessage('Leiloeiro excluído.')
+      await load()
+    } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao excluir leiloeiro.') }
+  }
+
+  const removePortal = async (auctioneerId: number, p: PortalAccess) => {
+    if (!window.confirm(`Excluir o portal "${p.portal}"? A ação é registrada no histórico (a credencial não é exposta).`)) return
+    setMessage('')
+    try {
+      await deletePortalAccess(auctioneerId, p.id)
+      setMessage('Portal/acesso excluído.')
+      await load()
+    } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao excluir portal.') }
+  }
+
+  const openDocEdit = (d: AuctioneerDocument) => {
+    setEditingDocId(d.id)
+    setDocEdit({ doc_type: d.doc_type ?? '', name: d.name ?? '', observations: d.observations ?? '' })
+    setMessage('')
+  }
+
+  const submitDocEdit = async (e: FormEvent, auctioneerId: number, documentId: number) => {
+    e.preventDefault()
+    if (!docEdit.name.trim()) return
+    setSaving(true)
+    try {
+      await updateAuctioneerDocument(auctioneerId, documentId, { doc_type: docEdit.doc_type, name: docEdit.name, observations: docEdit.observations })
+      setEditingDocId(null); setMessage('Documento atualizado.')
+      await load()
+    } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao atualizar documento.') } finally { setSaving(false) }
+  }
+
+  const removeDoc = async (auctioneerId: number, d: AuctioneerDocument) => {
+    if (!window.confirm(`Excluir o documento "${d.name}"? A ação é registrada no histórico.`)) return
+    setMessage('')
+    try {
+      await deleteAuctioneerDocument(auctioneerId, d.id)
+      setMessage('Documento excluído.')
+      await load()
+    } catch (c) { setMessage(c instanceof Error ? c.message : 'Falha ao excluir documento.') }
+  }
+
   return (
     <Section title="Leiloeiros" description="Cadastro de leiloeiros, portais/acessos e documentos. Credenciais são protegidas." className="dossier-section"
       actions={<Button onClick={openCreate}><Plus size={16} /> Novo leiloeiro</Button>}>
@@ -155,6 +205,7 @@ export function AuctioneersPage() {
                 <div className="auctioneer-head-actions">
                   <Badge tone={a.status === 'ATIVO' ? 'success' : 'neutral'} size="sm">{a.status}</Badge>
                   <Button variant="ghost" size="sm" onClick={() => openEdit(a)}><Pencil size={14} /> Editar</Button>
+                  <Button variant="ghost" size="sm" onClick={() => void removeAuctioneer(a)}><Trash2 size={14} /> Excluir</Button>
                 </div>
               </div>
               <dl className="dossier-facts">
@@ -179,6 +230,7 @@ export function AuctioneersPage() {
                       <Button variant="ghost" size="sm" onClick={() => void reveal(a.id, p.id)}><Eye size={14} /> Ver credencial</Button>
                     )}
                     <Button variant="ghost" size="sm" onClick={() => openPortalEdit(a.id, p)}><Pencil size={14} /> Editar</Button>
+                    <Button variant="ghost" size="sm" onClick={() => void removePortal(a.id, p)}><Trash2 size={14} /> Excluir</Button>
                     {revealed[p.id] !== undefined && <code className="portal-secret">{revealed[p.id]}</code>}
                   </div>
                 ))}
@@ -213,13 +265,27 @@ export function AuctioneersPage() {
               <div className="auctioneer-portals">
                 <p className="eyebrow">DOCUMENTOS</p>
                 {(a.documentos ?? []).length === 0 ? <p className="hub-muted">Nenhum documento vinculado.</p> : (a.documentos ?? []).map((d) => (
-                  <div key={d.id} className="portal-row">
-                    <FileText size={15} />
-                    <div>
-                      <strong>{d.name}</strong>
-                      <span>{d.doc_type} · v{d.version}{d.observations ? ` · ${d.observations}` : ''}</span>
+                  editingDocId === d.id ? (
+                    <form key={d.id} className="portal-form" onSubmit={(e) => void submitDocEdit(e, a.id, d.id)}>
+                      <Input label="Nome do documento" value={docEdit.name} onChange={(e) => setDocEdit((x) => ({ ...x, name: e.target.value }))} required />
+                      <Input label="Tipo" value={docEdit.doc_type} onChange={(e) => setDocEdit((x) => ({ ...x, doc_type: e.target.value }))} />
+                      <Input label="Observações (opcional)" value={docEdit.observations} onChange={(e) => setDocEdit((x) => ({ ...x, observations: e.target.value }))} />
+                      <div className="dossier-form-actions">
+                        <Button variant="ghost" type="button" onClick={() => setEditingDocId(null)}>Cancelar</Button>
+                        <Button type="submit" loading={saving}>Salvar documento</Button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div key={d.id} className="portal-row">
+                      <FileText size={15} />
+                      <div>
+                        <strong>{d.name}</strong>
+                        <span>{d.doc_type} · v{d.version}{d.observations ? ` · ${d.observations}` : ''}</span>
+                      </div>
+                      <Button variant="ghost" size="sm" onClick={() => openDocEdit(d)}><Pencil size={14} /> Editar</Button>
+                      <Button variant="ghost" size="sm" onClick={() => void removeDoc(a.id, d)}><Trash2 size={14} /> Excluir</Button>
                     </div>
-                  </div>
+                  )
                 ))}
                 {docFor === a.id ? (
                   <form className="portal-form" onSubmit={(e) => void submitDoc(e, a.id)}>

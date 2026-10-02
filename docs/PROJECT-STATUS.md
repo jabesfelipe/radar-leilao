@@ -1495,3 +1495,43 @@ A task deve registrar backend pytest, frontend TypeScript/Vitest, Docker/health/
 
 ### 26.4 Fora de escopo
 Sem novo microserviço/infra, AWS, Redis, S3/MinIO, vector DB, LLM/RAG/agente, scraping, nova integração DataJud, nova engine financeira/risco/verdict ou Task 76.
+
+
+## 26. TASK 75.2.1 — FECHAMENTO FINAL DE CRUD/UI — 20/09/2026
+
+Fechamento dos GAPs pontuais identificados na auditoria da 75.2, sem ampliar
+arquitetura e sem alterar o histórico do imóvel 633. Completa apenas o que faltava.
+
+### 26.1 Entregas
+- **Leiloeiro**: exclusão agora disponível na UI (confirmação + atualização de lista +
+  erro visível). Backend já tinha o DELETE com histórico/evento globais.
+- **Portal**: exclusão na UI (confirmação); histórico/evento sem expor `secret`; a
+  recuperação da credencial segue exigindo `X-Portal-Admin-Token`.
+- **Documento do leiloeiro**: novo `PATCH` de metadados (`doc_type`/`name`/
+  `observations`) — conteúdo/versionamento (`file_path`/`version`) NÃO é
+  sobrescrito; before/after + evento. Edição e exclusão também na UI.
+- **Fontes do imóvel**: `PATCH` e `DELETE` com `EntityHistory` (before/after) +
+  `DomainEvent` (`FONTE_ATUALIZADA`/`FONTE_REMOVIDA`), `GET .../fontes/historico`;
+  `created_at`/id preservados; não cria análise. Nova `SourcesSection` (editar/
+  excluir) na aba Cadastro do imóvel.
+- Correção de rastreabilidade: `GET /api/leiloeiros/{id}/historico` passa a resolver
+  os ids de portais/documentos a partir dos `DomainEvent` (que persistem após a
+  exclusão do filho), mantendo o histórico de exclusões visível.
+
+### 26.2 Testes (evidência real, PostgreSQL real, sem LLM/DataJud)
+- **Backend: 580 passed, 2 skipped, 0 falhas** (576 → +4 em `tests/test_task752_crud.py`):
+  patch/delete de documento do leiloeiro com histórico, CRUD de fonte com histórico,
+  delete de portal sem vazar segredo, CRUD cadastral que não cria análise.
+- **Frontend: `tsc --noEmit` OK; `vitest run` = 122 passed (19 arquivos)**: novos testes de
+  exclusão de leiloeiro/portal, edição/exclusão de documento (AuctioneersPage) e CRUD
+  de fonte (`SourcesSection`).
+- **Imóvel 633 intacto**: `analyses` 9/9, `financial_analyses` 9/9, `verdicts` 9/9.
+  **Zero V10**. Nenhuma análise nova criada pela task.
+
+### 26.3 E2E de navegador (Playwright) — NÃO executado (limitação declarada)
+O projeto segue sem Playwright/Cypress; o ambiente não dispõe de browser automation.
+A validação permanece por testes HTTP/jsdom/unitários (não simulado).
+
+### 26.4 Fora de escopo (respeitado)
+Nenhum novo serviço/infra/engine/LLM/RAG/scraping; sem refatoração arquitetural ampla;
+regras do Verdict e a sequência V1–V9 não foram alteradas; nenhuma Task 76 criada.

@@ -270,3 +270,73 @@ def test_leiloeiro_e_portal_delete(client):
     dele_auc = client.delete(f"/api/leiloeiros/{aid}")
     assert dele_auc.status_code == 200
     assert client.get(f"/api/leiloeiros/{aid}").status_code == 404
+
+
+# ---------------------------------------------------------------- TASK 75.2.1 — fechamento final
+def test_documento_leiloeiro_patch_e_delete_com_historico(client):
+    aid = client.post("/api/leiloeiros", json={"name": "Com Doc"}).json()["id"]
+    doc = client.post(f"/api/leiloeiros/{aid}/documentos", json={"doc_type": "CONTRATO", "name": "Credenciamento", "file_path": "/x/doc.pdf", "version": 2}).json()
+    did = doc["id"]
+    # PATCH edita só metadados; NÃO sobrescreve conteúdo/versionamento (file_path/version).
+    upd = client.patch(f"/api/leiloeiros/{aid}/documentos/{did}", json={"name": "Credenciamento v2", "observations": "revisado"})
+    assert upd.status_code == 200, upd.text
+    body = upd.json()
+    assert body["name"] == "Credenciamento v2"
+    assert body["file_path"] == "/x/doc.pdf" and body["version"] == 2  # preservados
+    # Histórico before/after presente no histórico do leiloeiro.
+    hist = client.get(f"/api/leiloeiros/{aid}/historico").json()["alteracoes"]
+    upd_hist = [h for h in hist if h["entity_type"] == "AuctioneerDocument" and h["action"] == "UPDATE" and h["entity_id"] == did]
+    assert upd_hist, "faltou EntityHistory UPDATE do documento"
+    assert upd_hist[-1]["before_data"]["name"] == "Credenciamento"
+    assert upd_hist[-1]["after_data"]["name"] == "Credenciamento v2"
+    # DELETE preserva histórico.
+    dele = client.delete(f"/api/leiloeiros/{aid}/documentos/{did}")
+    assert dele.status_code == 200
+    hist2 = client.get(f"/api/leiloeiros/{aid}/historico").json()["alteracoes"]
+    assert any(h["entity_type"] == "AuctioneerDocument" and h["action"] == "DELETE" and h["entity_id"] == did for h in hist2)
+
+
+def test_fonte_ciclo_crud_e_historico(client):
+    pid = _new_property(client)
+    src = client.post(f"/api/imoveis/{pid}/fontes", json={"source_type": "EDITAL", "url": "http://x", "description": "orig"}).json()
+    sid = src["id"]
+    created_at = src["created_at"]
+    # PATCH
+    upd = client.patch(f"/api/imoveis/{pid}/fontes/{sid}", json={"description": "retificado", "origin": "Caixa"})
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["description"] == "retificado"
+    assert upd.json()["created_at"] == created_at  # created_at preservado
+    assert upd.json()["id"] == sid  # mesmo id
+    # HISTORY before/after
+    alt = client.get(f"/api/imoveis/{pid}/fontes/historico").json()["alteracoes"]
+    upd_hist = [h for h in alt if h["action"] == "UPDATE" and h["entity_id"] == sid]
+    assert upd_hist[-1]["before_data"]["description"] == "orig"
+    assert upd_hist[-1]["after_data"]["description"] == "retificado"
+    # DELETE preserva histórico
+    dele = client.delete(f"/api/imoveis/{pid}/fontes/{sid}")
+    assert dele.status_code == 200
+    restante = client.get(f"/api/imoveis/{pid}/fontes").json()
+    assert all(s["id"] != sid for s in restante)
+    alt2 = client.get(f"/api/imoveis/{pid}/fontes/historico").json()["alteracoes"]
+    assert any(h["action"] == "DELETE" and h["entity_id"] == sid for h in alt2)
+
+
+def test_portal_delete_evento_sem_segredo(client):
+    """DELETE de portal gera evento/histórico, e o segredo nunca aparece neles."""
+    aid = client.post("/api/leiloeiros", json={"name": "Del Portal"}).json()["id"]
+    portal = client.post(f"/api/leiloeiros/{aid}/portais", json={"portal": "P", "secret": "SENHA-DELETE-7521"}).json()
+    client.delete(f"/api/leiloeiros/{aid}/portais/{portal['id']}")
+    blob = str(client.get(f"/api/leiloeiros/{aid}/historico").json())
+    assert "SENHA-DELETE-7521" not in blob
+    assert "has_secret" in blob
+
+
+def test_crud_cadastral_nao_cria_analise(client):
+    """Nenhum dos CRUDs cadastrais (fonte/leilão/custo) cria nova análise."""
+    pid = _new_property(client)
+    antes = len(client.get(f"/api/imoveis/{pid}").json()["analises"])
+    src = client.post(f"/api/imoveis/{pid}/fontes", json={"source_type": "OUTRA", "url": "http://y"}).json()
+    client.patch(f"/api/imoveis/{pid}/fontes/{src['id']}", json={"description": "d"})
+    client.delete(f"/api/imoveis/{pid}/fontes/{src['id']}")
+    depois = len(client.get(f"/api/imoveis/{pid}").json()["analises"])
+    assert depois == antes

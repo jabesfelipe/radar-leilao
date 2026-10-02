@@ -96,11 +96,19 @@ export const createAuctioneer = (payload: AuctioneerCreate) =>
 export const updateAuctioneer = (id: number, payload: Partial<AuctioneerCreate>) =>
   request<Auctioneer>(`/api/leiloeiros/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
+// TASK 75.2.1: exclusão de leiloeiro (cascade portais/docs; desvincula leilões).
+export const deleteAuctioneer = (id: number) =>
+  request<{ removido: number; leiloes_desvinculados: number[] }>(`/api/leiloeiros/${id}`, { method: 'DELETE' })
+
 export const addPortalAccess = (id: number, payload: PortalAccessCreate) =>
   request<PortalAccess>(`/api/leiloeiros/${id}/portais`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
 
 export const updatePortalAccess = (auctioneerId: number, portalId: number, payload: PortalAccessUpdate) =>
   request<PortalAccess>(`/api/leiloeiros/${auctioneerId}/portais/${portalId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
+// TASK 75.2.1: exclusão de portal (histórico/evento sem segredo).
+export const deletePortalAccess = (auctioneerId: number, portalId: number) =>
+  request<{ removido: number; auctioneer_id: number }>(`/api/leiloeiros/${auctioneerId}/portais/${portalId}`, { method: 'DELETE' })
 
 // TASK 75.1: a credencial só é recuperada com o token de administração, enviado
 // no header X-Portal-Admin-Token. Sem token, o backend recusa (401/503).
@@ -112,6 +120,14 @@ export const revealPortalSecret = (auctioneerId: number, portalId: number, admin
 
 export const addAuctioneerDocument = (id: number, payload: { doc_type: string; name: string; file_path?: string; version?: number; observations?: string }) =>
   request<AuctioneerDocument>(`/api/leiloeiros/${id}/documentos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
+// TASK 75.2.1: edição dos METADADOS do documento (doc_type/name/observations).
+// Conteúdo/versionamento (file_path/version) não é sobrescrito.
+export const updateAuctioneerDocument = (auctioneerId: number, documentId: number, payload: { doc_type?: string; name?: string; observations?: string }) =>
+  request<AuctioneerDocument>(`/api/leiloeiros/${auctioneerId}/documentos/${documentId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+
+export const deleteAuctioneerDocument = (auctioneerId: number, documentId: number) =>
+  request<{ removido: number; auctioneer_id: number }>(`/api/leiloeiros/${auctioneerId}/documentos/${documentId}`, { method: 'DELETE' })
 
 // GAP 3: associa um leiloeiro cadastrado ao leilão corrente do imóvel. O backend
 // preserva o texto histórico (`auctioneer`) e grava a FK `auctioneer_id`.

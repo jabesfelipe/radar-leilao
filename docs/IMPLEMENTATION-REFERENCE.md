@@ -580,3 +580,39 @@ A última rodada de implementação deve completar apenas os GAPs de CRUD/UI ide
 - validação final do stack e do imóvel 633.
 
 Nenhuma dessas operações deve criar nova análise. O caso real 633 permanece V1–V9. Análises, Verdict, Risk, Checklist histórico, eventos e versões documentais continuam sujeitos às regras de imutabilidade/append-only já estabelecidas.
+
+
+---
+
+## 20. Fechamento CRUD/UI — Task 75.2.1 (20/09/2026)
+
+### Arquivos principais
+- `backend/app/schemas.py`: `AuctioneerDocumentUpdate` (só metadados: doc_type/name/
+  observations), `PropertySourceUpdate`.
+- `backend/app/main.py`:
+  - `PATCH /api/leiloeiros/{id}/documentos/{document_id}` — edita metadados do
+    documento; `file_path`/`version` preservados; before/after + evento
+    `DOCUMENTO_LEILOEIRO_ATUALIZADO`.
+  - `GET /api/imoveis/{id}/fontes/historico`; `PATCH` e `DELETE`
+    `/api/imoveis/{id}/fontes/{source_id}` com `PROPERTY_SOURCE_FIELDS`, eventos
+    `FONTE_ATUALIZADA`/`FONTE_REMOVIDA`; created_at/id preservados; não cria análise.
+  - Eventos de portal passam a carregar `auctioneer_id` no payload.
+  - `auctioneer_history()` resolve portais/documentos via `DomainEvent` (persistem
+    após o delete do filho) somados aos filhos atuais — histórico de exclusões visível.
+- Frontend: `services/auctioneers.ts` (`deleteAuctioneer`, `deletePortalAccess`,
+  `updateAuctioneerDocument`, `deleteAuctioneerDocument`), `services/properties.ts`
+  (`updateSource`, `deleteSource`, `getSourcesHistory`, `PropertySourceUpdate`),
+  `pages/AuctioneersPage.tsx` (excluir leiloeiro/portal, editar/excluir documento),
+  nova `pages/SourcesSection.tsx` (editar/excluir fonte) na aba Cadastro
+  (`PropertyEditSection`).
+- Testes: `tests/test_task752_crud.py` (+doc patch/delete+histórico, fonte CRUD+
+  histórico, delete de portal sem segredo, CRUD sem análise), `AuctioneersPage.test`,
+  `SourcesSection.test`.
+
+### Contrato funcional (fechamento)
+- Documento do leiloeiro: edição apenas de metadados; o conteúdo/versionamento não é
+  sobrescrito; DELETE permitido (dado cadastral) preservando histórico/eventos.
+- Fonte do imóvel: editável/excluível (dado cadastral) com histórico before/after +
+  evento; não cria análise; não altera Analysis/Verdict/Risk/Checklist.
+- Segredo de portal: nunca em histórico/evento/listagem/log (apenas `has_secret`);
+  recuperação exige `X-Portal-Admin-Token`.

@@ -72,4 +72,75 @@ describe('AuctioneersPage', () => {
     // Só a chamada de listagem inicial deve ter ocorrido.
     expect(vi.mocked(fetch).mock.calls).toHaveLength(1)
   })
+
+  // TASK 75.2.1: exclusão de leiloeiro pela UI (confirmação + DELETE + reload).
+  it('exclui um leiloeiro após confirmação', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response([auctioneer]))
+      .mockReturnValueOnce(response({ removido: 1, leiloes_desvinculados: [] }))
+      .mockReturnValueOnce(response([]))
+    render(<AuctioneersPage />)
+    await screen.findByRole('heading', { name: 'Leiloeiro X' })
+    fireEvent.click(screen.getAllByRole('button', { name: /Excluir/ })[0])
+    expect(await screen.findByText('Leiloeiro excluído.')).toBeInTheDocument()
+    const delCall = vi.mocked(fetch).mock.calls[1]
+    expect(delCall[0]).toContain('/api/leiloeiros/1')
+    expect((delCall[1] as RequestInit).method).toBe('DELETE')
+  })
+
+  // TASK 75.2.1: exclusão de portal (DELETE sem expor credencial).
+  it('exclui um portal após confirmação', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response([auctioneer]))
+      .mockReturnValueOnce(response({ removido: 10, auctioneer_id: 1 }))
+      .mockReturnValueOnce(response([{ ...auctioneer, portais: [] }]))
+    render(<AuctioneersPage />)
+    await screen.findByText('Caixa')
+    // Botão "Excluir" do portal (segundo Excluir — o primeiro é do leiloeiro no head).
+    const excluirButtons = screen.getAllByRole('button', { name: /Excluir/ })
+    fireEvent.click(excluirButtons[excluirButtons.length - 1])
+    expect(await screen.findByText('Portal/acesso excluído.')).toBeInTheDocument()
+    const delCall = vi.mocked(fetch).mock.calls[1]
+    expect(delCall[0]).toContain('/portais/10')
+    expect((delCall[1] as RequestInit).method).toBe('DELETE')
+  })
+
+  // TASK 75.2.1: edição e exclusão de documento do leiloeiro.
+  it('edita os metadados de um documento do leiloeiro', async () => {
+    const comDoc = { ...auctioneer, documentos: [{ id: 50, auctioneer_id: 1, doc_type: 'CONTRATO', name: 'Credenciamento', version: 1, observations: '' }] }
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response([comDoc]))
+      .mockReturnValueOnce(response({ id: 50, auctioneer_id: 1, doc_type: 'CONTRATO', name: 'Credenciamento v2', version: 1 }))
+      .mockReturnValueOnce(response([comDoc]))
+    render(<AuctioneersPage />)
+    await screen.findByText('Credenciamento')
+    // Abre edição do documento (botão Editar na linha do documento).
+    const editButtons = screen.getAllByRole('button', { name: /Editar/ })
+    fireEvent.click(editButtons[editButtons.length - 1])
+    fireEvent.change(screen.getByLabelText('Nome do documento'), { target: { value: 'Credenciamento v2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Salvar documento' }))
+    expect(await screen.findByText('Documento atualizado.')).toBeInTheDocument()
+    const patchCall = vi.mocked(fetch).mock.calls[1]
+    expect(patchCall[0]).toContain('/documentos/50')
+    expect((patchCall[1] as RequestInit).method).toBe('PATCH')
+  })
+
+  it('exclui um documento do leiloeiro após confirmação', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const comDoc = { ...auctioneer, documentos: [{ id: 50, auctioneer_id: 1, doc_type: 'CONTRATO', name: 'Credenciamento', version: 1, observations: '' }] }
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response([comDoc]))
+      .mockReturnValueOnce(response({ removido: 50, auctioneer_id: 1 }))
+      .mockReturnValueOnce(response([{ ...comDoc, documentos: [] }]))
+    render(<AuctioneersPage />)
+    await screen.findByText('Credenciamento')
+    const excluirButtons = screen.getAllByRole('button', { name: /Excluir/ })
+    fireEvent.click(excluirButtons[excluirButtons.length - 1])
+    expect(await screen.findByText('Documento excluído.')).toBeInTheDocument()
+    const delCall = vi.mocked(fetch).mock.calls[1]
+    expect(delCall[0]).toContain('/documentos/50')
+    expect((delCall[1] as RequestInit).method).toBe('DELETE')
+  })
 })

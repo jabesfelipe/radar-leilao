@@ -227,6 +227,14 @@ class PropertySourceOut(PropertySourceCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PropertySourceUpdate(BaseModel):
+    """Edição cadastral de uma fonte do imóvel (TASK 75.2.1). Campos opcionais."""
+    source_type: Literal["PAGINA_IMOVEL", "EDITAL", "MATRICULA", "OUTRA"] | None = None
+    url: str | None = None
+    description: str | None = None
+    origin: str | None = None
+
+
 # Sub-blocos opcionais do cadastro completo. Sem campos obrigatórios além do
 # essencial, para não impedir cadastro com dados ainda desconhecidos.
 class AuctionFull(BaseModel):
@@ -337,6 +345,14 @@ class AuctioneerDocumentCreate(BaseModel):
     name: str = Field(min_length=1)
     file_path: str | None = None
     version: int = 1
+    observations: str | None = None
+
+
+class AuctioneerDocumentUpdate(BaseModel):
+    """Edição dos METADADOS do documento do leiloeiro (TASK 75.2.1).
+    NÃO altera conteúdo/versionamento: file_path e version são imutáveis aqui."""
+    doc_type: str | None = None
+    name: str | None = Field(default=None, min_length=1)
     observations: str | None = None
 
 

@@ -197,6 +197,31 @@ export function listSources(id: number): Promise<PropertySource[]> {
   return request<PropertySource[]>(`/api/imoveis/${id}/fontes`)
 }
 
+// TASK 75.2.1: edição/exclusão de fonte do imóvel (histórico before/after + evento;
+// não cria análise). Preserva created_at e id.
+export type PropertySourceUpdate = {
+  source_type?: SourceType
+  url?: string
+  description?: string
+  origin?: string
+}
+
+export function updateSource(propertyId: number, sourceId: number, payload: PropertySourceUpdate): Promise<PropertySource> {
+  return request<PropertySource>(`/api/imoveis/${propertyId}/fontes/${sourceId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteSource(propertyId: number, sourceId: number): Promise<{ removido: number }> {
+  return request<{ removido: number }>(`/api/imoveis/${propertyId}/fontes/${sourceId}`, { method: 'DELETE' })
+}
+
+export function getSourcesHistory(propertyId: number): Promise<{ property_id: number; alteracoes: unknown[] }> {
+  return request<{ property_id: number; alteracoes: unknown[] }>(`/api/imoveis/${propertyId}/fontes/historico`)
+}
+
 export type AuctionSummary = {
   id: number
   auction_stage?: string | null
