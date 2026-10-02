@@ -568,3 +568,15 @@ O commit da Task 4 registra resultados reportados de 514 testes backend aprovado
   documento, movimentações, eventos, históricos (usar nova versão/registro/status).
 - **Sem DELETE** (apenas edição): imóvel, leilão, matrícula, edital, processo,
   premissas, resultado de checklist.
+
+## 20. Fechamento final — Task 75.2.1
+
+A última rodada de implementação deve completar apenas os GAPs de CRUD/UI identificados na auditoria da Task 75.2:
+
+- UI de exclusão de leiloeiro e portal;
+- PATCH + UI de documentos do leiloeiro, além de exclusão na UI;
+- PATCH/DELETE + histórico/eventos de fontes do imóvel, além da UI;
+- testes de backend/frontend para os fluxos;
+- validação final do stack e do imóvel 633.
+
+Nenhuma dessas operações deve criar nova análise. O caso real 633 permanece V1–V9. Análises, Verdict, Risk, Checklist histórico, eventos e versões documentais continuam sujeitos às regras de imutabilidade/append-only já estabelecidas.
