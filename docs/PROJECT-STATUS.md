@@ -1476,3 +1476,22 @@ atualizados após a operação.
 Nenhum microserviço/AWS/Redis/S3/MinIO/novo banco/vector DB/agente/LLM/RAG/scraping;
 sem refatoração arquitetural ampla; regras canônicas do Verdict e a sequência V1–V9
 não foram alteradas.
+
+## 26. TASK 75.2.1 — Fechamento final de CRUD/UI e validação (02/10/2026)
+
+Auditoria final dos GAPs da Task 75.2, com escopo restrito a completar os fluxos cadastrais restantes. A task não altera engines, arquitetura ou histórico analítico.
+
+### 26.1 GAPs a fechar
+- Leiloeiro: ação de exclusão na UI, mantendo histórico/evento global.
+- Portal: ação de exclusão na UI, mantendo segurança e histórico sem segredo.
+- Documento do leiloeiro: PATCH de metadados + edição/exclusão na UI, com histórico/evento e sem sobrescrever conteúdo/versionamento.
+- Fonte do imóvel: PATCH + DELETE + histórico/evento, com edição/exclusão na UI.
+
+### 26.2 Regras de preservação
+CRUD cadastral não cria análise. Imóvel 633 permanece exatamente V1–V9, sem V10, sem nova análise LLM e sem DataJud real. Análises, Verdict, Risk, Checklist histórico, eventos e histórico permanecem imutáveis/append-only conforme as regras anteriores.
+
+### 26.3 Validação de encerramento
+A task deve registrar backend pytest, frontend TypeScript/Vitest, Docker/health/migration e a quantidade de análises do imóvel 633. E2E de navegador continua sendo declarado como limitação se não houver ambiente Playwright/Cypress; não deve ser simulado.
+
+### 26.4 Fora de escopo
+Sem novo microserviço/infra, AWS, Redis, S3/MinIO, vector DB, LLM/RAG/agente, scraping, nova integração DataJud, nova engine financeira/risco/verdict ou Task 76.
