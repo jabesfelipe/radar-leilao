@@ -2059,3 +2059,25 @@ o histórico do 633.
 - **Validação real**: backend 580 passed/2 skipped; frontend tsc OK + vitest 122
   passed (19 arquivos); 633 com 9 análises e zero V10 (nenhuma análise nova).
 - Fora de escopo respeitado; nenhuma Task 76.
+
+
+## AUDITORIA — Motor financeiro (imóvel 633) (20/09/2026)
+
+Auditoria do motor financeiro determinístico (`finance.py`) sobre os valores exibidos
+do imóvel 633. Confirmado que custo total, custo de saída, resultado líquido, margem,
+ROI, break-even e preço máximo estão **matematicamente corretos e internamente
+consistentes** (preço máximo de R$ 2.582,04 reproduz exatamente a margem-meta de 20%
+sobre a venda).
+
+- **Única divergência confirmada (classificação, não total)**: `canonical_cost_key`
+  só casava rótulos exatos; "Condomínio em débito" e "IPTU em débito" caíam em
+  "outros" (R$ 200.417,96), deixando condomínio/IPTU zerados no breakdown. O custo
+  total sempre esteve correto (somados uma vez).
+- **Correção**: fallback por palavra-chave em `canonical_cost_key` (específicos antes
+  do genérico "débito"); classificação corrigida, total inalterado.
+- **Testes reais**: +11 testes em `tests/test_finance.py`; suíte completa do backend
+  **589 passed, 2 skipped**. 633 íntegro: 9 análises V1–V9, 9 verdicts, V10=0.
+- **Pendências de negócio**: (a) meta de margem é sobre a venda — decidir se deve
+  haver meta sobre custo; (b) débitos de condomínio/IPTU cadastrados como `costs`
+  (tabela `debts` vazia). Detalhes em `docs/AUDITORIA-MOTOR-FINANCEIRO.md`.
+- Sem nova análise LLM; nenhum dado histórico alterado.

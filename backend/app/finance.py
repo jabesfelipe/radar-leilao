@@ -82,11 +82,53 @@ CANONICAL_COST_CATEGORY: dict[str, str] = {
     "OUTROS": "outros",
 }
 
+# Roteamento por PALAVRA-CHAVE (fallback de substring) quando a categoria livre não
+# bate EXATAMENTE em CANONICAL_COST_CATEGORY (TASK auditoria financeira). O cadastro
+# real usa rótulos descritivos como "Condomínio em débito" ou "IPTU em débito", que
+# normalizam para CONDOMINIO_EM_DEBITO / IPTU_EM_DEBITO e, sem este fallback, caíam
+# silenciosamente em "outros" — distorcendo o breakdown (não o total). A ORDEM importa:
+# conceitos ESPECÍFICOS (condomínio, IPTU, ITBI, comissão, registro, reforma,
+# desocupação, jurídico, carregamento) têm precedência sobre o genérico "débito", para
+# que "Condomínio em débito" seja reconhecido como condomínio — e não como débito
+# genérico. Cada token é casado como SUBSTRING sobre a categoria normalizada.
+COST_CATEGORY_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("COMISSAO", "comissao"),
+    ("CONDOMINIO", "condominio"),
+    ("IPTU", "iptu"),
+    ("ITBI", "itbi"),
+    ("REGISTRO", "registro"),
+    ("ESCRITURA", "registro"),
+    ("CARTORIO", "registro"),
+    ("REFORMA", "reforma"),
+    ("DESOCUPACAO", "desocupacao"),
+    ("DESPEJO", "desocupacao"),
+    ("JURIDICO", "custos_juridicos"),
+    ("HONORARIOS", "custos_juridicos"),
+    ("CARREGAMENTO", "carregamento"),
+    # Genéricos de dívida por último: só vencem quando nenhum específico casou.
+    ("DEBITO", "debitos"),
+    ("DIVIDA", "debitos"),
+)
+
 
 def canonical_cost_key(category: Any) -> str:
     """Resolve a categoria canônica (chave do breakdown) de um custo cadastrado.
-    Categorias desconhecidas caem em 'outros' (nunca ignoradas silenciosamente)."""
-    return CANONICAL_COST_CATEGORY.get(normalize_category(category), "outros")
+
+    1) Casamento EXATO em CANONICAL_COST_CATEGORY (comportamento preservado).
+    2) Fallback por PALAVRA-CHAVE (substring) via COST_CATEGORY_KEYWORDS, para rótulos
+       livres como "Condomínio em débito"/"IPTU em débito" — roteados pelo conceito
+       específico, nunca jogados silenciosamente em "outros".
+    3) Sem correspondência: "outros" (nunca ignorado silenciosamente).
+    O valor do custo é somado UMA única vez, independentemente do roteamento — este
+    mapeamento afeta apenas a CLASSIFICAÇÃO/visibilidade no breakdown, não o total."""
+    normalized = normalize_category(category)
+    exact = CANONICAL_COST_CATEGORY.get(normalized)
+    if exact is not None:
+        return exact
+    for token, key in COST_CATEGORY_KEYWORDS:
+        if token in normalized:
+            return key
+    return "outros"
 
 
 @dataclass(frozen=True)

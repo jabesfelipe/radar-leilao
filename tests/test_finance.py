@@ -391,3 +391,130 @@ def test_cenarios_com_premissas_usam_mesma_formula_e_diferenciam_resultado():
     assert por_nome["PESSIMISTA"]["resultado_liquido"] == Decimal("30000")
     # premissas visíveis
     assert por_nome["PESSIMISTA"]["premissas"]["justificativa"] == "haircut + reforma maior"
+
+
+# ---------------------------------------------------------------------------
+# Auditoria do motor financeiro — roteamento canônico de custos e cenário 633
+# ---------------------------------------------------------------------------
+# Regressão da auditoria: rótulos livres descritivos ("Condomínio em débito",
+# "IPTU em débito") caíam em "outros" por não baterem no mapa EXATO, distorcendo o
+# breakdown (sem alterar o total). O fallback por palavra-chave passa a roteá-los
+# para as chaves específicas. Os testes abaixo fixam esse comportamento.
+
+from backend.app.finance import canonical_cost_key
+
+
+def test_canonical_cost_key_mapeamento_exato_preservado():
+    # Comportamento anterior preservado para rótulos canônicos diretos.
+    assert canonical_cost_key("ITBI") == "itbi"
+    assert canonical_cost_key("Registro") == "registro"
+    assert canonical_cost_key("Condomínio") == "condominio"
+    assert canonical_cost_key("IPTU") == "iptu"
+    assert canonical_cost_key("Comissão do arrematante") == "comissao"
+    assert canonical_cost_key("Reforma") == "reforma"
+
+
+def test_canonical_cost_key_fallback_por_palavra_chave():
+    # Rótulos livres (cenário real do imóvel 633) roteados pelo conceito específico.
+    assert canonical_cost_key("Condomínio em débito") == "condominio"
+    assert canonical_cost_key("Condominio em debito") == "condominio"   # sem acento
+    assert canonical_cost_key("IPTU em débito") == "iptu"
+    assert canonical_cost_key("ITBI a recolher") == "itbi"
+    assert canonical_cost_key("Honorários advocatícios") == "custos_juridicos"
+    assert canonical_cost_key("Reforma predial") == "reforma"
+
+
+def test_canonical_cost_key_especifico_vence_debito_generico():
+    # "Condomínio em débito" é condomínio (específico), não débito genérico.
+    assert canonical_cost_key("Condomínio em débito") == "condominio"
+    # "IPTU em débito" é IPTU, não débito genérico.
+    assert canonical_cost_key("IPTU em débito") == "iptu"
+    # Débito/dívida genérico (sem conceito específico) cai em "debitos".
+    assert canonical_cost_key("Débitos diversos") == "debitos"
+    assert canonical_cost_key("Dívida trabalhista") == "debitos"
+
+
+def test_canonical_cost_key_desconhecido_cai_em_outros():
+    # Sem palavra-chave reconhecida, permanece em "outros" (nunca ignorado).
+    assert canonical_cost_key("Taxa qualquer") == "outros"
+
+
+def _cenario_633():
+    """Reproduz EXATAMENTE os dados cadastrados do imóvel 633 (auditoria)."""
+    return calculate_financial(
+        bid=Decimal("222000"),
+        appraisal=Decimal("370000"),
+        costs=[
+            {"category": "ITBI", "amount": Decimal("8000")},
+            {"category": "Registro", "amount": Decimal("3000")},
+            {"category": "Comissão do arrematante", "amount": Decimal("11000")},
+            {"category": "Condomínio em débito", "amount": Decimal("178172.41")},
+            {"category": "IPTU em débito", "amount": Decimal("22245.55")},
+        ],
+        market_value=Decimal("300000"),
+        area=Decimal("102.71"),
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0"), tax_base="GANHO"),
+        goal=MaxPriceGoal(kind=GOAL_MARGEM_MINIMA, value=Decimal("0.20")),
+    )
+
+
+def test_633_classificacao_condominio_e_iptu_sem_vazar_para_outros():
+    r = _cenario_633()
+    # Condomínio e IPTU agora aparecem nas chaves específicas do breakdown.
+    assert r["custos"]["condominio"] == Decimal("178172.41")
+    assert r["custos"]["iptu"] == Decimal("22245.55")
+    # E NÃO vazam mais para "outros".
+    assert r["custos"]["outros"] == Decimal("0")
+    # Comissão do arrematante reconhecida (não vai para "outros").
+    assert r["custos"]["comissao"] == Decimal("11000")
+    assert r["comissao_detalhe"]["origem"] == "CUSTO_CADASTRADO"
+
+
+def test_633_custo_total_inalterado_e_sem_dupla_contagem():
+    r = _cenario_633()
+    # O total é a soma de cada custo UMA única vez (classificação não altera o total).
+    # 222000 + 11000 + 8000 + 3000 + 178172.41 + 22245.55 = 444417.96
+    assert r["custo_total"] == Decimal("444417.96")
+    # A soma do breakdown bate com o custo_total (sem dupla contagem).
+    assert sum(r["custos"].values()) == r["custo_total"]
+
+
+def test_633_custo_saida_resultado_e_break_even():
+    r = _cenario_633()
+    # Custo de saída = corretagem 5% de 300000 (+ tributo 0) = 15000.
+    assert r["custo_saida"] == Decimal("15000.00")
+    # Resultado líquido = 300000 - 15000 - 444417.96 = -159417.96.
+    assert r["resultado_liquido"] == Decimal("-159417.96")
+    # Break-even (base GANHO, t=0): CT*(1-t)/(1-c-t) = 444417.96 / 0.95.
+    assert r["break_even"] == (Decimal("444417.96") / Decimal("0.95"))
+
+
+def test_633_preco_maximo_margem_sobre_venda():
+    r = _cenario_633()
+    # Meta MARGEM_MINIMA 20% é sobre o VALOR DE VENDA (alvo = 0.2 * 300000 = 60000).
+    # F_eff = custo_total - aquisição = 444417.96 - 222000 = 222417.96 (comissão entra em F).
+    # A_max = (300000 - 15000 - 60000 - 222417.96) / 1 = 2582.04.
+    assert r["preco_maximo"] == Decimal("2582.04")
+    # Definitivo: todos os custos materiais estão informados (ITBI/registro/comissão).
+    assert r["preco_maximo_definitivo"] is True
+    assert r["preco_maximo_provisorio"] is False
+
+
+def test_633_preco_maximo_atinge_exatamente_a_meta_de_margem():
+    # Verificação independente: arrematar pelo preço máximo gera margem = 20% de V.
+    r = _cenario_633()
+    A = r["preco_maximo"]
+    recomputo = calculate_financial(
+        bid=A, appraisal=Decimal("370000"),
+        costs=[
+            {"category": "ITBI", "amount": Decimal("8000")},
+            {"category": "Registro", "amount": Decimal("3000")},
+            {"category": "Comissão do arrematante", "amount": Decimal("11000")},
+            {"category": "Condomínio em débito", "amount": Decimal("178172.41")},
+            {"category": "IPTU em débito", "amount": Decimal("22245.55")},
+        ],
+        market_value=Decimal("300000"),
+        sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0"), tax_base="GANHO"),
+    )
+    # margem_liquida = resultado / venda ~ 0.20 (tolerância de centavos por divisão).
+    assert abs(recomputo["margem_liquida"] - Decimal("0.20")) < Decimal("0.0001")
