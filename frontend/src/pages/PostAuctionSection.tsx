@@ -353,16 +353,28 @@ export function PostAuctionSection({ propertyId }: Props) {
 
 function FinanceSummary({ resumo }: { resumo: PostAuctionSummary }) {
   return (
-    <dl className="dossier-facts">
-      <SummaryFact label="Orçamento inicial (análise)" value={money(resumo.orcamento_inicial)} />
-      <SummaryFact label="Total previsto atualizado" value={money(resumo.previsto_total)} />
-      <SummaryFact label="Total pago (realizado)" value={money(resumo.realizado_total)} />
-      <SummaryFact label="Compromissos pendentes" value={money(resumo.pendente_total)} />
-      <SummaryFact label="Variação previsto × realizado" value={money(resumo.variacao_previsto_realizado)} />
-      <SummaryFact label="Custo total acumulado" value={money(resumo.custo_total_acumulado)} />
-      <SummaryFact label="Lucro estimado" value={money(resumo.lucro_estimado)} />
-      <SummaryFact label="ROI estimado" value={percent(resumo.roi_estimado)} />
-    </dl>
+    <>
+      <p className="eyebrow">ORÇAMENTO HERDADO DA ANÁLISE</p>
+      <dl className="dossier-facts">
+        <SummaryFact label="Orçamento inicial (custo total da análise)" value={money(resumo.orcamento_inicial)} />
+        <SummaryFact label="Valor de venda estimado" value={money(resumo.valor_venda_estimado)} />
+        <SummaryFact label="Custo de saída estimado (corretagem/tributo)" value={money(resumo.custo_saida_estimado)} />
+      </dl>
+      <p className="eyebrow">EXECUÇÃO (CUSTOS PÓS-ARREMATAÇÃO)</p>
+      <dl className="dossier-facts">
+        <SummaryFact label="Total previsto na execução" value={money(resumo.previsto_total)} />
+        <SummaryFact label="Total pago (realizado)" value={money(resumo.realizado_total)} />
+        <SummaryFact label="Compromissos pendentes" value={money(resumo.pendente_total)} />
+        <SummaryFact label="Variação previsto × realizado" value={money(resumo.variacao_previsto_realizado)} />
+      </dl>
+      <p className="eyebrow">CONSOLIDADO</p>
+      <dl className="dossier-facts">
+        <SummaryFact label="Custo total acumulado (análise + pago)" value={money(resumo.custo_total_acumulado)} />
+        <SummaryFact label="Lucro estimado" value={money(resumo.lucro_estimado)} />
+        <SummaryFact label="ROI estimado" value={percent(resumo.roi_estimado)} />
+      </dl>
+      <p className="finance-hint">O orçamento inicial é herdado da análise (custo total determinístico) e não representa gasto já realizado. Os valores de execução começam em zero até o cadastro de custos pós-arrematação. Lucro e ROI usam a mesma definição do Financeiro (venda − custo de saída − custo acumulado), ficando consistentes com o ROI da operação.</p>
+    </>
   )
 }
 

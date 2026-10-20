@@ -598,7 +598,12 @@ def post_auction_cost_summary(db: Session, property_id: int) -> dict[str, Any]:
                            ainda não pago);
       - variacao         = realizado_total - previsto_total (só itens já pagos).
     Combina com o orçamento inicial congelado (PostAuction.initial_budget) e o
-    custo total da análise para expor o custo acumulado do investimento."""
+    custo total da análise para expor o custo acumulado do investimento.
+
+    Lucro/ROI usam a MESMA definição do Financeiro (resultado líquido =
+    valor de venda - custo de saída - custo total), lendo o custo de saída de
+    build_finance. Assim o ROI do pós-arrematação é consistente com o roi_operacao
+    do Financeiro quando ainda não há custos de execução lançados."""
     ZERO = Decimal("0")
     costs = db.scalars(select(models.PostAuctionCost).where(models.PostAuctionCost.property_id == property_id)).all()
     pa = get_post_auction(db, property_id)
@@ -634,10 +639,24 @@ def post_auction_cost_summary(db: Session, property_id: int) -> dict[str, Any]:
     # Variação entre previsto e realizado (apenas itens já pagos têm realizado).
     variacao = realizado_total - previsto_total
 
+    # Custo de saída da operação (corretagem + tributo da venda). REUSO do motor
+    # determinístico: lido de build_finance (NÃO recalculado aqui), para que o
+    # lucro/ROI do pós-arrematação usem a MESMA definição do Financeiro (resultado
+    # líquido = V - custo_saida - custo_total), evitando ROIs divergentes para o
+    # mesmo imóvel. build_finance permanece a fonte, intacto.
+    custo_saida = ZERO
+    prop = db.get(models.Property, property_id)
+    if prop is not None:
+        fin = build_finance(prop)
+        cs = fin.get("custo_saida")
+        if cs is not None:
+            custo_saida = cs if isinstance(cs, Decimal) else Decimal(str(cs))
+
     lucro = None
     roi = None
     if expected_sale is not None and custo_acumulado > ZERO:
-        lucro = expected_sale - custo_acumulado
+        # Alinhado ao Financeiro: lucro = venda - custo de saída - custo acumulado.
+        lucro = expected_sale - custo_saida - custo_acumulado
         roi = lucro / custo_acumulado
 
     return {
@@ -645,6 +664,7 @@ def post_auction_cost_summary(db: Session, property_id: int) -> dict[str, Any]:
         "status": pa.status if pa else None,
         "orcamento_inicial": initial_budget,
         "valor_venda_estimado": expected_sale,
+        "custo_saida_estimado": custo_saida,
         "previsto_total": previsto_total,
         "realizado_total": realizado_total,
         "pendente_total": pendente_total,

@@ -127,6 +127,27 @@ def test_custo_pos_nao_sobrescreve_financeiro_da_analise(client):
     assert Decimal(str(fin_antes)) == Decimal(str(fin_depois))
 
 
+def test_roi_pos_consistente_com_financeiro_sem_custos_execucao(client):
+    """Correção de divergência: sem custos de execução lançados, o ROI do
+    pós-arrematação deve ser IGUAL ao roi_operacao do Financeiro (mesma definição:
+    venda - custo de saída - custo total). Antes o Pós ignorava o custo de saída,
+    produzindo ROIs diferentes (ex.: -32,5% x -35,87%)."""
+    pid = _new_property(client)
+    # leilão com lance => custo_total > 0 (base do ROI); custo adicional informado
+    client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "200000"})
+    client.post(f"/api/imoveis/{pid}/custos", json={"category": "ITBI", "description": "ITBI", "amount": "8000"})
+    # premissas: corretagem 5% => custo de saída real; valor de venda estimado
+    client.put(f"/api/imoveis/{pid}/financeiro/premissas", json={"corretagem_pct": "0.05", "tributo_pct": "0", "valor_venda_estimado": "300000"})
+    fin = client.get(f"/api/imoveis/{pid}/financeiro").json()["financeiro"]
+    assert fin["roi_operacao"] is not None and fin["custo_saida"] is not None
+    _activate(client, pid)
+    resumo = client.get(f"/api/imoveis/{pid}/pos-arrematacao").json()["resumo_financeiro"]
+    # custo de saída exposto e numerador alinhado
+    assert Decimal(str(resumo["custo_saida_estimado"])) == Decimal(str(fin["custo_saida"]))
+    # ROI do Pós == roi_operacao do Financeiro (tolerância de arredondamento).
+    assert abs(Decimal(str(resumo["roi_estimado"])) - Decimal(str(fin["roi_operacao"]))) < Decimal("0.0001")
+
+
 # ---- Aceite 3: contatos + histórico de tentativas ---------------------------
 def test_contato_e_tentativas(client):
     pid = _new_property(client)

@@ -33,7 +33,8 @@ const activeOverview = {
   consultorias: [],
   minutas: [],
   resumo_financeiro: {
-    ativado: true, orcamento_inicial: 50000, previsto_total: 1000, realizado_total: 0,
+    ativado: true, orcamento_inicial: 50000, valor_venda_estimado: 80000, custo_saida_estimado: 4000,
+    previsto_total: 1000, realizado_total: 0,
     pendente_total: 1000, variacao_previsto_realizado: -1000, custo_total_acumulado: 50000,
     lucro_estimado: null, roi_estimado: null, qtd_custos: 1,
   },
@@ -74,9 +75,11 @@ describe('PostAuctionSection', () => {
     vi.mocked(fetch).mockReturnValueOnce(response(activeOverview))
     render(<PostAuctionSection propertyId={5} />)
     expect(await screen.findByText('SITUAÇÃO DA EXECUÇÃO')).toBeInTheDocument()
-    expect(screen.getByText('Orçamento inicial (análise)')).toBeInTheDocument()
-    expect(screen.getByText('Total previsto atualizado')).toBeInTheDocument()
-    expect(screen.getByText('Custo total acumulado')).toBeInTheDocument()
+    // resumo separado em orçamento herdado / execução / consolidado
+    expect(screen.getByText('Orçamento inicial (custo total da análise)')).toBeInTheDocument()
+    expect(screen.getByText('Custo de saída estimado (corretagem/tributo)')).toBeInTheDocument()
+    expect(screen.getByText('Total previsto na execução')).toBeInTheDocument()
+    expect(screen.getByText('Custo total acumulado (análise + pago)')).toBeInTheDocument()
     // etapa e custo carregados
     expect(screen.getByText('Arrematação')).toBeInTheDocument()
     expect(screen.getByText('ITBI')).toBeInTheDocument()

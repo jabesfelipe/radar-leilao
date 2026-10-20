@@ -127,6 +127,7 @@ export type PostAuctionSummary = {
   status?: string | null
   orcamento_inicial?: number | string | null
   valor_venda_estimado?: number | string | null
+  custo_saida_estimado?: number | string | null
   previsto_total?: number | string | null
   realizado_total?: number | string | null
   pendente_total?: number | string | null
