@@ -2081,3 +2081,33 @@ sobre a venda).
   haver meta sobre custo; (b) débitos de condomínio/IPTU cadastrados como `costs`
   (tabela `debts` vazia). Detalhes em `docs/AUDITORIA-MOTOR-FINANCEIRO.md`.
 - Sem nova análise LLM; nenhum dado histórico alterado.
+
+
+## MÓDULO Pós-Arrematação (20/09/2026)
+
+Novo módulo para acompanhar a execução real do investimento após a arrematação,
+vinculado ao imóvel/leilão existentes e reusando os domínios atuais (sem reescrita
+arquitetural, sem duplicar Financeiro/Ocupação/Processos).
+
+- **Ativação sob demanda**: imóveis apenas analisados seguem o fluxo atual; o fluxo
+  pós só existe quando ativado (congela o orçamento inicial do `build_finance` sem
+  sobrescrever a análise).
+- **Entidades novas (migration 0015_pos_arrematacao)**: `post_auctions`,
+  `post_auction_stages` (16 etapas configuráveis), `post_auction_costs`
+  (previsto/realizado/pago), `occupant_contacts` + `contact_attempts`,
+  `consultancies` + `consultancy_proposals`, `notification_drafts` +
+  `notification_draft_versions`. A etapa de ação judicial referencia `legal_processes`
+  (reuso); o estado de ocupação segue em `OccupancyAnalysis`.
+- **Linha do tempo unificada**: todas as mutações emitem `DomainEvent` +
+  `EntityHistory` (tipos `POS_*`) e aparecem no `/historico` existente.
+- **Financeiro consolidado determinístico**: previsto × realizado × pendente ×
+  variação, custo total acumulado e lucro/ROI — sem sobrescrever o financeiro da
+  análise.
+- **Frontend**: aba Pós-Arrematação no dossiê (`PostAuctionSection` + `postAuction.ts`).
+- **Validação real**: backend 600 passed/2 skipped (inclui 11 novos testes);
+  frontend tsc OK + vitest 127 passed (inclui 5 novos). Migration head
+  `0015_pos_arrematacao`; persistência confirmada em conexão nova + smoke test live
+  na stack reconstruída. Imóvel 633 intacto (9 análises V1–V9, V10=0).
+- Fora de escopo (não implementado): integrações pagas, disparo automático de
+  notificações, assinatura eletrônica, automações externas. Detalhes em
+  `docs/MODULO-POS-ARREMATACAO.md`.

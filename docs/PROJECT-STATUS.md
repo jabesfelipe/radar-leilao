@@ -1535,3 +1535,38 @@ A validação permanece por testes HTTP/jsdom/unitários (não simulado).
 ### 26.4 Fora de escopo (respeitado)
 Nenhum novo serviço/infra/engine/LLM/RAG/scraping; sem refatoração arquitetural ampla;
 regras do Verdict e a sequência V1–V9 não foram alteradas; nenhuma Task 76 criada.
+
+
+## 27. Módulo Pós-Arrematação (novo)
+
+Acompanhamento da execução real do investimento após a arrematação, vinculado ao
+imóvel/leilão existentes e reusando os domínios atuais. Ativação sob demanda:
+imóveis apenas analisados seguem o fluxo atual.
+
+### 27.1 Entrega
+- **Modelos (migration `0015_pos_arrematacao`)**: `post_auctions`,
+  `post_auction_stages` (16 etapas configuráveis), `post_auction_costs`
+  (previsto/realizado/pago), `occupant_contacts` + `contact_attempts`,
+  `consultancies` + `consultancy_proposals`, `notification_drafts` +
+  `notification_draft_versions`. Reuso: etapa de ação judicial → `legal_processes`;
+  estado de ocupação → `OccupancyAnalysis`.
+- **API**: 21 rotas `/api/imoveis/{id}/pos-arrematacao/...` (ativar/overview/patch;
+  etapas; custos; contatos+tentativas; consultorias+propostas; minutas+versões),
+  todas com `DomainEvent` + `EntityHistory` (entram no `/historico`).
+- **Financeiro consolidado determinístico** (`post_auction_cost_summary`): previsto ×
+  realizado × pendente × variação, custo total acumulado, lucro/ROI — sem sobrescrever
+  o `build_finance` da análise inicial.
+- **Frontend**: aba Pós-Arrematação no dossiê (`PostAuctionSection` + `postAuction.ts`).
+
+### 27.2 Testes (evidência real, PostgreSQL real, sem LLM)
+- **Backend: 600 passed, 2 skipped** (589 → +11 em `tests/test_pos_arrematacao.py`).
+- **Frontend: `tsc --noEmit` OK; `vitest run` = 127 passed (20 arquivos)** (+5 em
+  `PostAuctionSection.test.tsx`).
+- **Persistência**: confirmada em conexão nova (processo separado) e por smoke test
+  HTTP na stack reconstruída (`docker compose build backend frontend` + `up -d`);
+  migration head `0015_pos_arrematacao`. Imóvel 633 intacto (9 análises V1–V9, zero V10).
+
+### 27.3 Fora de escopo (respeitado)
+Sem integrações pagas, disparo automático de notificações, assinatura eletrônica ou
+automações externas; sem reescrita arquitetural; sem duplicar Financeiro/Ocupação/
+Processos. Detalhes em `docs/MODULO-POS-ARREMATACAO.md`.

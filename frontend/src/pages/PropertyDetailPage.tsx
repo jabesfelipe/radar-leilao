@@ -14,6 +14,7 @@ import { RiskSection } from './RiskSection'
 import { VerdictSection } from './VerdictSection'
 import { HistorySection } from './HistorySection'
 import { PropertyEditSection } from './PropertyEditSection'
+import { PostAuctionSection } from './PostAuctionSection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -34,6 +35,7 @@ const detailSections = [
   { id: 'checklist', label: 'Checklist' },
   { id: 'riscos', label: 'Riscos' },
   { id: 'veredito', label: 'Veredito' },
+  { id: 'pos-arrematacao', label: 'Pós-Arrematação' },
   { id: 'historico', label: 'Histórico' },
 ]
 
@@ -242,6 +244,8 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             <RiskSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'veredito' ? (
             <VerdictSection key={refreshKey} propertyId={property.id} />
+          ) : activeSection === 'pos-arrematacao' ? (
+            <PostAuctionSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'historico' ? (
             <HistorySection key={refreshKey} propertyId={property.id} />
           ) : (

@@ -539,3 +539,118 @@ def juridical_overview(db: Session, prop: models.Property) -> dict[str, Any]:
             if pendencias or relevantes else None
         ),
     }
+
+
+# ============================================================================
+# PÓS-ARREMATAÇÃO — helpers de serviço (determinísticos, sem LLM).
+# ============================================================================
+
+# As 16 etapas operacionais do fluxo (SPEC §3). São SUGESTÕES configuráveis: cada
+# imóvel pode marcar uma etapa como NAO_APLICAVEL (nem toda etapa é obrigatória).
+POST_AUCTION_DEFAULT_STAGES: list[tuple[str, str]] = [
+    ("ANALISE_DECISAO", "Análise e decisão de investimento"),
+    ("ARREMATACAO", "Arrematação"),
+    ("PAGAMENTO_LANCE_COMISSAO", "Pagamento do lance e comissão"),
+    ("ITBI_TRIBUTOS", "Recolhimento de ITBI e tributos"),
+    ("REGISTRO_AQUISICAO", "Registro da aquisição e atualização da matrícula"),
+    ("IDENTIFICACAO_OCUPANTE", "Identificação e contato com o ocupante"),
+    ("DESOCUPACAO_AMIGAVEL", "Tentativa de desocupação amigável"),
+    ("NOTIFICACAO_EXTRAJUDICIAL", "Preparação e envio de notificação extrajudicial"),
+    ("DESOCUPACAO_VOLUNTARIA", "Desocupação voluntária ou acordo"),
+    ("CONTRATACAO_CONSULTORIA", "Contratação de consultoria (quando aplicável)"),
+    ("ACAO_JUDICIAL_IMISSAO", "Ação judicial de imissão na posse"),
+    ("REGISTRO_CUSTAS_PROCESSUAIS", "Registro de custas, honorários e despesas processuais"),
+    ("IMISSAO_POSSE", "Imissão na posse e confirmação da entrega"),
+    ("VISTORIA_REFORMA", "Vistoria, reforma e regularização complementar"),
+    ("PREPARACAO_VENDA_LOCACAO", "Preparação para venda ou locação"),
+    ("ENCERRAMENTO", "Encerramento operacional e consolidação do resultado"),
+]
+
+
+def get_post_auction(db: Session, property_id: int) -> "models.PostAuction | None":
+    return db.scalar(select(models.PostAuction).where(models.PostAuction.property_id == property_id))
+
+
+def seed_default_stages(db: Session, property_id: int) -> list["models.PostAuctionStage"]:
+    """Cria as etapas padrão para um imóvel recém-ativado (idempotente: só cria as
+    chaves ausentes, nunca sobrescreve etapas já existentes)."""
+    existing = {s.stage_key for s in db.scalars(select(models.PostAuctionStage).where(models.PostAuctionStage.property_id == property_id)).all()}
+    created: list[models.PostAuctionStage] = []
+    for order, (key, title) in enumerate(POST_AUCTION_DEFAULT_STAGES):
+        if key in existing:
+            continue
+        stage = models.PostAuctionStage(property_id=property_id, stage_key=key, title=title, sort_order=order, status="PENDENTE")
+        db.add(stage)
+        created.append(stage)
+    db.flush()
+    return created
+
+
+def post_auction_cost_summary(db: Session, property_id: int) -> dict[str, Any]:
+    """Consolidação financeira determinística do pós-arrematação.
+
+    Preserva a distinção ESTIMATIVA x OBRIGAÇÃO x PAGO e NUNCA sobrescreve o
+    financeiro histórico da análise (build_finance permanece a fonte da análise
+    inicial). Considera apenas os custos pós-arrematação (tabela própria):
+      - previsto_total   = soma dos planned_amount (exceto CANCELADO);
+      - realizado_total  = soma dos actual_amount dos itens PAGOS;
+      - pendente_total   = soma do que falta pagar (previsto de PREVISTO/PENDENTE/CONTESTADO
+                           ainda não pago);
+      - variacao         = realizado_total - previsto_total (só itens já pagos).
+    Combina com o orçamento inicial congelado (PostAuction.initial_budget) e o
+    custo total da análise para expor o custo acumulado do investimento."""
+    ZERO = Decimal("0")
+    costs = db.scalars(select(models.PostAuctionCost).where(models.PostAuctionCost.property_id == property_id)).all()
+    pa = get_post_auction(db, property_id)
+
+    previsto_total = ZERO
+    realizado_total = ZERO
+    pendente_total = ZERO
+    for c in costs:
+        status = (c.status or "PREVISTO").upper()
+        planned = c.planned_amount if c.planned_amount is not None else ZERO
+        actual = c.actual_amount if c.actual_amount is not None else ZERO
+        if status == "CANCELADO":
+            continue
+        if status != "CANCELADO":
+            previsto_total += planned
+        if status == "PAGO":
+            realizado_total += actual
+        else:
+            # Ainda não pago: o que falta é o previsto (ou o realizado já lançado,
+            # se maior) deste item; preserva a obrigação pendente.
+            restante = planned - actual
+            pendente_total += restante if restante > ZERO else ZERO
+
+    initial_budget = pa.initial_budget if pa and pa.initial_budget is not None else None
+    expected_sale = pa.expected_sale_value if pa and pa.expected_sale_value is not None else None
+
+    # Custo total acumulado do investimento = base da análise (custo inicial, se
+    # congelado) + realizado pós-arrematação. Não mistura com previsto para não
+    # inflar o pago. Quando não há orçamento inicial, usa só o pós-arrematação.
+    base = initial_budget if initial_budget is not None else ZERO
+    custo_acumulado = base + realizado_total
+
+    # Variação entre previsto e realizado (apenas itens já pagos têm realizado).
+    variacao = realizado_total - previsto_total
+
+    lucro = None
+    roi = None
+    if expected_sale is not None and custo_acumulado > ZERO:
+        lucro = expected_sale - custo_acumulado
+        roi = lucro / custo_acumulado
+
+    return {
+        "ativado": pa is not None,
+        "status": pa.status if pa else None,
+        "orcamento_inicial": initial_budget,
+        "valor_venda_estimado": expected_sale,
+        "previsto_total": previsto_total,
+        "realizado_total": realizado_total,
+        "pendente_total": pendente_total,
+        "variacao_previsto_realizado": variacao,
+        "custo_total_acumulado": custo_acumulado,
+        "lucro_estimado": lucro,
+        "roi_estimado": roi,
+        "qtd_custos": len(costs),
+    }

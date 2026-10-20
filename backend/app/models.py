@@ -529,3 +529,194 @@ class AuctioneerDocument(TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     observations: Mapped[str | None] = mapped_column(Text)
     auctioneer: Mapped[Auctioneer] = relationship(back_populates="documents")
+
+
+# ============================================================================
+# PÓS-ARREMATAÇÃO (novo módulo). Acompanha a EXECUÇÃO real do investimento após a
+# arrematação. Tudo vinculado ao imóvel existente (FK properties.id) — não duplica
+# o cadastro do imóvel. REUSO explícito: a ação judicial referencia LegalProcess
+# (legal_process_id); o estado de ocupação/desocupação continua em OccupancyAnalysis;
+# a linha do tempo usa DomainEvent/EntityHistory; os custos da análise inicial
+# (Cost/build_finance) permanecem intactos — o custo pós-arrematação é um registro
+# SEPARADO com semântica previsto/realizado/pago. Seguindo o padrão do projeto,
+# estas entidades são consultadas por property_id (sem relationship em Property),
+# igual a EntityHistory, mantendo a mudança aditiva e de baixo risco.
+# ============================================================================
+
+# Situação da execução do fluxo pós-arrematação.
+POST_AUCTION_STATUS = ("NAO_INICIADO", "EM_ANDAMENTO", "CONCLUIDO", "CANCELADO")
+
+# Situação de uma etapa operacional.
+STAGE_STATUS = ("PENDENTE", "EM_ANDAMENTO", "CONCLUIDA", "NAO_APLICAVEL", "BLOQUEADA")
+
+# Situação de um custo pós-arrematação (preserva estimativa x obrigação x pago).
+POST_COST_STATUS = ("PREVISTO", "PENDENTE", "PAGO", "CANCELADO", "CONTESTADO")
+
+# Situação de uma minuta de notificação extrajudicial (conforme evidências).
+NOTIFICATION_STATUS = ("RASCUNHO", "REVISADO", "EMITIDO", "ENVIADO", "RECEBIDO", "DEVOLVIDO", "SEM_CONFIRMACAO")
+
+
+class PostAuction(TimestampMixin, Base):
+    """Estado/ativação do fluxo de pós-arrematação de UM imóvel (1 por imóvel).
+
+    O módulo só é ativado sob demanda (quando o imóvel entra no fluxo pós-arrematação);
+    imóveis apenas analisados não possuem este registro e seguem o fluxo atual."""
+    __tablename__ = "post_auctions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True, unique=True)
+    status: Mapped[str] = mapped_column(String(30), default="EM_ANDAMENTO")
+    current_stage: Mapped[str | None] = mapped_column(String(120))
+    # Modalidade de condução da desocupação: PROPRIA | TERCEIRIZADA | None (indefinida).
+    eviction_mode: Mapped[str | None] = mapped_column(String(30))
+    # Orçamento inicial congelado na ativação (snapshot do custo total da análise),
+    # preservado para comparação com o realizado. Nunca sobrescreve a análise.
+    initial_budget: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    expected_sale_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    observations: Mapped[str | None] = mapped_column(Text)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class PostAuctionStage(TimestampMixin, Base):
+    """Etapa operacional configurável da linha do tempo pós-arrematação. Nem toda
+    etapa é obrigatória para todo imóvel (``status=NAO_APLICAVEL`` quando não se
+    aplica). Pode referenciar um processo jurídico existente (reuso), nunca duplica."""
+    __tablename__ = "post_auction_stages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    stage_key: Mapped[str] = mapped_column(String(60), index=True)   # chave canônica da etapa
+    title: Mapped[str] = mapped_column(String(160))
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(30), default="PENDENTE")
+    responsible: Mapped[str | None] = mapped_column(String(160))
+    planned_date: Mapped[date | None] = mapped_column(Date)
+    actual_date: Mapped[date | None] = mapped_column(Date)
+    observations: Mapped[str | None] = mapped_column(Text)
+    # Reuso do domínio jurídico: etapa de ação judicial aponta para LegalProcess.
+    legal_process_id: Mapped[int | None] = mapped_column(ForeignKey("legal_processes.id"))
+
+
+class PostAuctionCost(TimestampMixin, Base):
+    """Custo da fase pós-arrematação com semântica PREVISTO/REALIZADO/PAGO (que o
+    modelo Cost atual NÃO possui). Mantém SEPARADO do Cost da análise inicial para
+    não sobrescrever o financeiro histórico. Pode vincular-se a uma etapa."""
+    __tablename__ = "post_auction_costs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    category: Mapped[str] = mapped_column(String(80))
+    description: Mapped[str | None] = mapped_column(String(240))
+    planned_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))   # previsto
+    actual_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))    # realizado
+    status: Mapped[str] = mapped_column(String(30), default="PREVISTO")
+    competence_date: Mapped[date | None] = mapped_column(Date)               # competência
+    payment_date: Mapped[date | None] = mapped_column(Date)                  # pagamento
+    supplier: Mapped[str | None] = mapped_column(String(200))                # fornecedor/beneficiário
+    payment_method: Mapped[str | None] = mapped_column(String(80))
+    origin: Mapped[str | None] = mapped_column(String(120))
+    document_version_id: Mapped[int | None] = mapped_column(ForeignKey("document_versions.id"))
+    stage_id: Mapped[int | None] = mapped_column(ForeignKey("post_auction_stages.id"))
+    observations: Mapped[str | None] = mapped_column(Text)
+
+
+class OccupantContact(TimestampMixin, Base):
+    """Contato relacionado à ocupação. NÃO presume que o ocupante seja o antigo
+    proprietário nem qualquer condição jurídica sem evidência (campos descritivos)."""
+    __tablename__ = "occupant_contacts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    phone: Mapped[str | None] = mapped_column(String(60))
+    email: Mapped[str | None] = mapped_column(String(200))
+    contact_type: Mapped[str | None] = mapped_column(String(80))      # tipo de contato
+    relationship_label: Mapped[str | None] = mapped_column(String(120))  # relação com o imóvel (sem presumir)
+    next_action: Mapped[str | None] = mapped_column(String(240))
+    next_action_date: Mapped[date | None] = mapped_column(Date)
+    observations: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[list["ContactAttempt"]] = relationship(back_populates="contact", cascade="all, delete-orphan")
+
+
+class ContactAttempt(TimestampMixin, Base):
+    """Tentativa de contato (append-only): data, canal, resultado e próxima ação."""
+    __tablename__ = "contact_attempts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    contact_id: Mapped[int] = mapped_column(ForeignKey("occupant_contacts.id"), index=True)
+    attempt_date: Mapped[date | None] = mapped_column(Date)
+    channel: Mapped[str | None] = mapped_column(String(60))           # canal utilizado
+    result: Mapped[str | None] = mapped_column(String(240))           # resultado da tentativa
+    next_action: Mapped[str | None] = mapped_column(String(240))
+    next_action_date: Mapped[date | None] = mapped_column(Date)
+    observations: Mapped[str | None] = mapped_column(Text)
+    contact: Mapped[OccupantContact] = relationship(back_populates="attempts")
+
+
+class Consultancy(TimestampMixin, Base):
+    """Consultoria de desocupação terceirizada. Deixa explícito o que está incluído
+    e o que é cobrado à parte — não presume honorários advocatícios/custas."""
+    __tablename__ = "consultancies"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    company_name: Mapped[str] = mapped_column(String(200))
+    cnpj: Mapped[str | None] = mapped_column(String(40))
+    responsible: Mapped[str | None] = mapped_column(String(160))
+    phone: Mapped[str | None] = mapped_column(String(60))
+    email: Mapped[str | None] = mapped_column(String(200))
+    address: Mapped[str | None] = mapped_column(String(300))
+    services: Mapped[str | None] = mapped_column(Text)                # serviços oferecidos
+    status: Mapped[str] = mapped_column(String(30), default="EM_AVALIACAO")  # EM_AVALIACAO|CONTRATADA|DESCARTADA|ENCERRADA
+    selected: Mapped[bool] = mapped_column(Boolean, default=False)
+    observations: Mapped[str | None] = mapped_column(Text)
+    proposals: Mapped[list["ConsultancyProposal"]] = relationship(back_populates="consultancy", cascade="all, delete-orphan")
+
+
+class ConsultancyProposal(TimestampMixin, Base):
+    """Proposta/contrato de uma consultoria. Permite comparar valores e escopo antes
+    de selecionar. ``included_scope``/``excluded_scope`` deixam claro o que é à parte."""
+    __tablename__ = "consultancy_proposals"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    consultancy_id: Mapped[int] = mapped_column(ForeignKey("consultancies.id"), index=True)
+    title: Mapped[str] = mapped_column(String(200), default="Proposta")
+    fixed_fee: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))       # honorários fixos
+    variable_fee: Mapped[str | None] = mapped_column(String(240))           # honorários variáveis (descrição)
+    additional_costs: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))  # despesas adicionais
+    payment_schedule: Mapped[str | None] = mapped_column(Text)              # forma/calendário de pagamento
+    included_scope: Mapped[str | None] = mapped_column(Text)
+    excluded_scope: Mapped[str | None] = mapped_column(Text)
+    deadline_days: Mapped[int | None] = mapped_column(Integer)
+    document_version_id: Mapped[int | None] = mapped_column(ForeignKey("document_versions.id"))
+    observations: Mapped[str | None] = mapped_column(Text)
+    consultancy: Mapped[Consultancy] = relationship(back_populates="proposals")
+
+
+class NotificationDraft(TimestampMixin, Base):
+    """Minuta de notificação extrajudicial a partir de modelo editável. É uma MINUTA,
+    não um parecer jurídico — o sistema não afirma validade/recebimento/cumprimento
+    de prazo sem comprovação. Mantém histórico de versões editáveis."""
+    __tablename__ = "notification_drafts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    template_key: Mapped[str | None] = mapped_column(String(80))      # modelo de origem
+    title: Mapped[str] = mapped_column(String(200))
+    recipient: Mapped[str | None] = mapped_column(String(200))        # destinatário
+    notifier: Mapped[str | None] = mapped_column(String(200))         # notificante
+    status: Mapped[str] = mapped_column(String(30), default="RASCUNHO")
+    current_version: Mapped[int] = mapped_column(Integer, default=1)
+    # Registro de envio/recebimento — só preenchido com evidência (sem presumir).
+    delivery_channel: Mapped[str | None] = mapped_column(String(80))  # meio de envio
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    receipt_status: Mapped[str | None] = mapped_column(String(60))    # recebido/devolvido/sem confirmação
+    receipt_reference: Mapped[str | None] = mapped_column(String(240))  # comprovante (código/observação)
+    observations: Mapped[str | None] = mapped_column(Text)
+    versions: Mapped[list["NotificationDraftVersion"]] = relationship(back_populates="draft", cascade="all, delete-orphan")
+
+
+class NotificationDraftVersion(TimestampMixin, Base):
+    """Versão imutável do texto de uma minuta (append-only a cada salvamento/edição
+    relevante), permitindo manter o histórico de versões do documento."""
+    __tablename__ = "notification_draft_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    draft_id: Mapped[int] = mapped_column(ForeignKey("notification_drafts.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    body: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(30), default="RASCUNHO")
+    draft: Mapped[NotificationDraft] = relationship(back_populates="versions")
+    __table_args__ = (UniqueConstraint("draft_id", "version", name="uq_notification_draft_version"),)

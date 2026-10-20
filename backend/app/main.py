@@ -22,7 +22,7 @@ from .judicial_integration import JudicialIntegrationService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
-from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item)
+from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary)
 
 configure_logging()
 log = get_logger("api")
@@ -1627,3 +1627,435 @@ def checklist_hub(db: Session = Depends(get_db)):
                       "pendentes": c.get("PENDENTE", 0) + c.get("EM_ANALISE", 0),
                       "atencao": c.get("ATENCAO", 0) + c.get("RISCO_IDENTIFICADO", 0)})
     return {"totais": dict(contagem), "itens": itens}
+
+
+# ============================================================================
+# PÓS-ARREMATAÇÃO (novo módulo). Acompanha a execução real do investimento.
+# Convenção do projeto: cada mutação cadastral gera DomainEvent + EntityHistory
+# (entram na linha do tempo /historico existente). Ativação sob demanda — imóveis
+# apenas analisados não têm PostAuction e seguem o fluxo atual. Reuso: a etapa de
+# ação judicial referencia LegalProcess; o estado de ocupação segue em /ocupacao;
+# o financeiro da análise (build_finance) NÃO é sobrescrito — o consolidado pós é
+# um resumo separado (post_auction_cost_summary).
+# ============================================================================
+POST_STAGE_FIELDS = ["stage_key", "title", "sort_order", "status", "responsible", "planned_date", "actual_date", "observations", "legal_process_id"]
+POST_COST_FIELDS = ["category", "description", "planned_amount", "actual_amount", "status", "competence_date", "payment_date", "supplier", "payment_method", "origin", "document_version_id", "stage_id", "observations"]
+OCCUPANT_FIELDS = ["name", "phone", "email", "contact_type", "relationship_label", "next_action", "next_action_date", "observations"]
+CONSULTANCY_FIELDS = ["company_name", "cnpj", "responsible", "phone", "email", "address", "services", "status", "selected", "observations"]
+NOTIFICATION_FIELDS = ["template_key", "title", "recipient", "notifier", "status", "current_version", "delivery_channel", "sent_at", "receipt_status", "receipt_reference", "observations"]
+
+
+def _post_auction_or_404(db: Session, property_id: int) -> models.PostAuction:
+    pa = get_post_auction(db, property_id)
+    if not pa:
+        raise HTTPException(409, "Fluxo de pós-arrematação não ativado para este imóvel.")
+    return pa
+
+
+def _stage_out(s: models.PostAuctionStage) -> dict:
+    return {"id": s.id, "property_id": s.property_id, "stage_key": s.stage_key, "title": s.title,
+            "sort_order": s.sort_order, "status": s.status, "responsible": s.responsible,
+            "planned_date": s.planned_date, "actual_date": s.actual_date, "observations": s.observations,
+            "legal_process_id": s.legal_process_id, "created_at": s.created_at, "updated_at": s.updated_at}
+
+
+def _contact_out(c: models.OccupantContact, with_attempts: bool = True) -> dict:
+    base = {"id": c.id, "property_id": c.property_id, "name": c.name, "phone": c.phone, "email": c.email,
+            "contact_type": c.contact_type, "relationship_label": c.relationship_label,
+            "next_action": c.next_action, "next_action_date": c.next_action_date,
+            "observations": c.observations, "created_at": c.created_at, "updated_at": c.updated_at}
+    if with_attempts:
+        base["tentativas"] = [{"id": a.id, "attempt_date": a.attempt_date, "channel": a.channel,
+                               "result": a.result, "next_action": a.next_action,
+                               "next_action_date": a.next_action_date, "observations": a.observations,
+                               "created_at": a.created_at} for a in sorted(c.attempts, key=lambda x: x.id)]
+    return base
+
+
+def _consultancy_out(c: models.Consultancy, with_proposals: bool = True) -> dict:
+    base = {"id": c.id, "property_id": c.property_id, "company_name": c.company_name, "cnpj": c.cnpj,
+            "responsible": c.responsible, "phone": c.phone, "email": c.email, "address": c.address,
+            "services": c.services, "status": c.status, "selected": c.selected,
+            "observations": c.observations, "created_at": c.created_at, "updated_at": c.updated_at}
+    if with_proposals:
+        base["propostas"] = [{"id": p.id, "title": p.title, "fixed_fee": p.fixed_fee,
+                              "variable_fee": p.variable_fee, "additional_costs": p.additional_costs,
+                              "payment_schedule": p.payment_schedule, "included_scope": p.included_scope,
+                              "excluded_scope": p.excluded_scope, "deadline_days": p.deadline_days,
+                              "document_version_id": p.document_version_id, "observations": p.observations,
+                              "created_at": p.created_at} for p in sorted(c.proposals, key=lambda x: x.id)]
+    return base
+
+
+def _draft_out(d: models.NotificationDraft, with_versions: bool = True) -> dict:
+    base = {"id": d.id, "property_id": d.property_id, "template_key": d.template_key, "title": d.title,
+            "recipient": d.recipient, "notifier": d.notifier, "status": d.status,
+            "current_version": d.current_version, "delivery_channel": d.delivery_channel,
+            "sent_at": d.sent_at, "receipt_status": d.receipt_status, "receipt_reference": d.receipt_reference,
+            "observations": d.observations, "created_at": d.created_at, "updated_at": d.updated_at}
+    if with_versions:
+        base["versoes"] = [{"id": v.id, "version": v.version, "body": v.body, "status": v.status,
+                            "created_at": v.created_at} for v in sorted(d.versions, key=lambda x: x.version)]
+    return base
+
+
+def _post_auction_out(pa: models.PostAuction) -> dict:
+    return {"id": pa.id, "property_id": pa.property_id, "status": pa.status, "current_stage": pa.current_stage,
+            "eviction_mode": pa.eviction_mode, "initial_budget": pa.initial_budget,
+            "expected_sale_value": pa.expected_sale_value, "observations": pa.observations,
+            "activated_at": pa.activated_at, "closed_at": pa.closed_at,
+            "created_at": pa.created_at, "updated_at": pa.updated_at}
+
+
+@app.get("/api/imoveis/{property_id}/pos-arrematacao")
+def get_post_auction_overview(property_id: int, db: Session = Depends(get_db)):
+    """Visão consolidada do pós-arrematação. Quando não ativado, retorna
+    ``ativado=false`` para o front exibir o CTA de ativação (o imóvel segue o fluxo
+    atual normalmente)."""
+    prop = property_or_404(db, property_id)
+    pa = get_post_auction(db, property_id)
+    if not pa:
+        return {"property_id": property_id, "ativado": False, "pos_arrematacao": None,
+                "etapas": [], "custos": [], "contatos": [], "consultorias": [], "minutas": [],
+                "resumo_financeiro": post_auction_cost_summary(db, property_id),
+                "financeiro_analise": serialize(build_finance(prop))}
+    stages = db.scalars(select(models.PostAuctionStage).where(models.PostAuctionStage.property_id == property_id).order_by(models.PostAuctionStage.sort_order, models.PostAuctionStage.id)).all()
+    costs = db.scalars(select(models.PostAuctionCost).where(models.PostAuctionCost.property_id == property_id).order_by(models.PostAuctionCost.id)).all()
+    contacts = db.scalars(select(models.OccupantContact).where(models.OccupantContact.property_id == property_id).order_by(models.OccupantContact.id)).all()
+    consultancies = db.scalars(select(models.Consultancy).where(models.Consultancy.property_id == property_id).order_by(models.Consultancy.id)).all()
+    drafts = db.scalars(select(models.NotificationDraft).where(models.NotificationDraft.property_id == property_id).order_by(models.NotificationDraft.id)).all()
+    return {
+        "property_id": property_id,
+        "ativado": True,
+        "pos_arrematacao": _post_auction_out(pa),
+        "etapas": [_stage_out(s) for s in stages],
+        "custos": costs,
+        "contatos": [_contact_out(c) for c in contacts],
+        "consultorias": [_consultancy_out(c) for c in consultancies],
+        "minutas": [_draft_out(d, with_versions=False) for d in drafts],
+        "resumo_financeiro": post_auction_cost_summary(db, property_id),
+        "financeiro_analise": serialize(build_finance(prop)),
+    }
+
+
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/ativar", status_code=201)
+def activate_post_auction(property_id: int, data: schemas.PostAuctionActivate, db: Session = Depends(get_db)):
+    """Ativa o fluxo pós-arrematação sob demanda. Idempotente: se já ativo, apenas
+    retorna o registro. Congela o orçamento inicial a partir do financeiro da análise
+    (custo total determinístico) quando não informado — sem sobrescrever a análise."""
+    prop = property_or_404(db, property_id)
+    existing = get_post_auction(db, property_id)
+    if existing:
+        return {"property_id": property_id, "ativado": True, "pos_arrematacao": _post_auction_out(existing), "ja_ativo": True}
+    finance = build_finance(prop)
+    initial_budget = data.initial_budget
+    if initial_budget is None:
+        ct = finance.get("custo_total")
+        initial_budget = ct if isinstance(ct, Decimal) else (Decimal(str(ct)) if ct is not None else None)
+    expected_sale = data.expected_sale_value
+    if expected_sale is None:
+        mv = finance.get("valor_mercado")
+        expected_sale = mv if isinstance(mv, Decimal) else (Decimal(str(mv)) if mv is not None else None)
+    pa = models.PostAuction(property_id=property_id, status="EM_ANDAMENTO", eviction_mode=data.eviction_mode,
+                            initial_budget=initial_budget, expected_sale_value=expected_sale,
+                            observations=data.observations, activated_at=datetime.utcnow())
+    db.add(pa); db.flush()
+    if data.seed_default_stages:
+        seed_default_stages(db, property_id)
+    payload = {"eviction_mode": data.eviction_mode, "initial_budget": str(initial_budget) if initial_budget is not None else None}
+    event = record_event(db, prop, "POS_ARREMATACAO_ATIVADA", "PostAuction", pa.id, payload, ["financeiro", "desocupacao", "juridico", "checklist"])
+    record_history(db, prop, "PostAuction", pa.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(pa)
+    return {"property_id": property_id, "ativado": True, "pos_arrematacao": _post_auction_out(pa), "evento_id": event.id}
+
+
+@app.patch("/api/imoveis/{property_id}/pos-arrematacao")
+def update_post_auction(property_id: int, data: schemas.PostAuctionUpdate, db: Session = Depends(get_db)):
+    """Atualiza estado/modalidade/orçamento do fluxo. Histórico + evento."""
+    prop = property_or_404(db, property_id)
+    pa = _post_auction_or_404(db, property_id)
+    before = _snapshot(pa, ["status", "current_stage", "eviction_mode", "initial_budget", "expected_sale_value", "observations"])
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(pa, changes)
+    if changes.get("status") == "CONCLUIDO" and pa.closed_at is None:
+        pa.closed_at = datetime.utcnow()
+    db.flush()
+    after = _snapshot(pa, ["status", "current_stage", "eviction_mode", "initial_budget", "expected_sale_value", "observations"])
+    event = record_event(db, prop, "POS_ARREMATACAO_ATUALIZADA", "PostAuction", pa.id, {"changes": list(changes.keys())}, ["financeiro", "desocupacao", "checklist"])
+    record_history(db, prop, "PostAuction", pa.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(pa)
+    return {"pos_arrematacao": _post_auction_out(pa), "resumo_financeiro": serialize(post_auction_cost_summary(db, property_id)), "evento_id": event.id}
+
+
+# ---- Etapas -----------------------------------------------------------------
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/etapas", status_code=201)
+def add_stage(property_id: int, data: schemas.StageCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    _post_auction_or_404(db, property_id)
+    stage = models.PostAuctionStage(property_id=property_id, **data.model_dump())
+    db.add(stage); db.flush()
+    event = record_event(db, prop, "POS_ETAPA_ADICIONADA", "PostAuctionStage", stage.id, data.model_dump(mode="json"), ["desocupacao", "juridico", "checklist"])
+    record_history(db, prop, "PostAuctionStage", stage.id, "CREATE", None, data.model_dump(mode="json"), event.id)
+    db.commit(); db.refresh(stage)
+    return _stage_out(stage)
+
+
+@app.patch("/api/imoveis/{property_id}/pos-arrematacao/etapas/{stage_id}")
+def update_stage(property_id: int, stage_id: int, data: schemas.StageUpdate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    stage = db.get(models.PostAuctionStage, stage_id)
+    if not stage or stage.property_id != property_id:
+        raise HTTPException(404, "Etapa não encontrada para o imóvel")
+    before = _snapshot(stage, POST_STAGE_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(stage, changes)
+    db.flush()
+    after = _snapshot(stage, POST_STAGE_FIELDS)
+    event = record_event(db, prop, "POS_ETAPA_ATUALIZADA", "PostAuctionStage", stage.id, {"changes": list(changes.keys())}, ["desocupacao", "juridico", "checklist"])
+    record_history(db, prop, "PostAuctionStage", stage.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(stage)
+    return {"etapa": _stage_out(stage), "evento_id": event.id}
+
+
+@app.delete("/api/imoveis/{property_id}/pos-arrematacao/etapas/{stage_id}")
+def delete_stage(property_id: int, stage_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    stage = db.get(models.PostAuctionStage, stage_id)
+    if not stage or stage.property_id != property_id:
+        raise HTTPException(404, "Etapa não encontrada para o imóvel")
+    before = _snapshot(stage, POST_STAGE_FIELDS)
+    event = record_event(db, prop, "POS_ETAPA_REMOVIDA", "PostAuctionStage", stage.id, before, ["desocupacao", "juridico", "checklist"])
+    record_history(db, prop, "PostAuctionStage", stage.id, "DELETE", before, None, event.id)
+    db.delete(stage); db.commit()
+    return {"property_id": property_id, "removido": stage_id, "evento_id": event.id}
+
+
+# ---- Custos pós-arrematação (previsto/realizado/pago) -----------------------
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/custos", status_code=201)
+def add_post_cost(property_id: int, data: schemas.PostCostCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    _post_auction_or_404(db, property_id)
+    item = models.PostAuctionCost(property_id=property_id, **data.model_dump())
+    db.add(item); db.flush()
+    event = record_event(db, prop, "POS_CUSTO_ADICIONADO", "PostAuctionCost", item.id, data.model_dump(mode="json"), ["financeiro", "checklist"])
+    record_history(db, prop, "PostAuctionCost", item.id, "CREATE", None, data.model_dump(mode="json"), event.id)
+    db.commit(); db.refresh(item)
+    return {"custo": item, "resumo_financeiro": serialize(post_auction_cost_summary(db, property_id)), "evento_id": event.id}
+
+
+@app.patch("/api/imoveis/{property_id}/pos-arrematacao/custos/{cost_id}")
+def update_post_cost(property_id: int, cost_id: int, data: schemas.PostCostUpdate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    item = db.get(models.PostAuctionCost, cost_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Custo pós-arrematação não encontrado para o imóvel")
+    before = _snapshot(item, POST_COST_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(item, changes)
+    db.flush()
+    after = _snapshot(item, POST_COST_FIELDS)
+    event = record_event(db, prop, "POS_CUSTO_ATUALIZADO", "PostAuctionCost", item.id, {"changes": list(changes.keys())}, ["financeiro", "checklist"])
+    record_history(db, prop, "PostAuctionCost", item.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(item)
+    return {"custo": item, "resumo_financeiro": serialize(post_auction_cost_summary(db, property_id)), "evento_id": event.id}
+
+
+@app.delete("/api/imoveis/{property_id}/pos-arrematacao/custos/{cost_id}")
+def delete_post_cost(property_id: int, cost_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    item = db.get(models.PostAuctionCost, cost_id)
+    if not item or item.property_id != property_id:
+        raise HTTPException(404, "Custo pós-arrematação não encontrado para o imóvel")
+    before = _snapshot(item, POST_COST_FIELDS)
+    event = record_event(db, prop, "POS_CUSTO_REMOVIDO", "PostAuctionCost", item.id, before, ["financeiro", "checklist"])
+    record_history(db, prop, "PostAuctionCost", item.id, "DELETE", before, None, event.id)
+    db.delete(item); db.commit()
+    return {"property_id": property_id, "removido": cost_id, "resumo_financeiro": serialize(post_auction_cost_summary(db, property_id)), "evento_id": event.id}
+
+
+# ---- Ocupante e contatos ----------------------------------------------------
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/contatos", status_code=201)
+def add_contact(property_id: int, data: schemas.OccupantContactCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    _post_auction_or_404(db, property_id)
+    contact = models.OccupantContact(property_id=property_id, **data.model_dump())
+    db.add(contact); db.flush()
+    event = record_event(db, prop, "POS_CONTATO_ADICIONADO", "OccupantContact", contact.id, data.model_dump(mode="json"), ["desocupacao", "checklist"])
+    record_history(db, prop, "OccupantContact", contact.id, "CREATE", None, data.model_dump(mode="json"), event.id)
+    db.commit(); db.refresh(contact)
+    return _contact_out(contact)
+
+
+@app.patch("/api/imoveis/{property_id}/pos-arrematacao/contatos/{contact_id}")
+def update_contact(property_id: int, contact_id: int, data: schemas.OccupantContactUpdate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    contact = db.get(models.OccupantContact, contact_id)
+    if not contact or contact.property_id != property_id:
+        raise HTTPException(404, "Contato não encontrado para o imóvel")
+    before = _snapshot(contact, OCCUPANT_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(contact, changes)
+    db.flush()
+    after = _snapshot(contact, OCCUPANT_FIELDS)
+    event = record_event(db, prop, "POS_CONTATO_ATUALIZADO", "OccupantContact", contact.id, {"changes": list(changes.keys())}, ["desocupacao", "checklist"])
+    record_history(db, prop, "OccupantContact", contact.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(contact)
+    return _contact_out(contact)
+
+
+@app.delete("/api/imoveis/{property_id}/pos-arrematacao/contatos/{contact_id}")
+def delete_contact(property_id: int, contact_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    contact = db.get(models.OccupantContact, contact_id)
+    if not contact or contact.property_id != property_id:
+        raise HTTPException(404, "Contato não encontrado para o imóvel")
+    before = _snapshot(contact, OCCUPANT_FIELDS)
+    event = record_event(db, prop, "POS_CONTATO_REMOVIDO", "OccupantContact", contact.id, before, ["desocupacao", "checklist"])
+    record_history(db, prop, "OccupantContact", contact.id, "DELETE", before, None, event.id)
+    db.delete(contact); db.commit()
+    return {"property_id": property_id, "removido": contact_id, "evento_id": event.id}
+
+
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/contatos/{contact_id}/tentativas", status_code=201)
+def add_contact_attempt(property_id: int, contact_id: int, data: schemas.ContactAttemptCreate, db: Session = Depends(get_db)):
+    """Registra uma tentativa de contato (append-only)."""
+    prop = property_or_404(db, property_id)
+    contact = db.get(models.OccupantContact, contact_id)
+    if not contact or contact.property_id != property_id:
+        raise HTTPException(404, "Contato não encontrado para o imóvel")
+    attempt = models.ContactAttempt(contact_id=contact_id, **data.model_dump())
+    db.add(attempt); db.flush()
+    payload = {"contact_id": contact_id, **data.model_dump(mode="json")}
+    event = record_event(db, prop, "POS_CONTATO_TENTATIVA", "ContactAttempt", attempt.id, payload, ["desocupacao", "checklist"])
+    record_history(db, prop, "ContactAttempt", attempt.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(contact)
+    return _contact_out(contact)
+
+
+# ---- Consultorias e propostas -----------------------------------------------
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/consultorias", status_code=201)
+def add_consultancy(property_id: int, data: schemas.ConsultancyCreate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    _post_auction_or_404(db, property_id)
+    c = models.Consultancy(property_id=property_id, **data.model_dump())
+    db.add(c); db.flush()
+    event = record_event(db, prop, "POS_CONSULTORIA_ADICIONADA", "Consultancy", c.id, data.model_dump(mode="json"), ["desocupacao", "financeiro", "checklist"])
+    record_history(db, prop, "Consultancy", c.id, "CREATE", None, data.model_dump(mode="json"), event.id)
+    db.commit(); db.refresh(c)
+    return _consultancy_out(c)
+
+
+@app.patch("/api/imoveis/{property_id}/pos-arrematacao/consultorias/{consultancy_id}")
+def update_consultancy(property_id: int, consultancy_id: int, data: schemas.ConsultancyUpdate, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    c = db.get(models.Consultancy, consultancy_id)
+    if not c or c.property_id != property_id:
+        raise HTTPException(404, "Consultoria não encontrada para o imóvel")
+    before = _snapshot(c, CONSULTANCY_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(c, changes)
+    db.flush()
+    after = _snapshot(c, CONSULTANCY_FIELDS)
+    event = record_event(db, prop, "POS_CONSULTORIA_ATUALIZADA", "Consultancy", c.id, {"changes": list(changes.keys())}, ["desocupacao", "financeiro", "checklist"])
+    record_history(db, prop, "Consultancy", c.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(c)
+    return _consultancy_out(c)
+
+
+@app.delete("/api/imoveis/{property_id}/pos-arrematacao/consultorias/{consultancy_id}")
+def delete_consultancy(property_id: int, consultancy_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    c = db.get(models.Consultancy, consultancy_id)
+    if not c or c.property_id != property_id:
+        raise HTTPException(404, "Consultoria não encontrada para o imóvel")
+    before = _snapshot(c, CONSULTANCY_FIELDS)
+    event = record_event(db, prop, "POS_CONSULTORIA_REMOVIDA", "Consultancy", c.id, before, ["desocupacao", "financeiro", "checklist"])
+    record_history(db, prop, "Consultancy", c.id, "DELETE", before, None, event.id)
+    db.delete(c); db.commit()
+    return {"property_id": property_id, "removido": consultancy_id, "evento_id": event.id}
+
+
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/consultorias/{consultancy_id}/propostas", status_code=201)
+def add_proposal(property_id: int, consultancy_id: int, data: schemas.ProposalCreate, db: Session = Depends(get_db)):
+    """Adiciona uma proposta à consultoria (permite comparar valores/escopo)."""
+    prop = property_or_404(db, property_id)
+    c = db.get(models.Consultancy, consultancy_id)
+    if not c or c.property_id != property_id:
+        raise HTTPException(404, "Consultoria não encontrada para o imóvel")
+    proposal = models.ConsultancyProposal(consultancy_id=consultancy_id, **data.model_dump())
+    db.add(proposal); db.flush()
+    payload = {"consultancy_id": consultancy_id, **data.model_dump(mode="json")}
+    event = record_event(db, prop, "POS_CONSULTORIA_PROPOSTA", "ConsultancyProposal", proposal.id, payload, ["desocupacao", "financeiro", "checklist"])
+    record_history(db, prop, "ConsultancyProposal", proposal.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(c)
+    return _consultancy_out(c)
+
+
+# ---- Minutas de notificação extrajudicial (versionadas) ---------------------
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/notificacoes", status_code=201)
+def add_notification_draft(property_id: int, data: schemas.NotificationDraftCreate, db: Session = Depends(get_db)):
+    """Cria uma minuta (rascunho) com a 1ª versão do texto. É uma MINUTA editável,
+    não um parecer — sem afirmar validade/recebimento sem comprovação."""
+    prop = property_or_404(db, property_id)
+    _post_auction_or_404(db, property_id)
+    draft = models.NotificationDraft(property_id=property_id, template_key=data.template_key, title=data.title,
+                                     recipient=data.recipient, notifier=data.notifier, status="RASCUNHO", current_version=1)
+    db.add(draft); db.flush()
+    version = models.NotificationDraftVersion(draft_id=draft.id, version=1, body=data.body or "", status="RASCUNHO")
+    db.add(version); db.flush()
+    payload = {"title": data.title, "recipient": data.recipient, "template_key": data.template_key}
+    event = record_event(db, prop, "POS_NOTIFICACAO_CRIADA", "NotificationDraft", draft.id, payload, ["juridico", "desocupacao", "checklist"])
+    record_history(db, prop, "NotificationDraft", draft.id, "CREATE", None, payload, event.id)
+    db.commit(); db.refresh(draft)
+    return _draft_out(draft)
+
+
+@app.get("/api/imoveis/{property_id}/pos-arrematacao/notificacoes/{draft_id}")
+def get_notification_draft(property_id: int, draft_id: int, db: Session = Depends(get_db)):
+    property_or_404(db, property_id)
+    draft = db.get(models.NotificationDraft, draft_id)
+    if not draft or draft.property_id != property_id:
+        raise HTTPException(404, "Minuta não encontrada para o imóvel")
+    return _draft_out(draft)
+
+
+@app.post("/api/imoveis/{property_id}/pos-arrematacao/notificacoes/{draft_id}/versoes", status_code=201)
+def add_notification_version(property_id: int, draft_id: int, data: schemas.NotificationVersionCreate, db: Session = Depends(get_db)):
+    """Salva uma NOVA versão do texto da minuta (append-only; mantém o histórico).
+    Nunca sobrescreve versões anteriores."""
+    prop = property_or_404(db, property_id)
+    draft = db.get(models.NotificationDraft, draft_id)
+    if not draft or draft.property_id != property_id:
+        raise HTTPException(404, "Minuta não encontrada para o imóvel")
+    new_version = draft.current_version + 1
+    status = data.status or draft.status
+    version = models.NotificationDraftVersion(draft_id=draft.id, version=new_version, body=data.body or "", status=status)
+    db.add(version)
+    before = {"current_version": draft.current_version, "status": draft.status}
+    draft.current_version = new_version
+    draft.status = status
+    db.flush()
+    after = {"current_version": draft.current_version, "status": draft.status}
+    event = record_event(db, prop, "POS_NOTIFICACAO_VERSAO", "NotificationDraft", draft.id, {"version": new_version, "status": status}, ["juridico", "desocupacao", "checklist"])
+    record_history(db, prop, "NotificationDraft", draft.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(draft)
+    return _draft_out(draft)
+
+
+@app.patch("/api/imoveis/{property_id}/pos-arrematacao/notificacoes/{draft_id}")
+def update_notification_draft(property_id: int, draft_id: int, data: schemas.NotificationDraftUpdate, db: Session = Depends(get_db)):
+    """Edita metadados da minuta e registra envio/recebimento (com evidência). O
+    texto (body) NÃO é alterado aqui — use o endpoint de versões."""
+    prop = property_or_404(db, property_id)
+    draft = db.get(models.NotificationDraft, draft_id)
+    if not draft or draft.property_id != property_id:
+        raise HTTPException(404, "Minuta não encontrada para o imóvel")
+    before = _snapshot(draft, NOTIFICATION_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    _apply_updates(draft, changes)
+    db.flush()
+    after = _snapshot(draft, NOTIFICATION_FIELDS)
+    event = record_event(db, prop, "POS_NOTIFICACAO_ATUALIZADA", "NotificationDraft", draft.id, {"changes": list(changes.keys())}, ["juridico", "desocupacao", "checklist"])
+    record_history(db, prop, "NotificationDraft", draft.id, "UPDATE", before, after, event.id)
+    db.commit(); db.refresh(draft)
+    return _draft_out(draft)

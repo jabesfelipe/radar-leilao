@@ -482,3 +482,207 @@ class AuctionUpdate(BaseModel):
     commission_fixed: Decimal | None = None
     auctioneer: str | None = None
     notice_url: str | None = None
+
+
+# ============================================================================
+# PÓS-ARREMATAÇÃO (novo módulo). Create/Update/Out seguindo o padrão do projeto:
+# Update com todos os campos opcionais (exclude_unset no handler); Out com
+# ConfigDict(from_attributes=True). Valores monetários validam não-negativo.
+# ============================================================================
+
+
+def _non_negative(v):
+    if v is not None and v < 0:
+        raise ValueError("valor não pode ser negativo")
+    return v
+
+
+class PostAuctionActivate(BaseModel):
+    """Ativação do fluxo pós-arrematação (sob demanda). Campos opcionais: o motor
+    congela o orçamento inicial a partir do financeiro da análise se não informado."""
+    eviction_mode: Literal["PROPRIA", "TERCEIRIZADA"] | None = None
+    initial_budget: Decimal | None = None
+    expected_sale_value: Decimal | None = None
+    observations: str | None = None
+    seed_default_stages: bool = True
+
+    @field_validator("initial_budget", "expected_sale_value")
+    @classmethod
+    def _nn(cls, v):
+        return _non_negative(v)
+
+
+class PostAuctionUpdate(BaseModel):
+    status: Literal["NAO_INICIADO", "EM_ANDAMENTO", "CONCLUIDO", "CANCELADO"] | None = None
+    current_stage: str | None = None
+    eviction_mode: Literal["PROPRIA", "TERCEIRIZADA"] | None = None
+    initial_budget: Decimal | None = None
+    expected_sale_value: Decimal | None = None
+    observations: str | None = None
+
+
+class StageCreate(BaseModel):
+    stage_key: str = Field(min_length=1, max_length=60)
+    title: str = Field(min_length=1)
+    sort_order: int = 0
+    status: Literal["PENDENTE", "EM_ANDAMENTO", "CONCLUIDA", "NAO_APLICAVEL", "BLOQUEADA"] = "PENDENTE"
+    responsible: str | None = None
+    planned_date: date | None = None
+    actual_date: date | None = None
+    observations: str | None = None
+    legal_process_id: int | None = None
+
+
+class StageUpdate(BaseModel):
+    title: str | None = None
+    sort_order: int | None = None
+    status: Literal["PENDENTE", "EM_ANDAMENTO", "CONCLUIDA", "NAO_APLICAVEL", "BLOQUEADA"] | None = None
+    responsible: str | None = None
+    planned_date: date | None = None
+    actual_date: date | None = None
+    observations: str | None = None
+    legal_process_id: int | None = None
+
+
+class PostCostCreate(BaseModel):
+    category: str = Field(min_length=1)
+    description: str | None = None
+    planned_amount: Decimal | None = None
+    actual_amount: Decimal | None = None
+    status: Literal["PREVISTO", "PENDENTE", "PAGO", "CANCELADO", "CONTESTADO"] = "PREVISTO"
+    competence_date: date | None = None
+    payment_date: date | None = None
+    supplier: str | None = None
+    payment_method: str | None = None
+    origin: str | None = None
+    document_version_id: int | None = None
+    stage_id: int | None = None
+    observations: str | None = None
+
+    @field_validator("planned_amount", "actual_amount")
+    @classmethod
+    def _nn(cls, v):
+        return _non_negative(v)
+
+
+class PostCostUpdate(BaseModel):
+    category: str | None = None
+    description: str | None = None
+    planned_amount: Decimal | None = None
+    actual_amount: Decimal | None = None
+    status: Literal["PREVISTO", "PENDENTE", "PAGO", "CANCELADO", "CONTESTADO"] | None = None
+    competence_date: date | None = None
+    payment_date: date | None = None
+    supplier: str | None = None
+    payment_method: str | None = None
+    origin: str | None = None
+    document_version_id: int | None = None
+    stage_id: int | None = None
+    observations: str | None = None
+
+    @field_validator("planned_amount", "actual_amount")
+    @classmethod
+    def _nn(cls, v):
+        return _non_negative(v)
+
+
+class OccupantContactCreate(BaseModel):
+    name: str = Field(min_length=1)
+    phone: str | None = None
+    email: str | None = None
+    contact_type: str | None = None
+    relationship_label: str | None = None
+    next_action: str | None = None
+    next_action_date: date | None = None
+    observations: str | None = None
+
+
+class OccupantContactUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    phone: str | None = None
+    email: str | None = None
+    contact_type: str | None = None
+    relationship_label: str | None = None
+    next_action: str | None = None
+    next_action_date: date | None = None
+    observations: str | None = None
+
+
+class ContactAttemptCreate(BaseModel):
+    attempt_date: date | None = None
+    channel: str | None = None
+    result: str | None = None
+    next_action: str | None = None
+    next_action_date: date | None = None
+    observations: str | None = None
+
+
+class ConsultancyCreate(BaseModel):
+    company_name: str = Field(min_length=1)
+    cnpj: str | None = None
+    responsible: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    address: str | None = None
+    services: str | None = None
+    status: Literal["EM_AVALIACAO", "CONTRATADA", "DESCARTADA", "ENCERRADA"] = "EM_AVALIACAO"
+    observations: str | None = None
+
+
+class ConsultancyUpdate(BaseModel):
+    company_name: str | None = Field(default=None, min_length=1)
+    cnpj: str | None = None
+    responsible: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    address: str | None = None
+    services: str | None = None
+    status: Literal["EM_AVALIACAO", "CONTRATADA", "DESCARTADA", "ENCERRADA"] | None = None
+    selected: bool | None = None
+    observations: str | None = None
+
+
+class ProposalCreate(BaseModel):
+    title: str = "Proposta"
+    fixed_fee: Decimal | None = None
+    variable_fee: str | None = None
+    additional_costs: Decimal | None = None
+    payment_schedule: str | None = None
+    included_scope: str | None = None
+    excluded_scope: str | None = None
+    deadline_days: int | None = None
+    document_version_id: int | None = None
+    observations: str | None = None
+
+    @field_validator("fixed_fee", "additional_costs")
+    @classmethod
+    def _nn(cls, v):
+        return _non_negative(v)
+
+
+class NotificationDraftCreate(BaseModel):
+    template_key: str | None = None
+    title: str = Field(min_length=1)
+    recipient: str | None = None
+    notifier: str | None = None
+    body: str = ""
+
+
+class NotificationDraftUpdate(BaseModel):
+    """Edita metadados da minuta + registro de envio/recebimento (com evidência).
+    O TEXTO (body) é versionado por endpoint próprio, nunca sobrescrito em silêncio."""
+    title: str | None = None
+    recipient: str | None = None
+    notifier: str | None = None
+    status: Literal["RASCUNHO", "REVISADO", "EMITIDO", "ENVIADO", "RECEBIDO", "DEVOLVIDO", "SEM_CONFIRMACAO"] | None = None
+    delivery_channel: str | None = None
+    sent_at: datetime | None = None
+    receipt_status: str | None = None
+    receipt_reference: str | None = None
+    observations: str | None = None
+
+
+class NotificationVersionCreate(BaseModel):
+    """Nova versão do texto da minuta (append-only). Opcionalmente muda o status."""
+    body: str = ""
+    status: Literal["RASCUNHO", "REVISADO", "EMITIDO", "ENVIADO", "RECEBIDO", "DEVOLVIDO", "SEM_CONFIRMACAO"] | None = None
