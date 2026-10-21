@@ -39,6 +39,28 @@ class Settings(BaseSettings):
     # portal_admin_token protege o endpoint de recuperação (header X-Portal-Admin-Token).
     portal_secret_key: str | None = None
     portal_admin_token: str | None = None
+    # ---- Due Diligence integrada (4 frentes) ----
+    # Integrações externas OPCIONAIS: ausência de chave => frente fica "NAO_CONFIGURADO"
+    # (o sistema NUNCA simula uma consulta bem-sucedida). Todas defaultam para None,
+    # de modo que o app sobe sem nenhuma delas (falha fechada por frente).
+    # Google Maps Platform (geocoding/Street View/mapa). Sem a chave, a tela usa
+    # apenas links externos para o Google Maps e registro manual de coordenadas.
+    google_maps_api_key: str | None = None
+    google_geocoding_base_url: str = "https://maps.googleapis.com/maps/api/geocode/json"
+    google_maps_timeout_seconds: float = 15.0
+    # Registro de imóveis eletrônico (ex.: RI Digital). Sem credencial, a matrícula
+    # continua por importação manual de PDF/certidão (consulta automática indisponível).
+    registro_imoveis_base_url: str | None = None
+    registro_imoveis_api_key: str | None = None
+    registro_imoveis_timeout_seconds: float = 30.0
+    # Prefeitura/IPTU/valor venal (por município). Sem credencial/endpoint, a frente
+    # funciona por cadastro manual (consulta automática indisponível).
+    prefeitura_api_base_url: str | None = None
+    prefeitura_api_key: str | None = None
+    prefeitura_api_timeout_seconds: float = 30.0
+    # Validade (horas) do cache de uma consulta externa de due diligence antes de
+    # sugerir nova consulta (evita chamadas desnecessárias / custo — SPEC §12).
+    due_diligence_cache_hours: int = 24
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     @model_validator(mode="after")

@@ -686,3 +686,61 @@ class NotificationVersionCreate(BaseModel):
     """Nova versão do texto da minuta (append-only). Opcionalmente muda o status."""
     body: str = ""
     status: Literal["RASCUNHO", "REVISADO", "EMITIDO", "ENVIADO", "RECEBIDO", "DEVOLVIDO", "SEM_CONFIRMACAO"] | None = None
+
+
+# ============================================================================
+# DUE DILIGENCE INTEGRADA — schemas (Create/Update/Out). Padrão do projeto:
+# Update com campos opcionais (exclude_unset); Out com from_attributes.
+# ============================================================================
+
+
+class LocationUpdate(BaseModel):
+    """Atualiza a localização do imóvel: coordenadas, confirmação, observações e
+    checklist de localização. Coordenadas informadas manualmente são aceitas; a
+    geocodificação automática é acionada por endpoint próprio (/geocodificar)."""
+    normalized_address: str | None = None
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
+    coordinates_confirmed: bool | None = None
+    observations: str | None = None
+    inspected_at: datetime | None = None
+    # Checklist de localização: {criterio: BOM|REGULAR|RUIM|NAO_VERIFICADO}.
+    location_checklist: dict[str, Literal["BOM", "REGULAR", "RUIM", "NAO_VERIFICADO"]] | None = None
+
+    @field_validator("latitude")
+    @classmethod
+    def _lat_range(cls, v):
+        if v is not None and not (Decimal("-90") <= v <= Decimal("90")):
+            raise ValueError("latitude fora do intervalo [-90, 90]")
+        return v
+
+    @field_validator("longitude")
+    @classmethod
+    def _lng_range(cls, v):
+        if v is not None and not (Decimal("-180") <= v <= Decimal("180")):
+            raise ValueError("longitude fora do intervalo [-180, 180]")
+        return v
+
+
+class GeocodeRequest(BaseModel):
+    """Geocodificação opcional: usa o endereço do imóvel se não informado."""
+    address: str | None = None
+
+
+class PrefeituraDebtCreate(BaseModel):
+    """Registro MANUAL de débito municipal (IPTU/taxas) rastreável. Reutiliza o
+    aggregate Debt (não cria custo duplicado). Preserva data-base e situação."""
+    category: str = "IPTU"
+    creditor: str = "Prefeitura"
+    amount: Decimal = Field(ge=0)
+    reference_date: date | None = None                 # data-base / exercício
+    status: Literal["INFORMADO", "ESTIMADO", "CONFIRMADO", "CONTESTADO", "PAGO", "CANCELADO", "PENDENTE"] = "INFORMADO"
+    source: str | None = None                          # fonte da consulta
+    observations: str | None = None
+
+
+class DueDiligenceFrontReview(BaseModel):
+    """Marca uma frente como revisada (ou reabre) + anotação do responsável."""
+    reviewed: bool = True
+    reviewed_by: str | None = None
+    summary: str | None = None

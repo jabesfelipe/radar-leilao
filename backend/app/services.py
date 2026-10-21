@@ -4,6 +4,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from . import models
+from .config import settings
 from .checklist import CHECKLIST_CONFIDENCES, CHECKLIST_STATES, master_items
 from .finance import MaxPriceGoal, SaleAssumptions, ScenarioAssumptions, calculate_financial
 from .risk_engine import RiskEngine
@@ -674,3 +675,297 @@ def post_auction_cost_summary(db: Session, property_id: int) -> dict[str, Any]:
         "roi_estimado": roi,
         "qtd_custos": len(costs),
     }
+
+
+# ============================================================================
+# DUE DILIGENCE INTEGRADA — serviço (determinístico; sem LLM). Reusa os aggregates
+# existentes (PropertyRegistration, LegalProcess, Debt, Evidence, PropertyLocation)
+# e a linha do tempo (record_event/record_history). A ausência de resultado NUNCA
+# vira "sem risco" (SPEC §9). Integrações externas sem credencial => NAO_CONFIGURADO
+# (nunca simula sucesso).
+# ============================================================================
+
+# Critérios do checklist de localização (SPEC §7.4). Lista canônica, extensível.
+LOCATION_CHECKLIST_CRITERIA: tuple[tuple[str, str], ...] = (
+    ("acesso_viario", "Acesso viário"),
+    ("pavimentacao", "Pavimentação e condição aparente da rua"),
+    ("transporte_publico", "Transporte público"),
+    ("comercio_servicos", "Comércio e serviços"),
+    ("escolas_saude", "Escolas e saúde"),
+    ("infraestrutura_entorno", "Infraestrutura do entorno"),
+    ("vizinhanca", "Características aparentes da vizinhança"),
+    ("facilidade_acesso", "Facilidade de acesso"),
+    ("atratividade_locacao", "Atratividade para locação"),
+    ("atratividade_revenda", "Atratividade para revenda"),
+    ("fatores_liquidez", "Fatores que possam afetar liquidez"),
+)
+_VALID_LOCATION_RATINGS = {"BOM", "REGULAR", "RUIM", "NAO_VERIFICADO"}
+
+
+def get_due_diligence_front(db: Session, property_id: int, frente: str) -> "models.DueDiligenceFront | None":
+    return db.scalar(
+        select(models.DueDiligenceFront).where(
+            models.DueDiligenceFront.property_id == property_id,
+            models.DueDiligenceFront.frente == frente,
+        )
+    )
+
+
+def upsert_due_diligence_front(
+    db: Session,
+    prop: "models.Property",
+    frente: str,
+    *,
+    status: str,
+    source: str | None = None,
+    mode: str | None = None,
+    summary: str | None = None,
+    pendencias: list[str] | None = None,
+    findings_count: int | None = None,
+    consulted: bool = False,
+    emit_event: bool = True,
+) -> "models.DueDiligenceFront":
+    """Cria/atualiza o estado de uma frente (idempotente por property+frente) e
+    registra o evento/histórico na linha do tempo existente. Preserva o controle de
+    revisão humana (não zera `reviewed` automaticamente)."""
+    front = get_due_diligence_front(db, prop.id, frente)
+    before = None
+    if front is None:
+        front = models.DueDiligenceFront(property_id=prop.id, frente=frente, status="NAO_INICIADO")
+        db.add(front)
+        db.flush()
+    else:
+        before = {"status": front.status, "findings_count": front.findings_count, "source": front.source}
+    front.status = status
+    if source is not None:
+        front.source = source
+    if mode is not None:
+        front.mode = mode
+    if summary is not None:
+        front.summary = summary
+    if pendencias is not None:
+        front.pendencias = pendencias
+    if findings_count is not None:
+        front.findings_count = findings_count
+    if consulted:
+        front.last_consulted_at = datetime.utcnow()
+    db.flush()
+    if emit_event:
+        after = {"status": front.status, "findings_count": front.findings_count, "source": front.source}
+        event = record_event(db, prop, "DILIGENCIA_FRENTE_ATUALIZADA", "DueDiligenceFront", front.id,
+                             {"frente": frente, "status": status}, ["documental", "juridico", "financeiro", "checklist"])
+        record_history(db, prop, "DueDiligenceFront", front.id, "UPDATE" if before else "CREATE", before, after, event.id)
+    return front
+
+
+def get_property_location(db: Session, property_id: int) -> "models.PropertyLocation | None":
+    return db.scalar(select(models.PropertyLocation).where(models.PropertyLocation.property_id == property_id))
+
+
+def ensure_property_location(db: Session, prop: "models.Property") -> "models.PropertyLocation":
+    loc = get_property_location(db, prop.id)
+    if loc is None:
+        loc = models.PropertyLocation(property_id=prop.id)
+        db.add(loc)
+        db.flush()
+    return loc
+
+
+def _full_address(prop: "models.Property") -> str:
+    parts = [prop.address, prop.neighborhood, prop.city, prop.state]
+    return ", ".join(p for p in parts if p)
+
+
+def location_out(db: Session, prop: "models.Property") -> dict[str, Any]:
+    """Visão da frente Localização (coordenadas, links, checklist, status de integração)."""
+    from .geocoding_client import maps_link, street_view_link
+    loc = get_property_location(db, prop.id)
+    address = _full_address(prop)
+    # Links externos SEMPRE disponíveis (não dependem de API key).
+    lat = float(loc.latitude) if loc and loc.latitude is not None else None
+    lng = float(loc.longitude) if loc and loc.longitude is not None else None
+    maps_url = (loc.maps_url if loc and loc.maps_url else None) or maps_link(address=address, latitude=lat, longitude=lng)
+    sv_url = (loc.street_view_url if loc and loc.street_view_url else None) or street_view_link(address=address, latitude=lat, longitude=lng)
+    integration = "CONFIGURADO" if settings.google_maps_api_key else "NAO_CONFIGURADO"
+    checklist = dict(loc.location_checklist) if loc and loc.location_checklist else {}
+    criteria = [
+        {"key": key, "label": label, "rating": checklist.get(key, "NAO_VERIFICADO")}
+        for key, label in LOCATION_CHECKLIST_CRITERIA
+    ]
+    return {
+        "property_id": prop.id,
+        "endereco": address,
+        "normalized_address": loc.normalized_address if loc else None,
+        "latitude": lat,
+        "longitude": lng,
+        "geocode_precision": loc.geocode_precision if loc else None,
+        "geocode_source": loc.geocode_source if loc else None,
+        "geocoded_at": loc.geocoded_at if loc else None,
+        "coordinates_confirmed": bool(loc.coordinates_confirmed) if loc else False,
+        "maps_url": maps_url,
+        "street_view_url": sv_url,
+        "location_checklist": criteria,
+        "observations": loc.observations if loc else None,
+        "inspected_at": loc.inspected_at if loc else None,
+        "integracao_maps": integration,
+    }
+
+
+def validate_location_checklist(checklist: dict[str, str] | None) -> dict[str, str]:
+    """Mantém só critérios conhecidos e ratings válidos (defensivo)."""
+    if not checklist:
+        return {}
+    known = {key for key, _ in LOCATION_CHECKLIST_CRITERIA}
+    return {k: v for k, v in checklist.items() if k in known and v in _VALID_LOCATION_RATINGS}
+
+
+def _front_summary_matricula(db: Session, prop: "models.Property") -> dict[str, Any]:
+    """Resumo determinístico da frente Matrícula/ônus a partir do que já existe
+    (PropertyRegistration + Evidences categoria MATRICULA/JURIDICO vinculadas)."""
+    registration = db.scalar(
+        select(models.PropertyRegistration)
+        .where(models.PropertyRegistration.property_id == prop.id)
+        .order_by(models.PropertyRegistration.created_at.desc())
+    )
+    front = get_due_diligence_front(db, prop.id, "MATRICULA")
+    if registration is None:
+        status = front.status if front else "NAO_INICIADO"
+        return {"frente": "MATRICULA", "status": status if front else "NAO_INICIADO",
+                "titular": None, "matricula": None, "fonte": "Registro de Imóveis (RI Digital) — importação manual" if settings.registro_imoveis_base_url is None else None,
+                "integracao": "NAO_CONFIGURADO" if settings.registro_imoveis_base_url is None else "CONFIGURADO",
+                "ultima_consulta": front.last_consulted_at if front else None,
+                "pendencias": ["Matrícula atualizada não importada/consultada."],
+                "achados": 0, "revisado": bool(front.reviewed) if front else False}
+    return {"frente": "MATRICULA",
+            "status": front.status if front else "CONSULTADO",
+            "titular": registration.holder,
+            "matricula": registration.registration_number,
+            "cartorio": registration.registry_office,
+            "comarca": registration.comarca,
+            "integracao": "NAO_CONFIGURADO" if settings.registro_imoveis_base_url is None else "CONFIGURADO",
+            "ultima_consulta": (front.last_consulted_at if front else None) or registration.created_at,
+            "pendencias": (front.pendencias if front and front.pendencias else []),
+            "achados": 1, "revisado": bool(front.reviewed) if front else False}
+
+
+def _front_summary_judicial(db: Session, prop: "models.Property") -> dict[str, Any]:
+    processes = db.scalars(select(models.LegalProcess).where(models.LegalProcess.property_id == prop.id)).all()
+    relevantes = [p for p in processes if (p.correlation_level or "").upper() in {"ALTA", "MEDIA"}]
+    homonimos = [p for p in processes if (p.correlation_level or "").upper() == "BAIXA"]
+    front = get_due_diligence_front(db, prop.id, "JUDICIAL")
+    integ = "CONFIGURADO"  # Judicial API já integrada (consumidor HTTP)
+    status = front.status if front else ("CONSULTADO" if processes else "NAO_INICIADO")
+    pend = list(front.pendencias) if front and front.pendencias else []
+    if homonimos:
+        pend.append(f"{len(homonimos)} processo(s) com correlação BAIXA (possível homônimo) — revisar.")
+    return {"frente": "JUDICIAL", "status": status, "integracao": integ,
+            "processos": len(processes), "relevantes": len(relevantes), "homonimos": len(homonimos),
+            "ultima_consulta": front.last_consulted_at if front else None,
+            "pendencias": pend, "achados": len(processes),
+            "revisado": bool(front.reviewed) if front else False}
+
+
+def _front_summary_prefeitura(db: Session, prop: "models.Property") -> dict[str, Any]:
+    debts = db.scalars(select(models.Debt).where(models.Debt.property_id == prop.id)).all()
+    municipais = [d for d in debts if "IPTU" in (d.category or "").upper() or "PREFEITURA" in (d.creditor or "").upper()]
+    total = sum((d.amount or Decimal("0")) for d in municipais if (d.status or "").upper() != "QUITADO")
+    front = get_due_diligence_front(db, prop.id, "PREFEITURA")
+    integ = "NAO_CONFIGURADO" if settings.prefeitura_api_base_url is None else "CONFIGURADO"
+    pend = list(front.pendencias) if front and front.pendencias else []
+    nao_confirmados = [d for d in municipais if (d.status or "").upper() in {"INFORMADO", "ESTIMADO", "PENDENTE"}]
+    if nao_confirmados:
+        pend.append(f"{len(nao_confirmados)} débito(s) municipal(is) não confirmado(s) na fonte.")
+    status = front.status if front else ("CONSULTADO" if municipais else "NAO_INICIADO")
+    return {"frente": "PREFEITURA", "status": status, "integracao": integ,
+            "debitos_municipais": len(municipais), "total_em_aberto": total,
+            "ultima_consulta": front.last_consulted_at if front else None,
+            "pendencias": pend, "achados": len(municipais),
+            "revisado": bool(front.reviewed) if front else False}
+
+
+def _front_summary_localizacao(db: Session, prop: "models.Property") -> dict[str, Any]:
+    loc = get_property_location(db, prop.id)
+    front = get_due_diligence_front(db, prop.id, "LOCALIZACAO")
+    integ = "CONFIGURADO" if settings.google_maps_api_key else "NAO_CONFIGURADO"
+    geocoded = bool(loc and loc.latitude is not None and loc.longitude is not None)
+    confirmed = bool(loc and loc.coordinates_confirmed)
+    pend = list(front.pendencias) if front and front.pendencias else []
+    if not geocoded:
+        pend.append("Coordenadas não geocodificadas/confirmadas.")
+    elif not confirmed:
+        pend.append("Ponto no mapa ainda não confirmado como a unidade.")
+    status = front.status if front else ("CONSULTADO" if geocoded else "NAO_INICIADO")
+    return {"frente": "LOCALIZACAO", "status": status, "integracao": integ,
+            "geocodificado": geocoded, "coordenadas_confirmadas": confirmed,
+            "ultima_consulta": (front.last_consulted_at if front else None) or (loc.geocoded_at if loc else None),
+            "pendencias": pend, "achados": 1 if geocoded else 0,
+            "revisado": bool(front.reviewed) if front else False}
+
+
+def due_diligence_overview(db: Session, prop: "models.Property") -> dict[str, Any]:
+    """Visão consolidada das 4 frentes (orquestrador). Reusa os aggregates; não
+    dispara consultas (só leitura). Expõe status, fonte, achados e pendências por
+    frente, para o dossiê distinguir consultado × sem ocorrência × não consultado ×
+    não configurado × falhou × necessita revisão."""
+    return {
+        "property_id": prop.id,
+        "frentes": {
+            "MATRICULA": _front_summary_matricula(db, prop),
+            "JUDICIAL": _front_summary_judicial(db, prop),
+            "PREFEITURA": _front_summary_prefeitura(db, prop),
+            "LOCALIZACAO": _front_summary_localizacao(db, prop),
+        },
+        "localizacao": location_out(db, prop),
+    }
+
+
+# Mapa frente → canonical_key do Checklist Mestre que recebe a diligência pendente.
+# Reutiliza itens existentes (checklist.py). Nunca cria conclusão jurídica.
+_DD_CHECKLIST_KEYS = {
+    "MATRICULA": "CONSOLIDACAO_REGISTRADA",     # registros/averbações da matrícula
+    "JUDICIAL": "ACAO_QUESTIONAMENTO",          # ações que questionam o leilão/execução
+    "PREFEITURA": "RESPONSABILIDADE_DEBITOS",   # IPTU/condomínio em atraso
+    "LOCALIZACAO": "REGIAO_SERVICOS",           # região/serviços/acesso
+}
+_DD_CHECKLIST_MANUAL_STATES = {"CONFIRMADO", "NAO_APLICAVEL", "RISCO_IDENTIFICADO"}
+
+
+def reflect_due_diligence_signals(db: Session, prop: "models.Property", frente: str, pendencias: list[str], evidence: "models.Evidence | None" = None) -> bool:
+    """Reflete uma pendência de due diligence como NECESSIDADE DE DILIGÊNCIA (ATENCAO)
+    no item de checklist correspondente da execução CORRENTE — sem LLM e sem criar
+    nova versão de análise. Reusa o padrão do judicial_integration (nunca CONFIRMADO;
+    preserva estados manuais). A ausência de resultado não vira "sem risco".
+
+    Retorna True se marcou o item (para o chamador acionar recálculo de risco/veredito
+    da versão corrente, se desejar)."""
+    if not pendencias:
+        return False
+    target_key = _DD_CHECKLIST_KEYS.get(frente)
+    if not target_key:
+        return False
+    execution = latest_execution(prop)
+    if execution is None:
+        return False
+    for res in execution.results:
+        item = res.item
+        if item is None or item.canonical_key != target_key:
+            continue
+        if res.state in _DD_CHECKLIST_MANUAL_STATES:
+            return False
+        res.state = "ATENCAO"
+        res.risk = "; ".join(pendencias)[:2000]
+        if not (res.answer or "").strip():
+            res.answer = "Diligência recomendada a partir da investigação de due diligence."
+        db.flush()
+        if evidence is not None:
+            exists = db.scalar(
+                select(models.ChecklistEvidence).where(
+                    models.ChecklistEvidence.checklist_result_id == res.id,
+                    models.ChecklistEvidence.evidence_id == evidence.id,
+                )
+            )
+            if exists is None:
+                db.add(models.ChecklistEvidence(checklist_result_id=res.id, evidence_id=evidence.id))
+                db.flush()
+        return True
+    return False

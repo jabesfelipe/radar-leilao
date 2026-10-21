@@ -720,3 +720,91 @@ class NotificationDraftVersion(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(30), default="RASCUNHO")
     draft: Mapped[NotificationDraft] = relationship(back_populates="versions")
     __table_args__ = (UniqueConstraint("draft_id", "version", name="uq_notification_draft_version"),)
+
+
+# ============================================================================
+# DUE DILIGENCE INTEGRADA (4 frentes: MATRICULA, JUDICIAL, PREFEITURA, LOCALIZACAO).
+# Evolução reuse-first: NÃO duplica matrícula (PropertyRegistration), processos
+# (LegalProcess), débitos (Debt) nem eventos (DomainEvent/EntityHistory). Estas
+# tabelas só guardam (1) o ESTADO/rastreabilidade da investigação por frente e
+# (2) a geolocalização + checklist de localização (que não têm casa hoje).
+# Consultadas por property_id (padrão EntityHistory), sem relationship em Property.
+# ============================================================================
+
+# Frentes canônicas da due diligence.
+DD_FRENTE_MATRICULA = "MATRICULA"
+DD_FRENTE_JUDICIAL = "JUDICIAL"
+DD_FRENTE_PREFEITURA = "PREFEITURA"
+DD_FRENTE_LOCALIZACAO = "LOCALIZACAO"
+DD_FRENTES = (DD_FRENTE_MATRICULA, DD_FRENTE_JUDICIAL, DD_FRENTE_PREFEITURA, DD_FRENTE_LOCALIZACAO)
+
+# Estados de execução de uma frente. Distinguem explicitamente "sem ocorrência"
+# (consulta feita, nada encontrado) de "não consultado" e de "não configurado" —
+# ausência de resultado NUNCA é tratada como prova de ausência de risco (SPEC §9).
+DD_STATUS = (
+    "NAO_INICIADO",        # nenhuma consulta/registro ainda
+    "NAO_CONFIGURADO",     # integração externa sem credencial/endpoint
+    "AGUARDANDO_ACAO",     # depende de ação manual do usuário (import/consulta assistida)
+    "EM_EXECUCAO",
+    "CONSULTADO",          # consulta realizada com resultado
+    "SEM_OCORRENCIA",      # consulta realizada, nada encontrado (≠ certidão negativa)
+    "CONCLUIDO_COM_PENDENCIAS",
+    "FALHOU",
+    "INDISPONIVEL",
+    "NECESSITA_REVISAO",
+)
+
+# Modalidade de obtenção dos dados de uma frente.
+DD_MODO_MANUAL = "MANUAL"
+DD_MODO_AUTOMATICO = "AUTOMATICO"
+
+# Avaliações do checklist de localização (SPEC §7.4).
+LOCATION_RATINGS = ("BOM", "REGULAR", "RUIM", "NAO_VERIFICADO")
+
+
+class DueDiligenceFront(TimestampMixin, Base):
+    """Estado/rastreabilidade de UMA frente de due diligence de um imóvel.
+
+    Um registro por (property_id, frente). NÃO guarda os achados em si (esses vivem
+    nos aggregates reutilizados: PropertyRegistration, LegalProcess, Debt, Evidence,
+    PropertyLocation); guarda apenas o STATUS, a fonte, a data da consulta, o modo
+    (manual/automático), as pendências e o controle de revisão humana."""
+    __tablename__ = "due_diligence_fronts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    frente: Mapped[str] = mapped_column(String(30), index=True)
+    status: Mapped[str] = mapped_column(String(40), default="NAO_INICIADO")
+    source: Mapped[str | None] = mapped_column(String(240))          # fonte consultada/registrada
+    mode: Mapped[str | None] = mapped_column(String(20))             # MANUAL | AUTOMATICO
+    last_consulted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    summary: Mapped[str | None] = mapped_column(Text)                # resumo dos achados (humano/determinístico)
+    pendencias: Mapped[list[str]] = mapped_column(JSON, default=list)
+    findings_count: Mapped[int] = mapped_column(Integer, default=0)  # nº de achados (processos/ônus/débitos)
+    reviewed: Mapped[bool] = mapped_column(Boolean, default=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(120))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    __table_args__ = (UniqueConstraint("property_id", "frente", name="uq_dd_front_property_frente"),)
+
+
+class PropertyLocation(TimestampMixin, Base):
+    """Avaliação geográfica do imóvel (frente Localização). 1 por imóvel. Guarda
+    coordenadas (quando geocodificadas), precisão/fonte, links externos e o checklist
+    de localização (avaliações observáveis do entorno). NUNCA infere coordenadas sem
+    geocodificação, nem características sensíveis a partir de imagens."""
+    __tablename__ = "property_locations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True, unique=True)
+    normalized_address: Mapped[str | None] = mapped_column(String(400))
+    latitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    longitude: Mapped[float | None] = mapped_column(Numeric(10, 7))
+    geocode_precision: Mapped[str | None] = mapped_column(String(40))   # ROOFTOP/APPROXIMATE/...
+    geocode_source: Mapped[str | None] = mapped_column(String(120))     # Google Maps / Manual
+    geocoded_at: Mapped[datetime | None] = mapped_column(DateTime)
+    coordinates_confirmed: Mapped[bool] = mapped_column(Boolean, default=False)  # usuário confirmou que o ponto é a unidade
+    maps_url: Mapped[str | None] = mapped_column(String(600))
+    street_view_url: Mapped[str | None] = mapped_column(String(600))
+    # Checklist de localização: cada critério recebe BOM/REGULAR/RUIM/NAO_VERIFICADO.
+    # Armazenado como JSON (chave→rating) para extensibilidade sem nova migration.
+    location_checklist: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    observations: Mapped[str | None] = mapped_column(Text)
+    inspected_at: Mapped[datetime | None] = mapped_column(DateTime)     # data da inspeção visual

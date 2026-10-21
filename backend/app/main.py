@@ -22,7 +22,7 @@ from .judicial_integration import JudicialIntegrationService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
-from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary)
+from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary, due_diligence_overview, location_out, ensure_property_location, get_property_location, validate_location_checklist, upsert_due_diligence_front, get_due_diligence_front, reflect_due_diligence_signals)
 
 configure_logging()
 log = get_logger("api")
@@ -2059,3 +2059,162 @@ def update_notification_draft(property_id: int, draft_id: int, data: schemas.Not
     record_history(db, prop, "NotificationDraft", draft.id, "UPDATE", before, after, event.id)
     db.commit(); db.refresh(draft)
     return _draft_out(draft)
+
+
+# ============================================================================
+# DUE DILIGENCE INTEGRADA (4 frentes). Evolução reuse-first: reusa matrícula,
+# processos (Judicial API), débitos (Debt) e eventos; adiciona a frente Localização
+# (nova) e um orquestrador de leitura consolidada. Integrações sem credencial ficam
+# "NAO_CONFIGURADO" (nunca simula consulta). Ausência de resultado ≠ ausência de risco.
+# ============================================================================
+LOCATION_FIELDS = ["normalized_address", "latitude", "longitude", "geocode_precision", "geocode_source", "coordinates_confirmed", "observations", "inspected_at", "location_checklist"]
+
+
+@app.get("/api/imoveis/{property_id}/due-diligence")
+def get_due_diligence(property_id: int, db: Session = Depends(get_db)):
+    """Visão consolidada das 4 frentes (somente leitura; não dispara consultas)."""
+    prop = property_or_404(db, property_id)
+    return serialize(due_diligence_overview(db, prop))
+
+
+@app.get("/api/imoveis/{property_id}/localizacao")
+def get_location(property_id: int, db: Session = Depends(get_db)):
+    prop = property_or_404(db, property_id)
+    return serialize(location_out(db, prop))
+
+
+@app.put("/api/imoveis/{property_id}/localizacao")
+def update_location(property_id: int, data: schemas.LocationUpdate, db: Session = Depends(get_db)):
+    """Atualiza coordenadas (manuais), confirmação, observações e checklist de
+    localização. Histórico before/after + evento. Reflete pendência de localização
+    no checklist (ATENCAO) quando as coordenadas não estão confirmadas."""
+    prop = property_or_404(db, property_id)
+    loc = ensure_property_location(db, prop)
+    before = _snapshot(loc, LOCATION_FIELDS)
+    changes = data.model_dump(exclude_unset=True)
+    if "location_checklist" in changes and changes["location_checklist"] is not None:
+        changes["location_checklist"] = validate_location_checklist(changes["location_checklist"])
+    # Coordenadas manuais marcam a fonte como Manual (não sobrescreve geocode automático
+    # a menos que o usuário informe explicitamente lat/lng).
+    if ("latitude" in changes or "longitude" in changes) and loc.geocode_source is None:
+        loc.geocode_source = "Manual"
+    _apply_updates(loc, changes)
+    db.flush()
+    after = _snapshot(loc, LOCATION_FIELDS)
+    event = record_event(db, prop, "LOCALIZACAO_ATUALIZADA", "PropertyLocation", loc.id, {"changes": list(changes.keys())}, ["mercado", "checklist"])
+    record_history(db, prop, "PropertyLocation", loc.id, "UPDATE", before, after, event.id)
+    geocoded = loc.latitude is not None and loc.longitude is not None
+    status = "CONSULTADO" if (geocoded and loc.coordinates_confirmed) else ("NECESSITA_REVISAO" if geocoded else "AGUARDANDO_ACAO")
+    pend = [] if (geocoded and loc.coordinates_confirmed) else (["Confirmar que o ponto no mapa corresponde à unidade."] if geocoded else ["Coordenadas não informadas/geocodificadas."])
+    upsert_due_diligence_front(db, prop, "LOCALIZACAO", status=status, source=loc.geocode_source or "Manual", mode="MANUAL", pendencias=pend, findings_count=1 if geocoded else 0, consulted=True)
+    reflect_due_diligence_signals(db, prop, "LOCALIZACAO", pend)
+    db.commit()
+    return serialize(location_out(db, prop))
+
+
+@app.post("/api/imoveis/{property_id}/localizacao/geocodificar")
+def geocode_location(property_id: int, data: schemas.GeocodeRequest | None = None, db: Session = Depends(get_db)):
+    """Geocodifica o endereço via Google Maps quando configurado. Sem API key,
+    retorna 200 com ``integracao="NAO_CONFIGURADO"`` e NÃO inventa coordenadas:
+    a tela segue com links externos e registro manual (SPEC §7.2)."""
+    from .geocoding_client import GeocodingClient, GeocodingUnavailable, GeocodingError, maps_link, street_view_link
+    prop = property_or_404(db, property_id)
+    data = data or schemas.GeocodeRequest()
+    address = data.address or ", ".join(p for p in [prop.address, prop.neighborhood, prop.city, prop.state] if p)
+    client = GeocodingClient()
+    loc = ensure_property_location(db, prop)
+    if not client.configured:
+        upsert_due_diligence_front(db, prop, "LOCALIZACAO", status="NAO_CONFIGURADO", source="Google Maps", mode="AUTOMATICO",
+                                   pendencias=["Integração Google Maps não configurada; use o link externo e registre coordenadas manualmente."], consulted=False)
+        db.commit()
+        return {"property_id": prop.id, "integracao": "NAO_CONFIGURADO",
+                "mensagem": "Geocodificação automática indisponível (API key não configurada). Use o link externo do Google Maps e registre as coordenadas manualmente.",
+                "maps_url": maps_link(address=address), "street_view_url": street_view_link(address=address),
+                "localizacao": serialize(location_out(db, prop))}
+    try:
+        result = client.geocode(address)
+    except GeocodingUnavailable as exc:
+        db.rollback()
+        upsert_due_diligence_front(db, prop, "LOCALIZACAO", status="INDISPONIVEL", source="Google Maps", mode="AUTOMATICO",
+                                   pendencias=[f"Geocodificação indisponível: {str(exc)[:120]}"], consulted=False)
+        db.commit()
+        return {"property_id": prop.id, "integracao": "INDISPONIVEL", "disponivel": False,
+                "mensagem": "Geocodificação indisponível no momento; a análise não foi interrompida.",
+                "localizacao": serialize(location_out(db, prop))}
+    except GeocodingError as exc:
+        raise HTTPException(502, f"Falha ao geocodificar: {str(exc)[:200]}") from exc
+    if not result.found:
+        upsert_due_diligence_front(db, prop, "LOCALIZACAO", status="SEM_OCORRENCIA", source="Google Maps", mode="AUTOMATICO",
+                                   pendencias=["Endereço não geocodificado (ZERO_RESULTS); confirme/ajuste o endereço."], consulted=True)
+        db.commit()
+        return {"property_id": prop.id, "integracao": "CONFIGURADO", "geocodificado": False,
+                "mensagem": "Endereço não encontrado pela geocodificação.", "localizacao": serialize(location_out(db, prop))}
+    loc.normalized_address = result.formatted_address
+    loc.latitude = Decimal(str(result.latitude))
+    loc.longitude = Decimal(str(result.longitude))
+    loc.geocode_precision = result.location_type
+    loc.geocode_source = "Google Maps"
+    loc.geocoded_at = datetime.utcnow()
+    loc.coordinates_confirmed = False  # usuário ainda precisa confirmar que é a unidade
+    loc.maps_url = maps_link(latitude=result.latitude, longitude=result.longitude)
+    loc.street_view_url = street_view_link(latitude=result.latitude, longitude=result.longitude)
+    db.flush()
+    event = record_event(db, prop, "LOCALIZACAO_GEOCODIFICADA", "PropertyLocation", loc.id,
+                         {"precision": result.location_type, "partial_match": result.partial_match}, ["mercado", "checklist"])
+    record_history(db, prop, "PropertyLocation", loc.id, "GEOCODE", None, _snapshot(loc, LOCATION_FIELDS), event.id)
+    pend = ["Confirmar que o ponto no mapa corresponde à unidade."]
+    if result.partial_match or result.location_type == "APPROXIMATE":
+        pend.append("Geocodificação aproximada/parcial — validar o endereço exato.")
+    upsert_due_diligence_front(db, prop, "LOCALIZACAO", status="NECESSITA_REVISAO", source="Google Maps", mode="AUTOMATICO",
+                               pendencias=pend, findings_count=1, consulted=True)
+    reflect_due_diligence_signals(db, prop, "LOCALIZACAO", pend)
+    db.commit()
+    return {"property_id": prop.id, "integracao": "CONFIGURADO", "geocodificado": True,
+            "precisao": result.location_type, "partial_match": result.partial_match,
+            "localizacao": serialize(location_out(db, prop))}
+
+
+@app.post("/api/imoveis/{property_id}/due-diligence/prefeitura/debito", status_code=201)
+def add_prefeitura_debt(property_id: int, data: schemas.PrefeituraDebtCreate, db: Session = Depends(get_db)):
+    """Registro MANUAL de débito municipal (IPTU/taxas) — reutiliza o aggregate Debt
+    (não cria custo duplicado). Preserva data-base e situação; recalcula o financeiro
+    sem sobrescrever a análise histórica."""
+    prop = property_or_404(db, property_id)
+    # Mapeia a situação informada para o status do Debt; preserva a distinção
+    # INFORMADO/ESTIMADO/CONFIRMADO/CONTESTADO no próprio status (string livre).
+    item = models.Debt(property_id=property_id, category=data.category, creditor=data.creditor,
+                        amount=data.amount, reference_date=data.reference_date, status=data.status)
+    db.add(item); db.flush()
+    payload = {"category": data.category, "amount": str(data.amount), "status": data.status, "source": data.source, "reference_date": data.reference_date.isoformat() if data.reference_date else None}
+    event = record_event(db, prop, "DIVIDA_ADICIONADA", "Debt", item.id, payload, ["financeiro", "checklist"])
+    record_history(db, prop, "Debt", item.id, "CREATE", None, payload, event.id)
+    pend = [] if data.status.upper() in {"CONFIRMADO", "PAGO", "CANCELADO"} else [f"Débito {data.category} não confirmado na fonte oficial."]
+    upsert_due_diligence_front(db, prop, "PREFEITURA", status="CONSULTADO" if not pend else "CONCLUIDO_COM_PENDENCIAS",
+                               source=data.source or "Registro manual", mode="MANUAL", pendencias=pend, consulted=True)
+    if pend:
+        reflect_due_diligence_signals(db, prop, "PREFEITURA", pend)
+    db.commit(); db.refresh(item)
+    return {"divida": item, "financeiro": serialize(build_finance(prop)), "resumo_prefeitura": serialize(due_diligence_overview(db, prop)["frentes"]["PREFEITURA"]), "evento_id": event.id}
+
+
+@app.post("/api/imoveis/{property_id}/due-diligence/{frente}/revisar")
+def review_due_diligence_front(property_id: int, frente: str, data: schemas.DueDiligenceFrontReview, db: Session = Depends(get_db)):
+    """Marca uma frente como revisada (ou reabre) + anotação do responsável."""
+    prop = property_or_404(db, property_id)
+    frente = frente.upper()
+    if frente not in models.DD_FRENTES:
+        raise HTTPException(400, f"Frente inválida. Use uma de: {', '.join(models.DD_FRENTES)}")
+    front = get_due_diligence_front(db, prop.id, frente)
+    if front is None:
+        front = models.DueDiligenceFront(property_id=property_id, frente=frente, status="NECESSITA_REVISAO")
+        db.add(front); db.flush()
+    front.reviewed = data.reviewed
+    front.reviewed_by = data.reviewed_by
+    front.reviewed_at = datetime.utcnow() if data.reviewed else None
+    if data.summary is not None:
+        front.summary = data.summary
+    db.flush()
+    event = record_event(db, prop, "DILIGENCIA_FRENTE_REVISADA", "DueDiligenceFront", front.id, {"frente": frente, "reviewed": data.reviewed, "by": data.reviewed_by}, ["documental", "juridico", "financeiro", "checklist"])
+    record_history(db, prop, "DueDiligenceFront", front.id, "REVIEW", None, {"reviewed": data.reviewed, "by": data.reviewed_by}, event.id)
+    db.commit()
+    return serialize(due_diligence_overview(db, prop)["frentes"][frente])
