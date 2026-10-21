@@ -1,11 +1,15 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global: FECHAMENTO FUNCIONAL DO PRODUTO (TASK 75.1) — 12 menus navegáveis (sem placeholder), hubs globais, domínio Leiloeiros, break-even e nova identidade visual; testes automatizados verdes; E2E de NAVEGADOR (Playwright) ainda pendente por falta de ambiente; MVP ainda NÃO encerrado**
+**Status global (21/10/2026):** Due Diligence integrada implementada no repositório (`main`, commit `0c8932e)); backend e frontend com testes registrados como verdes. **Validação local após pull e integrações externas reais ainda pendentes**. O MVP não deve ser declarado encerrado sem cumprir os critérios de validação E2E já registrados.
 
-**Última atualização:** 02/10/2026  
-**Última implementação:** TASK 75.1 — correções finais de segurança, UI e validação: hubs globais (Dashboard/Documentos/Jurídico/Financeiro/Mercado/Ocupação/Checklist/Riscos/Veredito/Histórico), domínio Leiloeiros com credenciais protegidas (migration `0014`), break-even no Finance Engine e nova identidade visual. Detalhes na §23.
+**Última atualização:** 21/10/2026  
+**Última implementação:** Due Diligence integrada — Matrícula/ônus, Processos Judiciais, Prefeitura/IPTU e Localização; migration `0016_due_diligence`; aba no dossiê; configuração de fontes externas; documentação em `docs/DUE-DILIGENCE.md` e relatório de andamento em `docs/ANDAMENTO-VALIDACAO-2026-10-21.md`.
 
-**Próximo passo (impeditivo do encerramento):** executar o E2E financeiro pela INTERFACE em um navegador real e registrar as evidências. Não há automação de navegador (Playwright/Cypress) no projeto, então essa validação permanece manual. Até ela ser concluída e registrada, o MVP NÃO é declarado encerrado.
+**Testes registrados no commit `0c8932e`:** backend 613 passed / 2 skipped; frontend Vitest 132 passed; TypeScript `tsc --noEmit` OK. Estes resultados são os registrados pela implementação, não uma execução independente nesta atualização.
+
+**Integrações externas:** DataJud reutiliza a integração judicial existente; Google Maps exige `GOOGLE_MAPS_API_KEY` e configuração de faturamento; RI Digital e Prefeitura/IPTU permanecem em fluxo manual até haver acesso/credenciais autorizados. Não declarar consultas reais concluídas sem executá-las.
+
+**Próximos passos:** fazer pull local, backup, rebuild/health, validar a aba Due Diligence e a migration `0016`, confirmar que o imóvel 633 preserva V1–V9 sem V10, e configurar/testar as fontes externas disponíveis. A pendência histórica de E2E real pela interface deve ser fechada com evidências antes de declarar o MVP encerrado.
 
 > **Nota de leitura:** as seções históricas abaixo preservam o registro das etapas anteriores (o "encerramento" de 28/09 permanece como histórico e NÃO reflete o estado atual). O estado atual e autoritativo está no cabeçalho e nas seções das Tasks 4 e 5 (última implementação registrada); as seções anteriores preservam o histórico. Consulte também `docs/IMPLEMENTATION-REFERENCE.md`.
 
