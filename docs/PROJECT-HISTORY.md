@@ -2111,3 +2111,33 @@ arquitetural, sem duplicar Financeiro/Ocupação/Processos).
 - Fora de escopo (não implementado): integrações pagas, disparo automático de
   notificações, assinatura eletrônica, automações externas. Detalhes em
   `docs/MODULO-POS-ARREMATACAO.md`.
+
+
+## DUE DILIGENCE integrada — 4 frentes (20/09/2026)
+
+Investigação integrada por imóvel (Matrícula/ônus, Judicial, Prefeitura/IPTU,
+Localização) como evolução reuse-first, sem reescrever a arquitetura e sem duplicar
+matrícula/processos/débitos/eventos.
+
+- **Fundação**: config de integrações externas opcionais (`GOOGLE_MAPS_API_KEY`,
+  `REGISTRO_IMOVEIS_*`, `PREFEITURA_API_*`; None=desativado, falha fechada); novo
+  `geocoding_client.py` (httpx, degradação graciosa; sem chave → `NAO_CONFIGURADO`,
+  não inventa coordenadas).
+- **Entidades novas (migration `0016_due_diligence`)**: `due_diligence_fronts`
+  (estado/rastreabilidade por frente) e `property_locations` (geo + checklist de
+  localização). Reuso: judicial (Judicial API), matrícula (PropertyRegistration),
+  IPTU (Debt), evidências e linha do tempo.
+- **Orquestrador** (leitura consolidada das 4 frentes) + endpoints de localização,
+  geocodificação, débito municipal (reusa `Debt`, sem duplicar custo) e revisão de
+  frente. Eventos `LOCALIZACAO_*`/`DILIGENCIA_FRENTE_*` no `/historico`.
+- **Sinais determinísticos**: pendências marcam itens do checklist existente como
+  `ATENCAO` (via `latest_execution`), sem LLM e sem nova versão de análise;
+  RiskEngine/VerdictEngine (puros) os consideram.
+- **Frontend**: aba Due Diligence (4 cards com estados visuais distintos, checklist
+  de localização, links externos Maps/Street View, status de integração).
+- **Validação real**: backend 613 passed/2 skipped (inclui 12 novos); frontend tsc OK
+  + vitest 132 passed (inclui 5 novos); geocode client validado com httpx mock; migration
+  head `0016_due_diligence`; persistência confirmada pós-`restart backend`; imóvel 633
+  intacto (9 análises V1–V9, zero V10). Integrações sem credencial permanecem
+  "não configurado" — nenhuma consulta externa simulada. Detalhes em
+  `docs/DUE-DILIGENCE.md`.

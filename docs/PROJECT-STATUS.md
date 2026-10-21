@@ -1570,3 +1570,38 @@ imóveis apenas analisados seguem o fluxo atual.
 Sem integrações pagas, disparo automático de notificações, assinatura eletrônica ou
 automações externas; sem reescrita arquitetural; sem duplicar Financeiro/Ocupação/
 Processos. Detalhes em `docs/MODULO-POS-ARREMATACAO.md`.
+
+
+## 28. Due Diligence integrada (4 frentes)
+
+Investigação integrada por imóvel: Matrícula/ônus, Processos Judiciais,
+Prefeitura/IPTU e Localização. Evolução reuse-first (sem reescrita; sem duplicar
+matrícula/processos/débitos/eventos).
+
+### 28.1 Entrega
+- **Config/integrações** (opcionais; vazio = desativado, falha fechada):
+  `GOOGLE_MAPS_API_KEY`, `REGISTRO_IMOVEIS_*`, `PREFEITURA_API_*`,
+  `DUE_DILIGENCE_CACHE_HOURS` — `.env.example` + docker-compose atualizados.
+- **Modelos (migration `0016_due_diligence`)**: `due_diligence_fronts`,
+  `property_locations`. Novo `geocoding_client.py` (httpx; sem chave →
+  `NAO_CONFIGURADO`, nunca inventa coordenadas).
+- **API**: `GET /due-diligence` (orquestrador), `GET/PUT /localizacao`,
+  `POST /localizacao/geocodificar`, `POST /due-diligence/prefeitura/debito` (reusa
+  `Debt`, sem duplicar custo), `POST /due-diligence/{frente}/revisar`. Eventos na
+  linha do tempo `/historico`.
+- **Sinais determinísticos** em Checklist/Riscos/Veredito (ATENCAO; sem LLM/nova versão).
+- **Frontend**: aba Due Diligence (4 cards, checklist de localização, links externos,
+  status de integração).
+
+### 28.2 Testes (evidência real)
+- Backend: **613 passed, 2 skipped** (+12 em `tests/test_due_diligence.py`).
+- Frontend: `tsc --noEmit` OK; `vitest run` **132 passed (21 arquivos)** (+5 em
+  `DueDiligenceSection.test.tsx`).
+- Persistência validada pós-`restart backend`; migration head `0016_due_diligence`;
+  imóvel 633 intacto (9 análises V1–V9, zero V10).
+
+### 28.3 Integrações bloqueadas por credencial (sem simular sucesso)
+- Google Maps: operacional com `GOOGLE_MAPS_API_KEY` (cliente testado com httpx mock);
+  sem chave → links externos + registro manual.
+- RI Digital / Prefeitura: exigem contratação/autorização; fluxo manual funcional
+  enquanto não configuradas. Detalhes em `docs/DUE-DILIGENCE.md`.
