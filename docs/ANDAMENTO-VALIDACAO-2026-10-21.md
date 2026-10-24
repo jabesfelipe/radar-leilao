@@ -158,3 +158,18 @@ As consultas executadas foram `SELECT` e inspeção de schema; não iniciaram an
 - [ ] Validar comportamento após restart apenas depois de confirmar o backup e a baseline de LLM.
 
 **Status desta etapa:** backup criado e gzip verificado; serviços saudáveis; migration 0016 aplicada; versões V1–V9 do imóvel 633 confirmadas. Não foi executada restauração de teste, E2E no navegador, consulta externa real ou análise LLM nova.
+
+
+### 10.5 Baseline de execuções LLM — imóvel 633 (23/10/2026)
+
+Consulta somente leitura à tabela `llm_runs` para `property_id=633` retornou:
+
+- Total histórico de execuções LLM: **45**.
+- Primeira execução registrada: `2026-09-23 01:36:06.038418`.
+- Última execução registrada: `2026-09-28 23:30:16.166014`.
+
+A consulta foi um `SELECT COUNT/MIN/MAX`; não iniciou uma execução LLM nem alterou dados. Esta contagem estabelece a baseline histórica observada, mas, sozinha, não prova ausência de novas execuções em outras tabelas nem substitui uma nova consulta após futuras validações.
+
+Durante a execução no terminal, o operador colou acidentalmente o prompt e a saída SQL como comandos Bash, gerando mensagens `command not found`. Não há indicação de que isso tenha alterado o banco; a consulta SQL original retornou normalmente antes dessas mensagens. Evitar colar o prompt do terminal e as linhas de resultado como comandos.
+
+**Próxima etapa:** consultar a distribuição por `status` em `llm_runs` (somente leitura) e, em seguida, validar visualmente a aba Due Diligence no navegador sem clicar em ações de análise, reprocessamento ou geração de relatório.
