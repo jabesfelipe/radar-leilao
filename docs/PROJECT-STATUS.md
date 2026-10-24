@@ -1609,3 +1609,38 @@ matrícula/processos/débitos/eventos).
   sem chave → links externos + registro manual.
 - RI Digital / Prefeitura: exigem contratação/autorização; fluxo manual funcional
   enquanto não configuradas. Detalhes em `docs/DUE-DILIGENCE.md`.
+
+## 29. Central Jurídica (camada transversal de conhecimento jurídico)
+
+Evolução reuse-first: base de conhecimento jurídico curada que aparece **em contexto
+de decisão** (checklist, desocupação/posse, tributário, síntese do imóvel), e não como
+uma lista de leis. Sem reescrita; sem duplicar busca/evidências/rastreabilidade.
+
+### 29.1 Entrega
+- **Modelos (migration `0017_central_juridica`)**: `legal_sources`,
+  `legal_provisions` (texto oficial separado da orientação prática),
+  `legal_rules`, `legal_rule_checklist_links` (vínculo por `canonical_key`, sem
+  alterar os 27 itens do Checklist Mestre). Tudo aditivo e reversível.
+- **Catálogo curado** (`legal_catalog.py`) + seed idempotente (`legal_service`):
+  Lei 9.514/97 (arts. 26, 27, 37-A), Código Civil (1.228, 447), CPC (903), Lei
+  8.245/91 (8º), CTN (130, 131) — com link oficial e `verification_status`.
+- **Busca** reusa `KnowledgeItem` (kind `LEGAL_LIBRARY`) + embeddings; sem
+  `OPENAI_API_KEY`, cai para busca **textual** determinística (sem LLM).
+- **API**: `GET /api/juridico/biblioteca`, `/biblioteca/busca`,
+  `/referencias/checklist/{key}`, `/referencias/contexto/{ctx}`,
+  `GET /api/imoveis/{id}/juridico/central` (reusa `juridical_overview`).
+- **Frontend**: aba **Central Jurídica** no dossiê (situação jurídica + base legal
+  por item do checklist + biblioteca com texto oficial separado da orientação).
+
+### 29.2 Testes (evidência real)
+- Backend: migration `0017_central_juridica` aplicada (head). `tests/test_central_juridica.py`
+  (11 testes) verde com `test_juridico_integracao_e2e.py` e `test_checklist.py`.
+- Frontend: `tsc --noEmit` OK; `vitest run` **137 passed (22 arquivos)** (+5 em
+  `CentralJuridicaSection.test.tsx`).
+- Imóvel 633 intacto (9 análises V1–V9, zero V10) — a Central não cria análise/versão.
+
+### 29.3 Pendências (sem fabricar conteúdo)
+- Base histórica "136 + 27 → 45 regras" permanece **pendência de curadoria**: a base
+  implementada é o Checklist Mestre (27 `canonical_key`); o material de origem não
+  está estruturado no código e **não foi inventado**. Detalhes e backlog em
+  `docs/CENTRAL-JURIDICA.md` e `docs/TODO-CENTRAL-JURIDICA.md`.

@@ -808,3 +808,159 @@ class PropertyLocation(TimestampMixin, Base):
     location_checklist: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     observations: Mapped[str | None] = mapped_column(Text)
     inspected_at: Mapped[datetime | None] = mapped_column(DateTime)     # data da inspeção visual
+
+
+# ============================================================================
+# CENTRAL JURÍDICA (camada transversal de conhecimento jurídico).
+#
+# Objetivo (SPEC Central Jurídica): NÃO é "uma página que lista leis", e sim uma
+# BASE de conhecimento jurídico reutilizável que aparece EM CONTEXTO de decisão —
+# nos itens do checklist, na desocupação/posse, na due diligence e no veredito.
+#
+# Reuse-first:
+#   - a BUSCA semântica/RAG reaproveita ``KnowledgeItem`` (kind=LEGAL_LIBRARY) +
+#     ``RAGService``/embeddings (não cria um segundo mecanismo de embedding);
+#   - as EVIDÊNCIAS continuam em ``Evidence``/``EvidenceLink``;
+#   - a rastreabilidade continua em ``DomainEvent``/``EntityHistory``;
+#   - os 27 ``canonical_key`` do Checklist Mestre NÃO são alterados: a Central
+#     apenas os ENRIQUECE com referências legais (via LegalRuleChecklistLink).
+#
+# Estas tabelas guardam a BASE LEGAL CURADA (fontes, dispositivos, regras práticas e
+# o vínculo regra↔checklist). São "catálogo" (não ligadas a um imóvel específico):
+# consultadas globalmente e cruzadas com o contexto do imóvel em tempo de leitura.
+#
+# Princípio de integridade (igual ao resto do projeto): NUNCA fabricar norma. Texto
+# oficial (``official_text``) é preservado SEPARADO da paráfrase/orientação prática
+# (``practical_note``); vigência é explícita; conteúdo não verificado fica como
+# ``verification_status="PENDENTE"`` e jamais é apresentado como confirmado.
+# ============================================================================
+
+# Tipos de fonte legal (extensível; sem enum rígido no banco).
+LEGAL_SOURCE_TYPES = (
+    "LEI",            # lei ordinária/complementar (ex.: Lei 9.514/97)
+    "CODIGO",         # código (Código Civil, CPC, CTN...)
+    "DECRETO",
+    "SUMULA",         # súmula de tribunal superior
+    "JURISPRUDENCIA", # acórdão/tese/repetitivo
+    "ENUNCIADO",      # enunciado doutrinário/jornada
+    "DOUTRINA",
+    "OUTRO",
+)
+
+# Situação de verificação da curadoria (a fonte foi conferida no texto oficial?).
+LEGAL_VERIFICATION_STATUS = (
+    "VERIFICADO",   # conferido contra fonte oficial (texto fiel ao vigente)
+    "PENDENTE",     # cadastrado, ainda não conferido na fonte oficial
+    "DESATUALIZADO" # norma revogada/alterada — manter por histórico, sinalizar
+)
+
+# Natureza de uma regra prática (como o conhecimento é aplicado na decisão).
+LEGAL_RULE_KINDS = (
+    "REQUISITO",     # condição que precisa ser verificada/atendida
+    "RISCO",         # alerta de risco jurídico
+    "ORIENTACAO",    # orientação prática/procedimental
+    "PRAZO",         # prazo relevante
+    "RESPONSABILIDADE",
+)
+
+# Etapas/contextos transversais onde a regra aparece (reutiliza vocabulário do
+# projeto: categorias de checklist + fluxo pós-arrematação/desocupação).
+LEGAL_CONTEXTS = (
+    "LEILAO",
+    "ARREMATACAO",
+    "MATRICULA",
+    "CONSOLIDACAO",
+    "DESOCUPACAO",
+    "POSSE",
+    "TRIBUTARIO",
+    "LOCACAO",
+    "GERAL",
+)
+
+# Kind reservado no KnowledgeItem para a biblioteca jurídica indexável por RAG.
+LEGAL_LIBRARY_KIND = "LEGAL_LIBRARY"
+
+
+class LegalSource(TimestampMixin, Base):
+    """Fonte legal curada (lei, código, súmula, jurisprudência...).
+
+    É o "cabeçalho" da norma: identificação, apelido, link oficial e vigência. Os
+    artigos/dispositivos concretos ficam em ``LegalProvision``. Não guarda nada por
+    imóvel — é catálogo compartilhado. ``slug`` é único e estável (usado em links
+    e seeds idempotentes)."""
+    __tablename__ = "legal_sources"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    source_type: Mapped[str] = mapped_column(String(30), index=True)  # LEGAL_SOURCE_TYPES
+    label: Mapped[str] = mapped_column(String(160))                   # apelido curto (ex.: "Lei 9.514/97")
+    title: Mapped[str] = mapped_column(String(300))                   # ementa/nome completo
+    authority: Mapped[str | None] = mapped_column(String(160))        # órgão/esfera (ex.: "Federal", "STJ")
+    official_url: Mapped[str | None] = mapped_column(String(600))     # link para a fonte oficial
+    year: Mapped[int | None] = mapped_column(Integer)
+    in_force: Mapped[bool] = mapped_column(Boolean, default=True)     # vigente?
+    verification_status: Mapped[str] = mapped_column(String(20), default="PENDENTE")  # LEGAL_VERIFICATION_STATUS
+    summary: Mapped[str | None] = mapped_column(Text)                 # resumo neutro (paráfrase)
+    observations: Mapped[str | None] = mapped_column(Text)
+    provisions: Mapped[list["LegalProvision"]] = relationship(back_populates="source", cascade="all, delete-orphan")
+
+
+class LegalProvision(TimestampMixin, Base):
+    """Dispositivo concreto de uma fonte (artigo/§/inciso ou tese/súmula específica).
+
+    Preserva o TEXTO OFICIAL (``official_text``, verbatim do dispositivo vigente)
+    SEPARADO da ``practical_note`` (paráfrase/explicação prática do Método Radar).
+    Nunca mistura os dois — o usuário sempre distingue o que é lei do que é
+    interpretação. ``knowledge_item_id`` liga (opcionalmente) ao KnowledgeItem
+    indexado por RAG, reaproveitando a busca semântica existente."""
+    __tablename__ = "legal_provisions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("legal_sources.id"), index=True)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    reference: Mapped[str] = mapped_column(String(160))     # ex.: "Art. 27, §1º"
+    heading: Mapped[str | None] = mapped_column(String(300))  # título/epígrafe do dispositivo
+    official_text: Mapped[str | None] = mapped_column(Text)   # texto oficial (verbatim) — pode ser None se PENDENTE
+    practical_note: Mapped[str | None] = mapped_column(Text)  # paráfrase/orientação (NUNCA apresentada como texto legal)
+    contexts: Mapped[list[str]] = mapped_column(JSON, default=list)  # subset de LEGAL_CONTEXTS
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    verification_status: Mapped[str] = mapped_column(String(20), default="PENDENTE")
+    knowledge_item_id: Mapped[int | None] = mapped_column(ForeignKey("knowledge_items.id"))
+    source: Mapped[LegalSource] = relationship(back_populates="provisions")
+    rules: Mapped[list["LegalRule"]] = relationship(back_populates="provision")
+
+
+class LegalRule(TimestampMixin, Base):
+    """Regra prática do Método Radar ancorada em uma base legal.
+
+    É a ponte entre a NORMA e a DECISÃO: descreve o que verificar/observar, de que
+    risco se trata e qual a orientação, sempre apontando (quando existe) o
+    ``provision_id`` que a fundamenta. Uma regra pode ser vinculada a um ou mais
+    itens do checklist (via LegalRuleChecklistLink) sem alterar os 27 canonical_key."""
+    __tablename__ = "legal_rules"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    rule_kind: Mapped[str] = mapped_column(String(30), index=True)   # LEGAL_RULE_KINDS
+    title: Mapped[str] = mapped_column(String(240))
+    statement: Mapped[str] = mapped_column(Text)                     # a regra em si (orientação/risco)
+    contexts: Mapped[list[str]] = mapped_column(JSON, default=list)  # subset de LEGAL_CONTEXTS
+    severity: Mapped[str | None] = mapped_column(String(20))         # ALTA/MEDIA/BAIXA quando for RISCO
+    provision_id: Mapped[int | None] = mapped_column(ForeignKey("legal_provisions.id"), index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    provision: Mapped[LegalProvision | None] = relationship(back_populates="rules")
+    checklist_links: Mapped[list["LegalRuleChecklistLink"]] = relationship(back_populates="rule", cascade="all, delete-orphan")
+
+
+class LegalRuleChecklistLink(TimestampMixin, Base):
+    """Vínculo regra jurídica ↔ item do Checklist Mestre (por ``canonical_key``).
+
+    Este é o mecanismo que ENRIQUECE os 27 itens do checklist com base legal SEM
+    tocar na definição canônica (CHECKLIST_MASTER). Guardamos a ``canonical_key``
+    como string (não FK): os itens são recriados por execução, mas a chave canônica
+    é estável e é o identificador correto para correlação transversal."""
+    __tablename__ = "legal_rule_checklist_links"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rule_id: Mapped[int] = mapped_column(ForeignKey("legal_rules.id"), index=True)
+    canonical_key: Mapped[str] = mapped_column(String(80), index=True)
+    relevance: Mapped[str] = mapped_column(String(20), default="PRINCIPAL")  # PRINCIPAL | COMPLEMENTAR
+    note: Mapped[str | None] = mapped_column(String(300))
+    rule: Mapped[LegalRule] = relationship(back_populates="checklist_links")
+    __table_args__ = (UniqueConstraint("rule_id", "canonical_key", name="uq_legal_rule_checklist"),)

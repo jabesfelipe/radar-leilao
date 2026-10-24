@@ -2141,3 +2141,29 @@ matrícula/processos/débitos/eventos.
   intacto (9 análises V1–V9, zero V10). Integrações sem credencial permanecem
   "não configurado" — nenhuma consulta externa simulada. Detalhes em
   `docs/DUE-DILIGENCE.md`.
+
+## Central Jurídica — camada transversal de conhecimento jurídico
+
+- **Objetivo**: conhecimento jurídico **em contexto de decisão** (checklist,
+  desocupação/posse, tributário, síntese do imóvel), não uma página que lista leis.
+  Evolução reuse-first: nenhum módulo duplicado, arquitetura preservada.
+- **Entidades novas (migration `0017_central_juridica`)**: `legal_sources`,
+  `legal_provisions` (texto oficial **separado** da orientação prática),
+  `legal_rules` e `legal_rule_checklist_links` (vínculo por `canonical_key`). Os 27
+  `canonical_key` do Checklist Mestre foram **enriquecidos, não alterados**.
+- **Reuso**: busca semântica em `KnowledgeItem` (kind `LEGAL_LIBRARY`) + embeddings;
+  evidências em `Evidence`; rastreabilidade em `DomainEvent`/`EntityHistory`; síntese
+  jurídica reaproveitando `juridical_overview` (determinística, sem LLM).
+- **Conteúdo real** (seed idempotente, `legal_catalog.py`): Lei 9.514/97 (arts. 26,
+  27, 37-A), Código Civil (1.228, 447), CPC (903), Lei 8.245/91 (8º), CTN (130, 131),
+  com texto oficial, link e `verification_status`. Nada fabricado.
+- **API**: `/api/juridico/biblioteca`, `/biblioteca/busca`,
+  `/referencias/checklist/{key}`, `/referencias/contexto/{ctx}`,
+  `/api/imoveis/{id}/juridico/central`.
+- **Frontend**: aba Central Jurídica no dossiê (situação jurídica + base legal por
+  item do checklist + biblioteca com citação oficial separada da orientação prática).
+- **Validação real**: migration `0017` aplicada (head); backend `tests/test_central_juridica.py`
+  (11 testes) verde; frontend `tsc` OK + `vitest` 137 passed (inclui 5 novos); busca
+  em modo textual sem `OPENAI_API_KEY` (sem LLM); imóvel 633 intacto (V1–V9, zero
+  V10). Pendência de curadoria "136 + 27 → 45 regras" registrada (não inventada) em
+  `docs/CENTRAL-JURIDICA.md` e `docs/TODO-CENTRAL-JURIDICA.md`.

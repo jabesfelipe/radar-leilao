@@ -22,6 +22,7 @@ from .judicial_integration import JudicialIntegrationService
 from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
+from . import legal_service
 from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary, due_diligence_overview, location_out, ensure_property_location, get_property_location, validate_location_checklist, upsert_due_diligence_front, get_due_diligence_front, reflect_due_diligence_signals)
 
 configure_logging()
@@ -2218,3 +2219,54 @@ def review_due_diligence_front(property_id: int, frente: str, data: schemas.DueD
     record_history(db, prop, "DueDiligenceFront", front.id, "REVIEW", None, {"reviewed": data.reviewed, "by": data.reviewed_by}, event.id)
     db.commit()
     return serialize(due_diligence_overview(db, prop)["frentes"][frente])
+
+
+# ============================================================================
+# CENTRAL JURÍDICA (camada transversal de conhecimento jurídico).
+# Biblioteca curada + referências legais EM CONTEXTO (checklist/etapa/imóvel).
+# Leitura determinística (sem LLM). O seed é idempotente.
+# ============================================================================
+
+@app.get("/api/juridico/biblioteca")
+def legal_library(db: Session = Depends(get_db)):
+    """Visão agregada da biblioteca jurídica: fontes, dispositivos, regras e a
+    cobertura dos itens do Checklist Mestre com base legal. Materializa o catálogo
+    curado de forma idempotente na primeira leitura (sem embeddings aqui — a
+    indexação semântica roda sob demanda/offline)."""
+    created = legal_service.seed_legal_catalog(db, embed=False)
+    if any(created.values()):
+        db.commit()
+    return serialize(legal_service.library_overview(db))
+
+
+@app.get("/api/juridico/biblioteca/busca")
+def legal_library_search(q: str = "", contexto: str | None = None, limite: int = 20, db: Session = Depends(get_db)):
+    """Busca na biblioteca jurídica (vetorial quando há embeddings/API key; caso
+    contrário, busca textual determinística). ``contexto`` filtra por etapa."""
+    legal_service.seed_legal_catalog(db, embed=False); db.commit()
+    return serialize(legal_service.search_library(db, q, limit=limite, context=contexto))
+
+
+@app.get("/api/juridico/referencias/checklist/{canonical_key}")
+def legal_refs_for_checklist(canonical_key: str, db: Session = Depends(get_db)):
+    """Regras + base legal aplicáveis a UM item do checklist (por canonical_key).
+    É o que a UI usa para mostrar "Base legal e orientações" ao lado do item."""
+    legal_service.seed_legal_catalog(db, embed=False); db.commit()
+    return serialize(legal_service.references_for_checklist_key(db, canonical_key))
+
+
+@app.get("/api/juridico/referencias/contexto/{contexto}")
+def legal_refs_for_context(contexto: str, db: Session = Depends(get_db)):
+    """Regras aplicáveis a uma etapa/contexto transversal (ex.: DESOCUPACAO, LEILAO)."""
+    legal_service.seed_legal_catalog(db, embed=False); db.commit()
+    return serialize(legal_service.references_for_context(db, contexto))
+
+
+@app.get("/api/imoveis/{property_id}/juridico/central")
+def property_legal_central(property_id: int, db: Session = Depends(get_db)):
+    """Visão jurídica do imóvel enriquecida com a base legal contextual: síntese
+    jurídica (reuso de juridical_overview) + referências legais por item do
+    checklist com base associada. Não dispara análise nem LLM."""
+    prop = property_or_404(db, property_id)
+    legal_service.seed_legal_catalog(db, embed=False); db.commit()
+    return serialize(legal_service.property_legal_overview(db, prop))

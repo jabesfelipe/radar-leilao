@@ -608,3 +608,16 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .auction-link-select { flex: 1 1 240px; min-width: 220px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); font-size: 13px; }
 
 .finance-hint { margin: 10px 0 0; color: var(--color-text-soft); font-size: 11px; line-height: 1.5; }
+
+/* Central Jurídica — base legal em contexto. Distinção visual clara entre texto
+   oficial (citação) e orientação prática (paráfrase do Método Radar). */
+.legal-provision { margin-top: .75rem; padding: .75rem .9rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-subtle); }
+.legal-official { margin: .5rem 0; padding: .5rem .75rem; border-left: 3px solid var(--color-brand-primary); background: #f0f6fc; }
+.legal-official p { margin: .25rem 0 0; font-style: italic; color: var(--color-text); }
+.legal-official .eyebrow { color: var(--color-brand-primary); }
+.legal-practical { margin: .5rem 0; padding: .5rem .75rem; border-left: 3px solid var(--color-accent); background: #fff8e9; }
+.legal-practical p { margin: .25rem 0 0; color: var(--color-text); }
+.legal-practical .eyebrow { color: var(--color-accent-strong); }
+.legal-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: .5rem; }
+.legal-rule-card { margin-top: .75rem; }
+.legal-search-results { margin-top: 1rem; display: flex; flex-direction: column; gap: .5rem; }
