@@ -116,3 +116,45 @@ A funcionalidade pode ser considerada **implementada em nível de fundação e i
 - [Documento técnico Due Diligence](https://github.com/jabesfelipe/radar-leilao/blob/main/docs/DUE-DILIGENCE.md)
 - [Auditoria do motor financeiro](https://github.com/jabesfelipe/radar-leilao/blob/main/docs/AUDITORIA-MOTOR-FINANCEIRO.md)
 - [Validação do Pós-Arrematação](https://github.com/jabesfelipe/radar-leilao/blob/main/docs/VALIDACAO-POS-ARREMATACAO.md)
+
+
+## 10. Validação local — WSL + Docker (23/10/2026)
+
+Esta seção registra evidências fornecidas pelo operador a partir do clone local em `/mnt/c/desenv/poc/radar-leilao`. Os comandos foram executados no ambiente do operador; esta sessão não acessa diretamente o terminal local.
+
+### 10.1 Repositório e backup
+
+- `git status --short --branch`: `main...origin/main`, sem alterações locais listadas.
+- Remote `origin`: `https://github.com/jabesfelipe/radar-leilao.git` (fetch/push).
+- HEAD local e `origin/main`: `be821dc`, seguido de `0ae635a` e `0c8932e`.
+- Backup criado: `backups/radar-backup-20261021-175303`.
+- Arquivos informados: `postgres.sql.gz` (4.539.704 bytes), `storage.tar.gz` (3.918.389 bytes), `MANIFEST.txt` (358 bytes).
+- `gzip -t postgres.sql.gz`: OK; o início do arquivo descompactado contém cabeçalho de dump PostgreSQL 16.15.
+- Limite da evidência: não foi executada restauração de teste; a integridade lógica completa do backup ainda não foi demonstrada.
+
+### 10.2 Saúde do ambiente e migration
+
+Resultado informado de `docker compose ps`: PostgreSQL, backend, frontend e serviço judicial em execução; PostgreSQL e serviços que expõem healthcheck aparecem saudáveis.
+
+Resultado de `./scripts/health.sh`: 5 OK, 0 falhas (PostgreSQL, pgvector, migrations, backend e frontend).
+
+Migration consultada no banco: `0016_due_diligence`.
+
+### 10.3 Preservação do imóvel 633 — somente leitura
+
+Consulta ao banco local retornou o imóvel `id=633`, título `COND PARQUE ARVOREDO RESIDENCIAL CLUBE`, Curitiba/PR, status `EM_ANALISE`. Datas reportadas: criação em `2026-09-23 01:20:16.248356` e atualização em `2026-09-23 01:20:16.24836`.
+
+Consulta de `analyses` para `property_id=633` retornou 9 registros, versões `{1,2,3,4,5,6,7,8,9}`. Consulta de `financial_analyses` retornou 9 registros, versões `{1,2,3,4,5,6,7,8,9}`.
+
+As consultas executadas foram `SELECT` e inspeção de schema; não iniciaram análises nem alteraram os dados. O esquema de `llm_runs` foi inspecionado, mas ainda não foi consultada a contagem de execuções LLM. Não há V10 nas tabelas `analyses` e `financial_analyses` conforme as consultas reportadas.
+
+### 10.4 Próximos passos — ainda pendentes
+
+- [ ] Consultar contagem e timestamps de `llm_runs` do imóvel 633 como baseline antes de novas ações; não executar análise LLM.
+- [ ] Validar a tela Due Diligence no navegador e persistência dos campos, sem acionar botões de análise.
+- [ ] Confirmar estado sem chave do Google Maps e depois configurar chave real restrita.
+- [ ] Validar consulta/cadastro municipal de Curitiba de forma autorizada e rastreável.
+- [ ] Registrar cada resultado posterior nesta documentação com evidência real.
+- [ ] Validar comportamento após restart apenas depois de confirmar o backup e a baseline de LLM.
+
+**Status desta etapa:** backup criado e gzip verificado; serviços saudáveis; migration 0016 aplicada; versões V1–V9 do imóvel 633 confirmadas. Não foi executada restauração de teste, E2E no navegador, consulta externa real ou análise LLM nova.
