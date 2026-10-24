@@ -173,3 +173,18 @@ A consulta foi um `SELECT COUNT/MIN/MAX`; não iniciou uma execução LLM nem al
 Durante a execução no terminal, o operador colou acidentalmente o prompt e a saída SQL como comandos Bash, gerando mensagens `command not found`. Não há indicação de que isso tenha alterado o banco; a consulta SQL original retornou normalmente antes dessas mensagens. Evitar colar o prompt do terminal e as linhas de resultado como comandos.
 
 **Próxima etapa:** consultar a distribuição por `status` em `llm_runs` (somente leitura) e, em seguida, validar visualmente a aba Due Diligence no navegador sem clicar em ações de análise, reprocessamento ou geração de relatório.
+
+
+### 10.6 Distribuição por status de `llm_runs` — imóvel 633 (23/10/2026)
+
+Consulta somente leitura agrupada por `status` retornou:
+
+| Status | Quantidade | Última execução registrada |
+|---|---:|---|
+| `CONCLUIDO` | 30 | `2026-09-28 23:30:16.166014` |
+| `SEM_CHAVE` | 15 | `2026-09-23 01:55:59.607511` |
+| **Total** | **45** | — |
+
+Os números fecham com a baseline da seção 10.5 (45 registros). A última execução registrada em qualquer status continua em 28/09/2026, conforme os resultados apresentados pelo operador. Não foi iniciada análise nova durante esta verificação.
+
+**Próxima etapa manual:** abrir `http://localhost:5173`, localizar o imóvel 633 (`COND PARQUE ARVOREDO RESIDENCIAL CLUBE), abrir seu dossiê e selecionar a aba **Due Diligence**. Apenas observar a tela e, se possível, registrar os estados exibidos nos quatro cards (Matrícula/ônus, Processos, Prefeitura/IPTU e Localização). Não clicar em botões de analisar, reprocessar, atualizar análise ou gerar relatório; não salvar alterações nesta primeira inspeção.
