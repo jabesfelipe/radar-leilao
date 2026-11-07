@@ -48,3 +48,14 @@ que falta amadurecer, para não perder rastreabilidade e **sem fabricar conteúd
 - [ ] Campo de autoria/revisão por dispositivo (quem verificou, quando) para
   auditoria da curadoria.
 - [ ] Marcar normas revogadas/alteradas como `DESATUALIZADO` mantendo histórico.
+
+
+## P5 — Integração com a plataforma completa (06/11/2026)
+- [ ] Levar conhecimento jurídico contextual a todas as fases, sem duplicar módulos existentes.
+- [ ] Aplicabilidade por modalidade judicial/extrajudicial, etapa, jurisdição e fatos.
+- [ ] Vincular dispositivos a evidências, critérios, consequências, riscos e providências.
+- [ ] Separar verificação da fonte, vigência, transcrição, interpretação e aplicação.
+- [ ] Integrar base a Checklist, Due Diligence, Ocupação, Pós-Arrematação, Financeiro e workflow.
+- [ ] Versionar normas, regras, jurisprudência e decisões.
+- [ ] Preservar 27 canonical_key.
+- [ ] Ver docs/TODO-PLATAFORMA-COMPLETA.md e docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md.
