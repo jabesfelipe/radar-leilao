@@ -2246,3 +2246,23 @@ Prompt e backlog: docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md e docs/TODO-PLATAFORMA
 - **Riscos abertos (decisão do usuário):** unicidade de `post_auctions` (A/B); `costs`/`debts`
   por oportunidade (adiar?); documentos de oferta específica (manter do imóvel?).
 - **Próximo passo:** aguardar aprovação explícita antes de qualquer implementação.
+
+
+---
+
+## 07/11/2026 — Roadmap Master e definição de 100%
+
+Foi consolidada a visão integral do Radar Leilão, do radar de descoberta até rentabilização e encerramento.
+
+Documentos criados:
+- `docs/ROADMAP-MASTER.md`
+- `docs/PRODUCT-SCOPE-100.md`
+- `docs/ACCEPTANCE-CRITERIA-MASTER.md`
+
+A consolidação organiza a jornada F0–F13, os domínios transversais, os fluxos alternativos, os critérios de 100%, os gates de qualidade e a execução em três grandes ciclos: auditoria/preparação, construção integrada e validação/fechamento.
+
+**Importante:** esta entrega é documental. Não implementa Opportunity/Workflow nem qualquer módulo F0–F13, não cria migrations e não altera dados. O progresso global permanece NÃO AUDITADO até o Ciclo 1 confirmar cada capacidade por código, testes e evidências.
+
+Decisões de escopo: manter `post_auctions.property_id UNIQUE`; adiar `opportunity_id` em `costs`/`debts`; documentos continuam no nível do imóvel nesta etapa; backfill 0021 não autorizado e condicionado a aprovação adicional + pg_dump.
+
+Preservação obrigatória: property 633, V1–V9, financial analyses V1–V9, `llm_runs`, 27 `canonical_key` e Central Jurídica. Nenhum LLM, chamada externa paga, scraping ou alteração de dados foi autorizado nesta consolidação.
