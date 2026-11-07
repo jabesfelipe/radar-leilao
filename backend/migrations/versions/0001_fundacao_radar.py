@@ -29,11 +29,37 @@ depends_on = None
 
 
 # Tabelas criadas por migrations posteriores (não devem existir no schema base).
+# `Base.metadata.create_all` reflete os modelos ATUAIS, que já contêm TODAS as
+# tabelas adicionadas por migrations posteriores; por isso cada tabela criada por
+# uma migration > 0001 precisa ser removida aqui, para que a própria migration a
+# recrie do zero sem colidir ("table already exists"). O schema final é idêntico.
 TABLES_ADDED_LATER = (
     "llm_pricing",             # 0002_llm_usage_pricing
     "property_registrations",  # 0007_matricula_edital
     "auction_notices",         # 0007_matricula_edital
     "property_sources",        # 0009_cadastro_completo_imovel
+    # 0014_leiloeiros
+    "auctioneer_documents",
+    "portal_accesses",
+    "auctioneers",
+    # 0015_pos_arrematacao
+    "notification_draft_versions",
+    "notification_drafts",
+    "consultancy_proposals",
+    "consultancies",
+    "contact_attempts",
+    "occupant_contacts",
+    "post_auction_costs",
+    "post_auction_stages",
+    "post_auctions",
+    # 0016_due_diligence
+    "property_locations",
+    "due_diligence_fronts",
+    # 0017_central_juridica
+    "legal_rule_checklist_links",
+    "legal_rules",
+    "legal_provisions",
+    "legal_sources",
 )
 
 # Colunas adicionadas por migrations posteriores (removidas do schema base).
@@ -50,14 +76,17 @@ COLUMNS_ADDED_LATER = {
     "checklist_results": (  # 0003_checklist_mestre
         "item_version", "applicable", "previous_result_id",
     ),
-    "auctions": (  # 0004_financeiro_entradas + 0009_cadastro_completo_imovel
+    "auctions": (  # 0004 + 0009 + 0012 + 0014
         "acquisition_value", "commission_percent", "commission_fixed",
         "first_auction_date", "first_auction_value",
         "second_auction_date", "second_auction_value",
+        "financial_assumptions",  # 0012_premissas_financeiras
+        "auctioneer_id",          # 0014_leiloeiros (FK -> auctioneers; dropada via CASCADE da tabela)
     ),
-    "legal_processes": (  # 0006_processos_juridicos
+    "legal_processes": (  # 0006_processos_juridicos + 0013_processo_correlacao
         "comarca", "nature", "polo_active", "polo_passive",
         "distribution_date", "observations", "evidence_id",
+        "link_origin", "correlation_level",  # 0013_processo_correlacao
     ),
     "properties": (  # 0009_cadastro_completo_imovel
         "neighborhood", "private_area_m2", "parking_spots", "description",
