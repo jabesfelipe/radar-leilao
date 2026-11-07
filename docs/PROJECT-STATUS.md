@@ -1767,3 +1767,41 @@ execução é incremental: **M0** (um domínio por PR, `properties` por último)
 
 **Próximo passo:** aprovação do usuário desta revisão antes de iniciar a implementação (M0.1 +
 B1.1/B1.2 conforme sequenciamento).
+
+
+---
+
+## ROADMAP MASTER — visão integral do produto (07/11/2026)
+
+**Baseline documental:** commit `52a3eb9cdb9fb478c7374275c83405c64b7d0a9f`.  
+**Atualização documental:** commit de criação dos documentos mestres a ser consultado no histórico Git.  
+**Escopo:** evolução do Radar Leilão do radar de descoberta até aquisição, posse, regularização e rentabilização.
+
+### Fonte oficial de visão e conclusão
+- `docs/ROADMAP-MASTER.md` — visão-alvo F0–F13, domínios, arquitetura, dependências e ciclos de execução.
+- `docs/PRODUCT-SCOPE-100.md` — escopo funcional e não funcional obrigatório para declarar 100%.
+- `docs/ACCEPTANCE-CRITERIA-MASTER.md` — gates transversais, testes e política de release.
+
+Esses documentos complementam, não apagam, o histórico anterior. Em caso de divergência entre status antigo e inspeção atual do código, prevalece a evidência do repositório e dos testes; corrigir o status em nova atualização append-only.
+
+### Ciclos de trabalho
+1. **Ciclo 1 — Auditoria e preparação:** inventário real de backend, frontend, banco, migrations, rotas, testes, integrações, UX e operação; matriz de status com evidências; gaps e dependências.
+2. **Ciclo 2 — Construção integrada:** implementar a jornada F0–F13 e capacidades transversais em ondas ordenadas, com commits pequenos, testes e gates internos.
+3. **Ciclo 3 — Validação e fechamento:** regressão, E2E por modalidade/fonte suportada, isolamento, cálculos, jurídico, segurança, backup/restore, runbooks e aceite final.
+
+### Status consolidado conhecido em 07/11/2026
+- Fundação técnica, análise de imóveis, RAG, agentes, Checklist Mestre, motores de risco/veredito e Central Jurídica possuem implementação anterior registrada.
+- Due Diligence foi reportada como implementada em documentação anterior; validar novamente contra código e testes.
+- Opportunity/Workflow, modalidade abrangente, jornada de aquisição, pagamentos, transferência/posse, regularização e rentabilização foram especificados ou planejados, mas não devem ser marcados como implementados sem auditoria de código.
+- M0/B1 permanece como fundação arquitetural prioritária.
+- O percentual global permanece **NÃO AUDITADO** até a execução do Ciclo 1. Não inferir 100% nem percentual aproximado por contagem de documentos.
+
+### Decisões de escopo reafirmadas
+- `post_auctions`: manter `property_id UNIQUE` nesta etapa.
+- `costs` e `debts`: adiar `opportunity_id` para o épico financeiro.
+- Documentos continuam vinculados ao imóvel nesta etapa; documentos específicos de uma oferta exigirão associação explícita futura.
+- Backfill `0021`: NÃO AUTORIZADO. Exige aprovação adicional e `pg_dump`.
+- Property 633, análises V1–V9, análises financeiras V1–V9, `llm_runs`, 27 `canonical_key` e Central Jurídica devem ser preservados.
+
+### Próxima ação
+Executar o **Ciclo 1 — Auditoria e preparação** com o Kiro. Não iniciar implementação em lote antes de ter a matriz de status e baseline de testes/dados. A auditoria não deve executar LLM, chamadas pagas, scraping ou mutações de dados.
