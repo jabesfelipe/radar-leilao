@@ -85,3 +85,59 @@ Backlog planejado, não declaração de funcionalidades implementadas. Ver docs/
 - [ ] GET/CRUD não executa LLM.
 - [ ] Nunca declarar E2E sem evidência.
 - [ ] Nenhum reset ou alteração do imóvel 633 sem autorização.
+
+
+---
+
+## ROADMAP MASTER — backlog consolidado de produto (07/11/2026)
+
+**Referências obrigatórias:** `ROADMAP-MASTER.md`, `PRODUCT-SCOPE-100.md`, `ACCEPTANCE-CRITERIA-MASTER.md`. Este bloco complementa o backlog anterior; não marca itens como implementados sem auditoria.
+
+### CICLO 1 — Auditoria e preparação
+- [ ] Inventariar backend: módulos, serviços, modelos, rotas, jobs, integrações e dependências.
+- [ ] Inventariar frontend: páginas, hubs, componentes, fluxos e estados de UX.
+- [ ] Inventariar banco: tabelas, relacionamentos, migrations e integridade.
+- [ ] Inventariar testes: unitários, integração, contrato, E2E, segurança e cobertura dos fluxos críticos.
+- [ ] Mapear fontes de dados e status de autorização/credenciais.
+- [ ] Mapear cada requisito F0–F13 para código, teste e evidência.
+- [ ] Atribuir status oficial por capacidade: NÃO_INICIADO / ESPECIFICADO / EM_DESENVOLVIMENTO / IMPLEMENTADO / VALIDADO / CONCLUIDO / BLOQUEADO.
+- [ ] Registrar baseline de rotas/OpenAPI, testes, migrations e dados críticos.
+- [ ] Consolidar dependências, riscos, lacunas, sequência e estimativa relativa.
+- [ ] Atualizar este backlog, PROJECT-STATUS e PROJECT-HISTORY com evidências.
+
+### CICLO 2 — Construção integrada (ondas internas)
+- [ ] Fundação M0: modularização gradual da API, preservando contrato.
+- [ ] Fundação B1: Property/Opportunity, workflow, transições append-only, isolamento e invalidação.
+- [ ] F1: classificação de modalidades e regras por modalidade/jurisdição.
+- [ ] F0: radar, fontes autorizadas, ingestão, deduplicação, atualização e alertas.
+- [ ] F2: cadastro e estruturação da oportunidade.
+- [ ] F3: documentos, OCR, extração, evidências, versionamento e revisão.
+- [ ] F4: Central Jurídica evoluída, fontes, vigência, jurisprudência e validação.
+- [ ] F5: due diligence e checklists dinâmicos, preservando canonical_key.
+- [ ] F6: motor financeiro, custos, cenários, sensibilidade, TIR e lance máximo.
+- [ ] F7: valuation, comparáveis, liquidez, locação e mercado.
+- [ ] F8: comitê, alçadas, score, hard stops e decisão auditável.
+- [ ] F9: estratégia e preparação de participação/lance.
+- [ ] F10: arrematação, pagamentos, obrigações e prazos.
+- [ ] F11: transferência, registro, posse e ocupação.
+- [ ] F12: regularização, reforma, orçamento e fornecedores.
+- [ ] F13: locação, venda, receitas, despesas, ROI realizado e encerramento.
+- [ ] Transversal: dashboard, dossiê, RBAC, auditoria, observabilidade, segurança, backups e runbooks.
+
+### CICLO 3 — Validação e fechamento
+- [ ] Testes unitários, integração, contrato e E2E por modalidade/fonte suportada.
+- [ ] Testes de isolamento entre oportunidades do mesmo imóvel.
+- [ ] Testes de idempotência, concorrência e append-only.
+- [ ] Reconciliação independente dos cálculos financeiros.
+- [ ] Revisão de fontes, vigência e regras jurídicas críticas.
+- [ ] Testes de segurança e autorização.
+- [ ] Backup e restauração em ambiente isolado.
+- [ ] Validação de fluxos alternativos: descartado, cancelado, sem lance, não vencedor e arrematação desfeita.
+- [ ] Documentação operacional, release checklist e limitações residuais.
+- [ ] Relatório final de aceite 100%.
+
+### Gates permanentes
+- [ ] Preservar property 633, análises V1–V9, financial V1–V9, llm_runs, 27 canonical_key e Central Jurídica.
+- [ ] Não executar backfill 0021 sem aprovação adicional + pg_dump.
+- [ ] Não realizar chamadas pagas, LLM real ou scraping sem autorização.
+- [ ] Não declarar concluído sem evidência de código + testes + integração + documentação.
