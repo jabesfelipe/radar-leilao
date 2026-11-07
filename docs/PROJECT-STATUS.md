@@ -1655,3 +1655,46 @@ As anotações do operador foram classificadas como insumos de investigação: m
 Pendências: diagnóstico de capacidades/gaps; separação judicial/extrajudicial; Central Jurídica com aplicabilidade e vigência; cobertura dos 27 canonical_key e recuperação de “136 + 27 → 45 regras” sem fabricar conteúdo; workflow/gates e evidências; checklists dinâmicos; diligência registral/judicial/fiscal/condominial/urbanística/física; ocupação lícita; custos parametrizados; decisão, lance, pagamento, registro, posse, reforma, locação e venda; dashboard e dossiê final.
 
 Documentos: docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md e docs/TODO-PLATAFORMA-COMPLETA.md. Plano, não implementação. Começar por diagnóstico, specs, ADRs, testes, migrations reversíveis e rollback. Preservar imóvel 633, V1–V9 e baseline conhecida de 45 llm_runs.
+
+
+---
+
+## 30. Fase Zero — Plataforma Completa (diagnóstico)
+
+> **Nota de leitura:** esta seção é **aditiva** e não revoga o histórico acima. Registra a
+> **Fase Zero** (diagnóstico, sem implementação) do `docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md`.
+> Nenhum dado, migration, modelo, endpoint ou teste de aplicação foi alterado.
+
+**Estado autoritativo da arquitetura (verificado por leitura de código nesta Fase Zero):**
+- **Migration head real = `0017_central_juridica`** (cadeia linear `0001 → 0017`). *As seções
+  históricas acima que citam head `0011_judicial_persistence` refletem o estado da época
+  daquela auditoria; o head atual é `0017`.*
+- **47 modelos** em `backend/app/models.py`; **~130 rotas** em `backend/app/main.py` (todas
+  direto no `app`, **sem `APIRouter`**).
+- Núcleo: cadastro, documentos/RAG, extração matrícula/edital, 5 agentes LLM (com separação
+  explícita LLM-interpreta × determinístico-calcula/decide), Checklist Mestre (27
+  `canonical_key`), Risk/Verdict engines, histórico append-only + reanálise incremental,
+  Due Diligence (4 frentes), Pós-Arrematação e Central Jurídica 1.0.
+
+**Entregáveis da Fase Zero (documentação):**
+- `docs/ROADMAP-PLATAFORMA-COMPLETA.md` — matriz capacidade×gap×reuso×esforço×teste (F0–F13 e
+  transversais), arquitetura-alvo, dependências entre épicos A–M, migrations aditivas
+  previstas, estratégia de testes, plano incremental e riscos.
+- `docs/WORKFLOW-LEILAO-END-TO-END.md`, `docs/MATRIZ-CHECKLIST-MODALIDADE.md`,
+  `docs/MATRIZ-CURADORIA-JURIDICA.md`, `docs/MATRIZ-CUSTOS-TRIBUTOS-EMOLUMENTOS.md`,
+  `docs/REVISAO-ANOTACOES-LEILAO.md`.
+- `docs/TODO-PLATAFORMA-COMPLETA.md` (já existente) referenciado como backlog.
+
+**Principais lacunas identificadas (resumo; detalhe no ROADMAP §4):** F1 modalidade/triagem
+(ausente), F8 comitê com score por dimensão + hard stops (parcial-fraco), F9 lance/pagamento
+(ausente), F12 saída venda/locação (ausente); transversais: custos parametrizados por
+jurisdição/ato/vigência, TIR/VPL/sensibilidade no financeiro, checklist dinâmico (7→10 estados
+aditivos), Central Jurídica 2.0 (vigência/jurisprudência/aplicabilidade), auth/RBAC e LGPD,
+modularização da API.
+
+**Preservação confirmada:** imóvel 633, V1–V9, 27 `canonical_key` e `llm_runs` intactos;
+nenhum LLM/DataJud real executado; `.env` real não lido. Pendência herdada de **validação
+E2E real pela UI** permanece aberta e é critério de aceite do primeiro épico de workflow.
+
+**Próximo passo (gate):** decisão do usuário sobre escopo/ordem dos épicos antes de qualquer
+alteração de código (ver ROADMAP §8).

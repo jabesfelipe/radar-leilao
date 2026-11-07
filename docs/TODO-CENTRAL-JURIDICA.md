@@ -59,3 +59,12 @@ que falta amadurecer, para não perder rastreabilidade e **sem fabricar conteúd
 - [ ] Versionar normas, regras, jurisprudência e decisões.
 - [ ] Preservar 27 canonical_key.
 - [ ] Ver docs/TODO-PLATAFORMA-COMPLETA.md e docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md.
+
+## P5.1 — Mapa de curadoria da Fase Zero (diagnóstico)
+- [ ] Usar `docs/MATRIZ-CURADORIA-JURIDICA.md` como mapa de gaps da Central Jurídica 1.0 → 2.0
+  (vigência estruturada, redação histórica, jurisprudência com número/órgão/tese/data/fonte,
+  aplicabilidade APLICAVEL/CONDICIONAL/APENAS_REFERENCIA/NAO_APLICAVEL/INDETERMINADO,
+  revisor/próxima revisão). Normas-alvo e status de cadastro estão tabelados lá.
+- [ ] Tratar a Central Jurídica 2.0 como **épico E** do `docs/ROADMAP-PLATAFORMA-COMPLETA.md`
+  (depende de D — checklist dinâmico — e alimenta F3/F6/F8). Migration aditiva prevista `0021`.
+- [ ] Recuperar "136 + 27 → 45 regras" do material-fonte antes de cadastrar; **não fabricar**.

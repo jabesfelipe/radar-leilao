@@ -2176,3 +2176,26 @@ O escopo passa a mirar workflow ponta a ponta, com foco extrajudicial e fluxo ju
 Anotações recebidas (portais, matrícula, ônus, usufruto, certidões, tributos, FUNREJUS, IR, IPTU, condomínio, serviços, preço vil, ocupação, taxa de ocupação, notificação e negociação) são insumos de investigação, não regras prontas. Cada afirmação exige fonte primária, contexto, vigência, condições e revisão especializada. Não generalizar preço vil judicial para extrajudicial; não presumir taxa de ocupação, juros ou despesas cumuláveis; certidão negativa não garante imóvel livre.
 
 Prompt e backlog: docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md e docs/TODO-PLATAFORMA-COMPLETA.md. Plano, não implementação. Iniciar por diagnóstico e matriz de gaps, preservando 27 canonical_key, V1–V9 e imóvel 633.
+
+
+## Fase Zero — Plataforma Completa (diagnóstico, sem implementação)
+
+- **Contexto:** início do `docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md`, que planeja evoluir o
+  Radar Leilão de analisador de dossiê para plataforma orientada a workflow (F0 intake → F13
+  encerramento), com foco em leilão extrajudicial de alienação fiduciária (Lei 9.514/97).
+- **Escopo desta etapa:** **apenas diagnóstico e documentação.** Nenhuma funcionalidade,
+  migration, modelo, endpoint ou teste de aplicação foi criado/alterado.
+- **Diagnóstico (leitura de código):** 47 modelos, cadeia de migrations `0001 → 0017` (head
+  real `0017_central_juridica`), ~130 rotas em `main.py` (sem `APIRouter`), 5 agentes LLM com
+  separação explícita entre interpretação (LLM) e cálculo/veredito (determinístico), Checklist
+  Mestre de 27 `canonical_key`, Risk/Verdict engines, histórico append-only + reanálise
+  incremental, Due Diligence (4 frentes), Pós-Arrematação e Central Jurídica 1.0.
+- **Entregáveis:** `docs/ROADMAP-PLATAFORMA-COMPLETA.md` (matriz capacidade×gap×reuso×esforço×
+  teste + arquitetura-alvo + épicos A–M + plano incremental), `docs/WORKFLOW-LEILAO-END-TO-END.md`,
+  `docs/MATRIZ-CHECKLIST-MODALIDADE.md`, `docs/MATRIZ-CURADORIA-JURIDICA.md`,
+  `docs/MATRIZ-CUSTOS-TRIBUTOS-EMOLUMENTOS.md`, `docs/REVISAO-ANOTACOES-LEILAO.md`.
+- **Divergência registrada:** seções antigas do `PROJECT-STATUS.md` citam head `0011`; o head
+  real é `0017` — sinalizado na nova seção do STATUS sem apagar o histórico.
+- **Preservação:** imóvel 633, V1–V9, 27 `canonical_key` e `llm_runs` intactos; sem LLM/DataJud
+  real; `.env` real não lido. Pendência de **validação E2E pela UI** segue aberta.
+- **Próximo passo:** decisão do usuário sobre escopo/ordem dos épicos (gate) antes de código.
