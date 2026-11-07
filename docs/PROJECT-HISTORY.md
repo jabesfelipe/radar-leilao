@@ -2266,3 +2266,26 @@ A consolidação organiza a jornada F0–F13, os domínios transversais, os flux
 Decisões de escopo: manter `post_auctions.property_id UNIQUE`; adiar `opportunity_id` em `costs`/`debts`; documentos continuam no nível do imóvel nesta etapa; backfill 0021 não autorizado e condicionado a aprovação adicional + pg_dump.
 
 Preservação obrigatória: property 633, V1–V9, financial analyses V1–V9, `llm_runs`, 27 `canonical_key` e Central Jurídica. Nenhum LLM, chamada externa paga, scraping ou alteração de dados foi autorizado nesta consolidação.
+
+
+## Ciclo 1 — Auditoria real do Radar Leilão (2026-11)
+
+- **Contexto:** início do ciclo de evolução até 100% guiado por `ROADMAP-MASTER.md`,
+  `PRODUCT-SCOPE-100.md` e `ACCEPTANCE-CRITERIA-MASTER.md`. Executado **somente o Ciclo 1 —
+  auditoria e preparação**.
+- **Escopo:** apenas documentação. Nenhum código/modelo/migration/dado/endpoint/UI alterado ou
+  executado; nenhum LLM real, chamada externa paga ou scraping; nenhum comando destrutivo; suíte
+  de testes **não** re-executada (precaução de ambiente — exige PostgreSQL de teste dedicado).
+- **Baseline:** branch `main`, HEAD `4c2319f`, working tree limpo, sync `0 0`, migration head
+  `0017_central_juridica`.
+- **Resultado:** auditoria factual do repositório (código/migrations/testes/config), não da
+  documentação. Matriz de status por domínio (A–J) e por fase (F0–F13) com evidência; progresso
+  de implementação ≈33–36% (especificação ≈80%, validação não re-executada nesta data).
+- **Gaps-chave:** Opportunity/Workflow só em spec; sem auth/RBAC; radar/modalidade (F0/F1);
+  financeiro sem TIR/VPL/sensibilidade/parametrização; F9/F12/F13 inexistentes; sem CI/CD e
+  observabilidade; upload sem limite de tamanho/MIME; lacunas de teste.
+- **Divergências registradas (sem apagar histórico):** head `0011` em seções antigas (real
+  `0017`); "MVP ENCERRADO" como marco histórico; inconsistência de usuário no `DB-MAINTENANCE.md`.
+- **Entregáveis:** `docs/PROJECT-AUDIT-2026-11.md`, `docs/IMPLEMENTATION-PLAN-100.md`; STATUS §33,
+  TODO-PLATAFORMA-COMPLETA atualizados (append).
+- **Próximo passo:** aguardar autorização do usuário para o Ciclo 2 (construção em 12 ondas).

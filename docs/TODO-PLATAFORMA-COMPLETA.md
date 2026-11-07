@@ -141,3 +141,28 @@ Backlog planejado, não declaração de funcionalidades implementadas. Ver docs/
 - [ ] Não executar backfill 0021 sem aprovação adicional + pg_dump.
 - [ ] Não realizar chamadas pagas, LLM real ou scraping sem autorização.
 - [ ] Não declarar concluído sem evidência de código + testes + integração + documentação.
+
+---
+
+## Status auditado (Ciclo 1 — 2026-11)
+
+Resultado da auditoria factual (`docs/PROJECT-AUDIT-2026-11.md`). Itens **não apagados**; apenas
+anotado o estado real por tema (evidência no documento de auditoria). Plano de execução em
+`docs/IMPLEMENTATION-PLAN-100.md`.
+
+- **P0 Diagnóstico/integridade/segurança** — diagnóstico ✅ (esta auditoria); matriz capacidade×gap ✅;
+  separar modalidades ⬜ (`NAO_INICIADO`); estados de incerteza ✅ (engines); hard stops ⬜
+  (`ESPECIFICADO`, só spec); preservação 633/27 keys ✅; GET/CRUD não dispara LLM ✅; **segurança/
+  RBAC/LGPD ⬜ (`NAO_INICIADO`)**.
+- **P0 Central Jurídica** — `IMPLEMENTADO (1.0)`; falta 2.0 (vigência/jurisprudência/aplicabilidade);
+  cobertura dos 27 keys ✅ via `LegalRuleChecklistLink`.
+- **P1 Workflow (F0–F13)** — `ESPECIFICADO` (0 código); F3/F4/F5/F6/F7 `IMPLEMENTADO` parcial via
+  domínios atuais; F0/F1/F9/F12/F13 `NAO_INICIADO`.
+- **P1 Checklists** — 27 keys preservados ✅; checklist dinâmico por modalidade ⬜.
+- **P1 Custos/tributos** — `IMPLEMENTADO (parcial)`; falta parametrização por jurisdição/vigência,
+  TIR/VPL/sensibilidade.
+- **P1 Ocupação/posse** — `IMPLEMENTADO (parcial)` via Pós-Arrematação.
+- **P2 Integrações/IA/UX** — RAG/citações ✅; conectores de ingestão ⬜; dashboards de oportunidade ⬜;
+  limites de custo IA ⬜.
+- **P0 Testes/preservação** — suíte ampla existe (50+ arquivos); faltam contrato OpenAPI,
+  isolamento multi-oportunidade, concorrência no core, auth, E2E por modalidade; 633 preservado ✅.

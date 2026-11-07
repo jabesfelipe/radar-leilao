@@ -1805,3 +1805,41 @@ Esses documentos complementam, não apagam, o histórico anterior. Em caso de di
 
 ### Próxima ação
 Executar o **Ciclo 1 — Auditoria e preparação** com o Kiro. Não iniciar implementação em lote antes de ter a matriz de status e baseline de testes/dados. A auditoria não deve executar LLM, chamadas pagas, scraping ou mutações de dados.
+
+
+---
+
+## 33. Auditoria Ciclo 1 — estado real auditado (2026-11)
+
+> **Nota de leitura:** seção **aditiva**; não revoga o histórico. Resumo executivo da auditoria
+> factual do repositório (ver `docs/PROJECT-AUDIT-2026-11.md`). **Ciclo 1 = auditoria;** nenhum
+> código/modelo/migration/dado/endpoint/UI alterado ou executado; nenhum LLM/externo. 633/V1–V9/
+> `financial_analyses` V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica intactos.
+
+**Baseline:** branch `main`, HEAD `4c2319f`, working tree limpo, `origin/main == HEAD`. Migration
+head real **`0017_central_juridica`**. Suíte **não re-executada** nesta auditoria (exige
+PostgreSQL de teste dedicado; precaução de ambiente); últimos resultados **registrados**: backend
+613 passed/2 skipped, frontend 137 passed.
+
+**Estado por domínio (PRODUCT-SCOPE-100):** A radar `NAO_INICIADO` · B Property/Opportunity
+`ESPECIFICADO` · C documentos `IMPLEMENTADO` · D jurídico `IMPLEMENTADO (1.0)` · E due diligence
+`IMPLEMENTADO` · F financeiro `IMPLEMENTADO (parcial)` · G decisão/workflow `ESPECIFICADO` ·
+H aquisição/pós `IMPLEMENTADO (parcial)` · I rentabilização `NAO_INICIADO` · J plataforma/operação
+`PARCIAL`.
+
+**Progresso (metodologia na auditoria):** Especificação ≈80% · **Implementação ≈33–36%** ·
+Validação 0% nesta data (não re-executada). O número é de implementação, não de produto aceito
+(100% depende do Ciclo 3 com evidência).
+
+**Principais gaps:** Opportunity/Workflow só em spec (0 código); sem auth/RBAC; F0/F1 radar+
+modalidade; financeiro sem TIR/VPL/sensibilidade/parametrização; F9 lance e F12/F13 saída
+inexistentes; sem CI/CD, métricas/tracing; upload sem limite de tamanho/MIME; faltam testes de
+contrato/isolamento-oportunidade/concorrência-core/auth/E2E-modalidade.
+
+**Divergências documentais registradas:** head `0011` citado em seções antigas (real `0017`);
+"MVP ENCERRADO" é marco histórico, não estado atual; `DB-MAINTENANCE.md` usa `pg_dump -U postgres`
+mas o compose usa usuário `radar` (corrigir no Ciclo 2).
+
+**Saída:** `docs/PROJECT-AUDIT-2026-11.md` (auditoria) + `docs/IMPLEMENTATION-PLAN-100.md` (plano
+Ciclo 2 em 12 ondas + Ciclo 3 + gates A/1/2/B). **Próximo passo:** autorização do usuário para o
+Ciclo 2 (Gate A).
