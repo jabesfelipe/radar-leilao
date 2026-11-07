@@ -2289,3 +2289,80 @@ Preservação obrigatória: property 633, V1–V9, financial analyses V1–V9, `
 - **Entregáveis:** `docs/PROJECT-AUDIT-2026-11.md`, `docs/IMPLEMENTATION-PLAN-100.md`; STATUS §33,
   TODO-PLATAFORMA-COMPLETA atualizados (append).
 - **Próximo passo:** aguardar autorização do usuário para o Ciclo 2 (construção em 12 ondas).
+
+
+---
+
+## Ciclo 2 — Onda 0 (M0 modularização da API + CI) — 20/09/2026
+
+- **Contexto:** primeira onda do Ciclo 2 (construção integrada), autorizada pelo usuário.
+  Fundação técnica antes das ondas de produto. Regras de preservação respeitadas (imóvel 633,
+  V1–V9, financeiro V1–V9, `llm_runs`, 27 `canonical_key`, Central Jurídica); migrations
+  aditivas/reversíveis validadas em banco descartável; sem destrutivo, sem backfill (Gate 2 não
+  autorizado), sem LLM real, sem `.env`.
+- **Baseline técnico:** capturado o contrato OpenAPI do `app` em `tests/contract/openapi_baseline.json`
+  (**99 paths**), usado como guard-rail da modularização.
+
+### Bug real corrigido na migration de fundação (0001)
+- `alembic upgrade head` em **banco novo** falhava com `psycopg.errors.DuplicateColumn: column
+  "financial_assumptions" of relation "auctions" already exists`.
+- Causa raiz: a `0001_fundacao_radar.py` faz `Base.metadata.create_all()` (materializa TODO o
+  schema do modelo atual, incluindo colunas/tabelas introduzidas por 0012–0017) e depois "reduz ao
+  estado da fundação" removendo o que 0002+ recriam — mas essa redução estava incompleta para as
+  migrations 0012–0017.
+- Correção: completadas as listas `COLUMNS_ADDED_LATER` (auctions: `financial_assumptions` [0012],
+  `auctioneer_id` [0014]; legal_processes: `link_origin`, `correlation_level` [0013]) e
+  `TABLES_ADDED_LATER` (auctioneers/portal_accesses/auctioneer_documents [0014];
+  post_auctions e correlatas [0015]; property_locations/due_diligence_fronts [0016]; legal_sources/
+  legal_provisions/legal_rules/legal_rule_checklist_links [0017]). **Schema final idêntico**; só a
+  redução intermediária mudou.
+- Validado em banco descartável: `upgrade head` 0001→0017 RC=0, `current=0017_central_juridica`,
+  `downgrade -1` RC=0, re-`upgrade` RC=0.
+- Commit: `83aa249` (fix da 0001 + baseline OpenAPI).
+
+### M0 — modularização incremental de `main.py` em `APIRouter` por domínio
+- Padrão: um router por domínio com **path completo por rota** (sem prefix), `app.include_router(...)`,
+  dependência `property_or_404` centralizada em `backend/app/routers/deps.py` (fonte única), e
+  guard-rail `tests/contract/test_openapi_contract.py` que compara o conjunto (método, path) do
+  `app.openapi()` com o baseline (falha se divergir).
+- Domínios movidos nesta onda:
+  - **M0.1** (`4288b6c`): `health` + os 11 hubs do dossiê (`/api/dashboard`, `/api/imoveis-resumo`,
+    `/api/financeiro`, `/api/juridico`, `/api/riscos`, `/api/veredito`, `/api/mercado`,
+    `/api/ocupacao`, `/api/documentos`, `/api/historico`, `/api/checklist-global`).
+  - **M0.2** (`9850d96`): Central Jurídica (5 rotas) → `routers/legal_central.py`.
+  - **M0.3** (`ace0ccb`): Mercado (`GET /api/imoveis/{id}/mercado`) → `routers/market.py`.
+- **Descoberta registrada:** vários testes importam os **handlers** diretamente de
+  `backend.app.main` (ex.: `get_market`, `add_cost`, `create_evidence`, `get_finance_assumptions`,
+  `create_occupancy`, `upload_document`, `run_*_agent`, `consult_judicial`). Ao mover uma rota para
+  um router é **obrigatório reexportar** o handler em `main.py` (ex.: `from .routers.market import
+  get_market`), senão a suíte quebra com `ImportError`. O guard-rail de contrato OpenAPI **não**
+  detecta isso — quem detecta são os testes por domínio. Por isso a modularização do restante
+  (~83 paths) fica **contínua/incremental**, nunca em massa. M0 encerra como "infraestrutura +
+  padrão provados".
+
+### CI — GitHub Actions (`.github/workflows/ci.yml`, commit `1d2d06d`)
+- **Job backend:** serviço `pgvector/pgvector:pg16` descartável, `CREATE EXTENSION vector`,
+  `alembic upgrade head` (0001→head) e `pytest -q tests` (inclui o guard-rail de contrato).
+  Sem chaves de LLM/integrações; sem dados de produção.
+- **Job frontend:** Node 20, `npm ci`, `tsc -b`, `vitest run`.
+- Dispara em push e pull_request para `main`, com cancelamento de execuções concorrentes.
+
+### Validação da onda (banco descartável, Docker)
+- Contrato OpenAPI preservado: **99 paths** idênticos ao baseline em cada lote.
+- Migrations: `alembic upgrade head` RC=0 em banco novo pgvector.
+- Backend: **626 passed, 2 skipped** (os 2 skips = DataJud real condicionado a env).
+- Frontend (local): `tsc -b` OK + **137 passed** em 22 arquivos (Vitest).
+- Preservação: testes executados exclusivamente em PostgreSQL de teste efêmero; o banco de
+  produção (imóvel 633 e histórico) não foi tocado.
+
+### Commits da Onda 0
+- `83aa249` — fix(migration 0001) + baseline OpenAPI.
+- `4288b6c` — refactor M0.1 (health + hubs) + test de contrato.
+- `9850d96` — refactor M0.2 (Central Jurídica).
+- `ace0ccb` — refactor M0.3 (Mercado) + reexport de `get_market`.
+- `1d2d06d` — ci: pipeline GitHub Actions (backend + frontend).
+
+- **Próximo passo:** Onda 1 — domínio Opportunity/Workflow (models + migrations 0018/0019 com
+  `opportunity_id` **nullable** nas 9 tabelas conforme Gate 1 autorizado; `workflow_rules.py` e
+  `workflow_engine.py` puros, sem efeitos colaterais). Gate 2 (backfill) permanece **não
+  autorizado**.

@@ -1,6 +1,18 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (21/10/2026):** Due Diligence integrada implementada no repositório (`main`, commit `0c8932e)); backend e frontend com testes registrados como verdes. **Validação local após pull e integrações externas reais ainda pendentes**. O MVP não deve ser declarado encerrado sem cumprir os critérios de validação E2E já registrados.
+**Status global (20/09/2026 — Ciclo 2, Onda 0 concluída):** fundação técnica do Ciclo 2 entregue
+em `main` (HEAD `1d2d06d`). M0 modularizou a API em `APIRouter` por domínio (health, 11 hubs do
+dossiê, Central Jurídica e Mercado) sob guard-rail de contrato OpenAPI (99 paths idênticos ao
+baseline); foi corrigido um bug real da migration de fundação `0001` que impedia `alembic upgrade
+head` em banco novo; e foi adicionado CI (GitHub Actions) com jobs de backend (migrations + pytest
+em pgvector descartável) e frontend (tsc + vitest). Validação em banco descartável: **backend 626
+passed / 2 skipped**, **frontend 137 passed**, migrations 0001→head RC=0. Preservação respeitada
+(imóvel 633 e histórico intactos; testes só em PostgreSQL efêmero). Detalhes em
+`docs/PROJECT-HISTORY.md` (seção "Ciclo 2 — Onda 0"). **Próximo passo:** Onda 1
+(Opportunity/Workflow). O MVP e as ondas de produto seguem com os critérios de validação E2E já
+registrados — nada declarado encerrado sem evidência.
+
+**Status global anterior (21/10/2026):** Due Diligence integrada implementada no repositório (`main`, commit `0c8932e)); backend e frontend com testes registrados como verdes. **Validação local após pull e integrações externas reais ainda pendentes**. O MVP não deve ser declarado encerrado sem cumprir os critérios de validação E2E já registrados.
 
 **Última atualização:** 21/10/2026  
 **Última implementação:** Due Diligence integrada — Matrícula/ônus, Processos Judiciais, Prefeitura/IPTU e Localização; migration `0016_due_diligence`; aba no dossiê; configuração de fontes externas; documentação em `docs/DUE-DILIGENCE.md` e relatório de andamento em `docs/ANDAMENTO-VALIDACAO-2026-10-21.md`.

@@ -106,7 +106,13 @@ Backlog planejado, não declaração de funcionalidades implementadas. Ver docs/
 - [ ] Atualizar este backlog, PROJECT-STATUS e PROJECT-HISTORY com evidências.
 
 ### CICLO 2 — Construção integrada (ondas internas)
-- [ ] Fundação M0: modularização gradual da API, preservando contrato.
+- [x] **Onda 0 — Fundação M0: modularização gradual da API, preservando contrato** — concluída
+  20/09/2026 (HEAD `1d2d06d`). Baseline OpenAPI (99 paths) + guard-rail de contrato; fix da
+  migration de fundação `0001` (DuplicateColumn em banco novo); routers por domínio (health, 11
+  hubs, Central Jurídica, Mercado); CI GitHub Actions (backend migrations+pytest em pgvector
+  descartável; frontend tsc+vitest). Validado: backend 626 passed/2 skipped, frontend 137 passed,
+  migrations 0001→head RC=0. Modularização dos ~83 paths restantes segue contínua/incremental (ver
+  nota em PROJECT-HISTORY sobre reexport obrigatório de handlers). Detalhes em `docs/PROJECT-HISTORY.md`.
 - [ ] Fundação B1: Property/Opportunity, workflow, transições append-only, isolamento e invalidação.
 - [ ] F1: classificação de modalidades e regras por modalidade/jurisdição.
 - [ ] F0: radar, fontes autorizadas, ingestão, deduplicação, atualização e alertas.

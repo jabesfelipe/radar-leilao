@@ -1,6 +1,15 @@
 # PLAN M0 — Modularização da API (sem reescrita, sem mudança de contrato)
 
-> **Status:** PROPOSTO (plano; nada implementado). Base: `ADR-WORKFLOW-ARCHITECTURE.md` (ADR-007).
+> **Status:** EM EXECUÇÃO CONTÍNUA — infraestrutura + padrão PROVADOS na Onda 0 (20/09/2026,
+> HEAD `1d2d06d`). Implementado: baseline OpenAPI (`tests/contract/openapi_baseline.json`, 99 paths)
+> + guard-rail `tests/contract/test_openapi_contract.py`; `routers/deps.py` (`property_or_404`,
+> fonte única); routers `health.py`, `hubs.py` (11 hubs), `legal_central.py`, `market.py` montados
+> via `app.include_router`. **Nota operacional importante:** vários testes importam os handlers
+> diretamente de `backend.app.main` — ao mover uma rota para um router é OBRIGATÓRIO reexportar o
+> handler em `main.py` (ex.: `from .routers.market import get_market`), senão a suíte quebra com
+> `ImportError`; o guard-rail de contrato OpenAPI não detecta isso. Por esse acoplamento, os ~83
+> paths restantes serão modularizados de forma **contínua/incremental**, nunca em massa. Base:
+> `ADR-WORKFLOW-ARCHITECTURE.md` (ADR-007).
 > **Objetivo:** transformar o `main.py` monolítico (~130 rotas em `@app`) em **`APIRouter` por
 > domínio**, montados por `app.include_router`, **preservando exatamente** paths, métodos,
 > `response_model`, status codes e corpos de resposta. **Não é reescrita de lógica.**
