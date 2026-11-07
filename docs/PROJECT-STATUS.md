@@ -1644,3 +1644,14 @@ uma lista de leis. Sem reescrita; sem duplicar busca/evidências/rastreabilidade
   implementada é o Checklist Mestre (27 `canonical_key`); o material de origem não
   está estruturado no código e **não foi inventado**. Detalhes e backlog em
   `docs/CENTRAL-JURIDICA.md` e `docs/TODO-CENTRAL-JURIDICA.md`.
+
+
+## 30. Evolução planejada — Plataforma completa (06/11/2026)
+
+Diretriz estratégica: evoluir o Radar Leilão de MVP/analisador para plataforma de workflow ponta a ponta, com foco extrajudicial e suporte separado a judicial. Ciclo-alvo: intake, triagem, documentos, diligência jurídica/registral/fiscal/física, ocupação, viabilidade, decisão, lance, pagamento, transferência/registro, posse, regularização, reforma, locação/venda e encerramento, incluindo descarte fundamentado.
+
+As anotações do operador foram classificadas como insumos de investigação: modalidade, portais, matrícula/ônus, notificações, usufruto, custos/tributos, serviços essenciais, certidões, preço vil, locação/ocupação, negociação e desocupação. Não foram convertidas em regras automáticas. Alíquotas, teto FUNREJUS, IR, isenção de 180 dias, preço vil, débitos propter rem, liminar e taxa de ocupação exigem fonte oficial, vigência, contexto e revisão especializada.
+
+Pendências: diagnóstico de capacidades/gaps; separação judicial/extrajudicial; Central Jurídica com aplicabilidade e vigência; cobertura dos 27 canonical_key e recuperação de “136 + 27 → 45 regras” sem fabricar conteúdo; workflow/gates e evidências; checklists dinâmicos; diligência registral/judicial/fiscal/condominial/urbanística/física; ocupação lícita; custos parametrizados; decisão, lance, pagamento, registro, posse, reforma, locação e venda; dashboard e dossiê final.
+
+Documentos: docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md e docs/TODO-PLATAFORMA-COMPLETA.md. Plano, não implementação. Começar por diagnóstico, specs, ADRs, testes, migrations reversíveis e rollback. Preservar imóvel 633, V1–V9 e baseline conhecida de 45 llm_runs.
