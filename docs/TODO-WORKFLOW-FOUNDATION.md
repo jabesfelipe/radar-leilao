@@ -62,3 +62,49 @@
 ## Gates de aprovação (não pular)
 - [ ] Aprovação do usuário destes documentos antes de qualquer código.
 - [ ] Aprovação explícita **adicional** antes do backfill de dados `0021`.
+
+
+---
+
+## Revisão documental (refinamentos aprovados) — append
+
+Esta revisão incorporou 6 refinamentos à fundação. Documentos novos de referência:
+`MATRIZ-OPPORTUNITY-ID.md`, `SPEC-OPPORTUNITY-ISOLATION.md`, `SPEC-INVALIDATION-STRATEGY.md`,
+`SPEC-HARD-STOPS.md`, `SEQUENCING-M0-B1.md`, `ACCEPTANCE-CRITERIA-WORKFLOW.md`.
+
+### R1 — Matriz `opportunity_id` (9 tabelas)
+- [ ] Aplicar `opportunity_id` NULLABLE apenas nas 9 tabelas confirmadas (ver `MATRIZ-OPPORTUNITY-ID.md`).
+- [ ] **Decisão Gate 1:** `post_auctions` — manter `property_id UNIQUE` (A) ou migrar p/ `opportunity_id UNIQUE` (B)? (recomendado A).
+- [ ] **Decisão Gate 1:** `costs`/`debts` ficam sem `opportunity_id` na fundação (adiado p/ épico H). Confirmar.
+
+### R2 — Isolamento de oportunidades
+- [ ] Implementar leitura/escrita por `opportunity_id` com `IS NOT DISTINCT FROM` (legado=NULL).
+- [ ] Numeração de versão por oportunidade (`next_version(opportunity)`).
+- [ ] Testes `test_opportunity_isolation.py` (T-ISO-1..10), incl. guarda de não regressão do 633.
+
+### R3 — Invalidação
+- [ ] `invalidate_on_event` determinístico (reusa `DomainEvent`/`ImpactAnalyzer`), sem LLM.
+- [ ] Invalidação = nova `WorkflowTransition` `APROVACAO_INVALIDADA` (preserva decisão anterior).
+- [ ] Idempotência `(opportunity_id, cause_event_id, fase)`; ABERTA bloqueia avanço.
+- [ ] Testes T-INV-1..7 (incl. T-INV-5 zero LLM/Analysis; T-INV-7 633 intacto).
+
+### R4 — Hard stops
+- [ ] Estado HIPOTESE/EM_VALIDACAO/CONFIRMADO/RESOLVIDO/DESCARTADO; **só CONFIRMADO bloqueia**.
+- [ ] LLM cria apenas HIPOTESE; promoção exige evidência + validação (humana/determinística).
+- [ ] Persistência recomendada: **reusar `Risk`** + colunas aditivas (`is_hard_stop`,
+      `hard_stop_state`, `condicao_resolucao`, `legal_provision_id`, `validado_por`) + trilha.
+- [ ] `legal_basis` aponta `LegalProvision`/`LegalRule` (Central Jurídica).
+- [ ] Testes T-HS-1..8 (incl. T-HS-1 score alto não libera com hard stop CONFIRMADO).
+
+### R5 — Sequenciamento M0 × B1
+- [ ] Seguir a ordem definitiva de `SEQUENCING-M0-B1.md` (nunca 2 PRs no mesmo arquivo quente).
+- [ ] 1 migration por PR, sequencial `0018`→`0021`.
+
+### R6 — Critérios de aceite
+- [ ] Todo PR cumpre os transversais G-1..G-7 de `ACCEPTANCE-CRITERIA-WORKFLOW.md`.
+- [ ] "Pronto" exige evidência de teste anexada; backfill (B1.10) não é requisito de pronto.
+
+### Gates de decisão (reafirmados)
+- [ ] **Gate 0:** aprovação desta revisão (antes de qualquer código).
+- [ ] **Gate 1:** confirmar matriz (`post_auctions` A/B; `costs`/`debts`) antes de B1.4.
+- [ ] **Gate 2:** aprovação explícita adicional + `pg_dump` antes do backfill `0021` (B1.10).

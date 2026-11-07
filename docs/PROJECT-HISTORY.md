@@ -2224,3 +2224,25 @@ Prompt e backlog: docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md e docs/TODO-PLATAFORMA
 - **Plano de execução:** incremental — M0 (um domínio por PR, `properties` por último) e B1
   (B1.1→B1.10); backfill de dados (`0021`) opcional e só com aprovação adicional + `pg_dump`.
 - **Próximo passo:** aguardar aprovação do usuário antes de implementar.
+
+
+## Fundação do Workflow — Revisão documental dos refinamentos M0/B1 (planejamento)
+
+- **Contexto:** especificação M0/B1 aprovada como direção arquitetural. O usuário pediu uma
+  revisão documental final incorporando 6 refinamentos antes de iniciar a implementação.
+- **Escopo:** **apenas documentação.** Nenhuma migration, modelo, endpoint, dado ou backfill.
+  Sem LLM/consulta externa. 633/V1–V9/`financial_analyses` V1–V9/`llm_runs`/27 `canonical_key`/
+  Central Jurídica intactos.
+- **Entregáveis (novos):** `MATRIZ-OPPORTUNITY-ID.md` (9 tabelas + impactos),
+  `SPEC-OPPORTUNITY-ISOLATION.md` (isolamento + testes conceituais), `SPEC-INVALIDATION-STRATEGY.md`
+  (invalidar sem apagar), `SPEC-HARD-STOPS.md` (hard stops fortes; LLM só sinaliza),
+  `SEQUENCING-M0-B1.md` (ordem sem conflito), `ACCEPTANCE-CRITERIA-WORKFLOW.md` (aceite objetivo).
+  TODO-WORKFLOW-FOUNDATION e STATUS §32 atualizados (append-only).
+- **Decisões de design reforçadas:** `opportunity_id` só nas 9 tabelas de trabalho da oportunidade;
+  isolamento via `IS NOT DISTINCT FROM` (legado=NULL); invalidação determinística reusando
+  `WorkflowTransition`; hard stop bloqueia só quando `CONFIRMADO` (LLM gera só `HIPOTESE`);
+  hard stops recomendados sobre `Risk` (sem tabela redundante); sequência que nunca coloca dois
+  PRs no mesmo arquivo quente.
+- **Riscos abertos (decisão do usuário):** unicidade de `post_auctions` (A/B); `costs`/`debts`
+  por oportunidade (adiar?); documentos de oferta específica (manter do imóvel?).
+- **Próximo passo:** aguardar aprovação explícita antes de qualquer implementação.

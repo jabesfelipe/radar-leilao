@@ -1738,3 +1738,32 @@ com `pg_dump` + aprovação explícita adicional).
 **Próximo passo (gate):** aprovação do usuário destas specs antes de qualquer implementação. A
 execução é incremental: **M0** (um domínio por PR, `properties` por último) e depois **B1**
 (PRs B1.1→B1.10; backfill B1.10 só com aprovação adicional).
+
+
+---
+
+## 32. Fundação do Workflow — Revisão documental (refinamentos M0/B1)
+
+> **Nota de leitura:** seção **aditiva**; não revoga o histórico. Registra a **revisão
+> documental** que refinou a especificação M0/B1 (§31). **Nada implementado**; nenhuma
+> migration, modelo, endpoint, dado ou backfill. 633/V1–V9/`financial_analyses` V1–V9/`llm_runs`/
+> 27 `canonical_key`/Central Jurídica intactos; sem LLM/consulta externa.
+
+**6 refinamentos incorporados (novos documentos):**
+1. `MATRIZ-OPPORTUNITY-ID.md` — as **9 tabelas** que recebem `opportunity_id` (auctions,
+   auction_notices, analyses, verdicts, financial_analyses, checklist_executions, risks,
+   due_diligence_fronts, post_auctions), com justificativa e impacto em dados legados/consultas/
+   APIs/relatórios. Decisões abertas: `post_auctions` (unicidade A/B) e `costs`/`debts` (adiado).
+2. `SPEC-OPPORTUNITY-ISOLATION.md` — invariantes I1–I8 + 10 testes conceituais de isolamento.
+3. `SPEC-INVALIDATION-STRATEGY.md` — invalidar sem apagar; reusa `DomainEvent`/`WorkflowTransition`;
+   **sem LLM automático**; idempotente; preserva decisões.
+4. `SPEC-HARD-STOPS.md` — ciclo HIPOTESE→CONFIRMADO; **só CONFIRMADO bloqueia**; LLM só sinaliza;
+   persistência recomendada reusando `Risk` + Central Jurídica.
+5. `SEQUENCING-M0-B1.md` — ordem definitiva sem conflito de arquivos quentes (`main.py`/`models.py`).
+6. `ACCEPTANCE-CRITERIA-WORKFLOW.md` — critérios objetivos por etapa (G-1..G-7 + por PR).
+
+**Decisões/gates:** Gate 0 (aprovar revisão) · Gate 1 (confirmar matriz antes de B1.4) · Gate 2
+(aprovação adicional + `pg_dump` antes do backfill `0021`).
+
+**Próximo passo:** aprovação do usuário desta revisão antes de iniciar a implementação (M0.1 +
+B1.1/B1.2 conforme sequenciamento).
