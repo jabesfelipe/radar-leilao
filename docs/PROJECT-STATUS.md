@@ -1,6 +1,20 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (20/09/2026 — Ciclo 2, Onda 0 concluída):** fundação técnica do Ciclo 2 entregue
+**Status global (20/09/2026 — Ciclo 2, Onda 1 concluída):** fundação do domínio
+Opportunity/Workflow entregue em `main` (HEAD `ff422fd`). Novos modelos `Opportunity`
+(Property 1:N), `OpportunityWorkflow` (1:1) e `WorkflowTransition` (append-only); coluna
+`opportunity_id` **NULLABLE** nas 9 tabelas de trabalho (NULL = legado) via migrations aditivas e
+reversíveis `0018`/`0019` (sem backfill — Gate 2 bloqueado); `post_auctions.property_id UNIQUE`
+preservado; `costs`/`debts` fora. Motor de workflow F0–F13 puro e determinístico
+(`workflow_rules.py` + `workflow_engine.py`), com o invariante ADR-004 (hard stop confirmado
+bloqueia a aprovação do comitê, independentemente do score). Validação em banco descartável:
+contrato OpenAPI 99 paths idêntico (nenhuma rota nova), migrations up/down/up RC=0, **backend 658
+passed / 2 skipped** (+32 testes: engine puro + isolamento). Imóvel 633 e histórico V1–V9
+intactos (testes em PostgreSQL efêmero). Detalhes em `docs/PROJECT-HISTORY.md` (seção "Ciclo 2 —
+Onda 1"). **Próximo passo:** aguardar autorização da Onda 2 (Gate 2 e serviço/router/UI do
+workflow permanecem bloqueados).
+
+**Status global anterior (20/09/2026 — Ciclo 2, Onda 0 concluída):** fundação técnica do Ciclo 2 entregue
 em `main` (HEAD `1d2d06d`). M0 modularizou a API em `APIRouter` por domínio (health, 11 hubs do
 dossiê, Central Jurídica e Mercado) sob guard-rail de contrato OpenAPI (99 paths idênticos ao
 baseline); foi corrigido um bug real da migration de fundação `0001` que impedia `alembic upgrade

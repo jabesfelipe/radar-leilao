@@ -113,7 +113,15 @@ Backlog planejado, não declaração de funcionalidades implementadas. Ver docs/
   descartável; frontend tsc+vitest). Validado: backend 626 passed/2 skipped, frontend 137 passed,
   migrations 0001→head RC=0. Modularização dos ~83 paths restantes segue contínua/incremental (ver
   nota em PROJECT-HISTORY sobre reexport obrigatório de handlers). Detalhes em `docs/PROJECT-HISTORY.md`.
-- [ ] Fundação B1: Property/Opportunity, workflow, transições append-only, isolamento e invalidação.
+- [~] **Onda 1 — Fundação B1 (parcial): domínio Opportunity + workflow engine puro** — concluída
+  20/09/2026 (HEAD `ff422fd`). Entregue: modelos `Opportunity`/`OpportunityWorkflow`/
+  `WorkflowTransition` (append-only); `opportunity_id` NULLABLE nas 9 tabelas (migrations 0018/0019,
+  reversíveis, sem backfill); `workflow_rules.py` + `workflow_engine.py` puros (F0–F13, gates, 8
+  hard stops, invariante ADR-004); testes de isolamento/legado/regras/transições. Validado:
+  contrato OpenAPI 99 paths, migrations up/down/up RC=0, backend 658 passed/2 skipped. **Pendente
+  de ondas futuras (fora da Onda 1):** `workflow_service.py` (create_opportunity/apply_transition),
+  gates de leitura com agregação dos domínios, router/endpoints de workflow + dossiê, UI, e o
+  backfill da oportunidade legada (Gate 2 — bloqueado). Detalhes em `docs/PROJECT-HISTORY.md`.
 - [ ] F1: classificação de modalidades e regras por modalidade/jurisdição.
 - [ ] F0: radar, fontes autorizadas, ingestão, deduplicação, atualização e alertas.
 - [ ] F2: cadastro e estruturação da oportunidade.

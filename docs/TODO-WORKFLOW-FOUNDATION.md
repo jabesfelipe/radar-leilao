@@ -11,26 +11,26 @@
 - [ ] Diff de contrato verde a cada PR; suíte existente sem regressão.
 
 ## P0 — Integridade e preservação
-- [ ] Toda migration `0018`–`0020` aditiva; `upgrade` **e** `downgrade` testados em banco descartável.
-- [ ] `opportunity_id` sempre NULLABLE; `NULL` = oportunidade legada; `cascade` de `Property` intacto.
-- [ ] `pg_dump` obrigatório antes do backfill `0021` (opcional, só com aprovação).
-- [ ] Teste de não regressão: 633 mantém V1–V9, `llm_runs` e 27 `canonical_key`.
-- [ ] GET/CRUD/dossiê **não** disparam LLM, nova versão analítica ou custo externo.
+- [x] Migrations `0018`/`0019` aditivas; `upgrade` **e** `downgrade` testados em banco descartável (Onda 1).
+- [x] `opportunity_id` sempre NULLABLE; `NULL` = oportunidade legada; `cascade` de `Property` intacto (Onda 1; teste I8).
+- [ ] `pg_dump` obrigatório antes do backfill `0021` (opcional, só com aprovação — **Gate 2 bloqueado**).
+- [x] Teste de não regressão: 633 mantém V1–V9, `llm_runs` e 27 `canonical_key` (testes em PG efêmero; produção intocada).
+- [ ] GET/CRUD/dossiê **não** disparam LLM, nova versão analítica ou custo externo (pertence ao serviço/dossiê — onda futura).
 
-## P1 — Domínio de Oportunidade (B1.1, B1.4)
-- [ ] `Opportunity` (property_id NOT NULL, modality, status, is_legacy, …).
-- [ ] `OpportunityWorkflow` 1:1 (current_phase, phase_states, active_hard_stops, ruleset_version, blocked).
-- [ ] `WorkflowTransition` append-only (from/to_phase, type, result, hard_stops, gate/score snapshot, decision, justification, actor, ruleset_version, cause_event_id).
-- [ ] Colunas `opportunity_id` NULLABLE nas tabelas da MODEL-DATA §2.
-- [ ] Decisão registrada: **não** criar `WorkflowGateResult` (redundante).
+## P1 — Domínio de Oportunidade (B1.1, B1.4)  — CONCLUÍDO na Onda 1 (`ff422fd`)
+- [x] `Opportunity` (property_id NOT NULL, modality, status, is_legacy, …).
+- [x] `OpportunityWorkflow` 1:1 (current_phase, phase_states, active_hard_stops, ruleset_version, blocked).
+- [x] `WorkflowTransition` append-only (from/to_phase, type, result, hard_stops, gate/score snapshot, decision, justification, actor, ruleset_version, cause_event_id).
+- [x] Colunas `opportunity_id` NULLABLE nas 9 tabelas da MODEL-DATA §2 (`post_auctions.property_id UNIQUE` preservado; `costs`/`debts` fora).
+- [x] Decisão registrada: **não** criar `WorkflowGateResult` (redundante).
 
 ## P1 — Engine de workflow (B1.2, B1.5, B1.6, B1.7)
-- [ ] `workflow_rules.py` v1 (fases F0–F13, transições válidas, gates obrigatórios/condicionais, hard stops) + `WORKFLOW_RULESET_VERSION`.
-- [ ] `workflow_engine.py` puro: `build_opportunity_context`, `evaluate_phase`, `can_transition`, `compute_hard_stops`, `compute_dimension_score`.
-- [ ] Gates de leitura reusando: checklist (27 keys), `juridical_overview`, `due_diligence_overview`, `build_finance`, `legal_correlation`, `OccupancyAnalysis`, `PostAuction*`.
-- [ ] Hard stops (lista v1) derivados de `Risk`/`ChecklistResult`/DD; **bloqueio de aprovação F8 com hard stop ativo**.
-- [ ] Score por dimensão v1 (jurídico/documental/físico/ocupação/fiscal/mercado/financeiro/liquidez/execução) — **separado** do hard stop.
-- [ ] `invalidate_on_event` para `EDITAL_ATUALIZADO`/`MATRICULA_*`/`PRECO_*`/`PROCESSO_VINCULADO`/`OCUPACAO_ATUALIZADA`/`DIVIDA_ADICIONADA`.
+- [x] `workflow_rules.py` v1 (fases F0–F13, matriz de transições válidas, hard stops, eventos de invalidação) + `WORKFLOW_RULESET_VERSION` (Onda 1).
+- [x] `workflow_engine.py` **puro**: `evaluate_phase`, `can_transition`, `compute_hard_stops` (Onda 1). `build_opportunity_context`/`compute_dimension_score` com agregação de domínios ficam para a onda do serviço (o contexto é montado por fora como dataclass puro).
+- [ ] Gates de leitura reusando: checklist (27 keys), `juridical_overview`, `due_diligence_overview`, `build_finance`, `legal_correlation`, `OccupancyAnalysis`, `PostAuction*` (**onda futura** — B1.5).
+- [x] Hard stops (lista v1, 8 códigos) + **bloqueio de aprovação F8 com hard stop ativo** (ADR-004) validado por teste (Onda 1). A *detecção* a partir de `Risk`/`ChecklistResult`/DD é alimentada pelo contexto (serviço de leitura — onda futura).
+- [ ] Score por dimensão v1 — **separado** do hard stop (**onda futura** — B1.6).
+- [ ] `invalidate_on_event` (catálogo de eventos já declarado em `workflow_rules.INVALIDATION_EVENTS`; a aplicação com efeito é do serviço — **onda futura** — B1.7).
 
 ## P1 — Serviço e API (B1.3, B1.8)
 - [ ] `workflow_service.py`: `create_opportunity`, `apply_transition` (valida via engine, grava transição + `DomainEvent`), `invalidate_on_event`, `opportunity_dossier`.

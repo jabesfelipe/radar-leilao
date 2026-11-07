@@ -2366,3 +2366,98 @@ Preservação obrigatória: property 633, V1–V9, financial analyses V1–V9, `
   `opportunity_id` **nullable** nas 9 tabelas conforme Gate 1 autorizado; `workflow_rules.py` e
   `workflow_engine.py` puros, sem efeitos colaterais). Gate 2 (backfill) permanece **não
   autorizado**.
+
+
+---
+
+## Ciclo 2 — Onda 1 (Opportunity + Workflow Engine, fundação B1) — 20/09/2026
+
+- **Contexto:** segunda onda do Ciclo 2, autorizada pelo usuário (escopo exclusivo da Onda 1;
+  Gate 2 e Onda 2 permanecem bloqueados). Fundação do domínio de Oportunidade + motor de workflow
+  F0–F13 puro. Base: `SPEC-OPPORTUNITY-DOMAIN`, `MATRIZ-OPPORTUNITY-ID`, `MODEL-DATA-WORKFLOW`,
+  `SPEC-WORKFLOW-ENGINE`, `SPEC-OPPORTUNITY-ISOLATION`, `PLAN-B1`, `ACCEPTANCE-CRITERIA-WORKFLOW`.
+
+### Modelos (`backend/app/models.py`)
+- **`Opportunity`** (`opportunities`): uma oferta de aquisição específica; `Property` 1:N
+  `Opportunity`. Campos conforme MODEL-DATA §1 (`property_id` NOT NULL, `codigo`, `modality`
+  default `INDEFINIDO`, `modality_evidence_id`, `origin/portal/external_id`, `status` default
+  `EM_PROSPECCAO`, `is_legacy`, `opened_at/closed_at/close_reason`, `actor`).
+- **`OpportunityWorkflow`** (`opportunity_workflows`): estado vivo do workflow; 1:1 com
+  `Opportunity` (`opportunity_id` UNIQUE); `current_phase`, `phase_states` (JSON), `active_hard_stops`
+  (JSON), `ruleset_version`, `blocked`.
+- **`WorkflowTransition`** (`workflow_transitions`): trilha **append-only** de transições
+  (fase origem/destino, tipo, resultado, hard stops, snapshots de gate/score, decisão,
+  justificativa, `cause_event_id`).
+- **`opportunity_id` NULLABLE** adicionado às **9 tabelas** da matriz: `auctions`,
+  `auction_notices`, `analyses`, `verdicts`, `financial_analyses`, `checklist_executions`,
+  `risks`, `due_diligence_fronts`, `post_auctions`. `NULL` = oportunidade legada implícita.
+  `costs`/`debts` ficam **de fora** (decisão do épico financeiro). As novas relações com cascade
+  existem **apenas** entre `Opportunity` e seu workflow/transições; o cascade de `Property` não
+  foi tocado.
+- **`post_auctions.property_id UNIQUE` preservado** (Gate 1, opção A): `opportunity_id` entra
+  apenas para rastreabilidade, sem nova constraint de unicidade.
+
+### Migrations (aditivas e reversíveis; sem backfill)
+- **`0018_opportunity`** (down_revision `0017_central_juridica`): cria `opportunities`,
+  `opportunity_workflows`, `workflow_transitions` com seus índices.
+- **`0019_opportunity_fk`**: adiciona `opportunity_id` NULLABLE + FK `fk_<tabela>_opportunity_id`
+  + índice `ix_<tabela>_opportunity_id` nas 9 tabelas. Nenhum dado existente é alterado.
+- **`0001_fundacao_radar`** atualizada: as 3 tabelas novas entram em `TABLES_ADDED_LATER` e
+  `opportunity_id` em `COLUMNS_ADDED_LATER`, para que `alembic upgrade head` do zero continue
+  funcionando (CI).
+- **Backfill (seria `0020`/`0021`) NÃO implementado** — Gate 2 não autorizado. Sem ele, o 633
+  permanece idêntico (oportunidade legada implícita = `opportunity_id IS NULL`).
+
+### Bug real corrigido na 0018
+`alembic upgrade head` do zero falhava com `DuplicateTable: relation "ix_opportunities_property_id"
+already exists`: o `sa.Column(..., index=True)` dentro do `create_table` já cria o índice, e um
+`op.create_index(...)` explícito com o mesmo nome colidia. Corrigido removendo o `index=True`
+inline das colunas cujos índices são criados explicitamente (`opportunities.property_id`,
+`workflow_transitions.opportunity_id`) e eliminando uma `UniqueConstraint` redundante em
+`opportunity_workflows` (fica só o índice único). Encontrado e corrigido na validação em banco
+descartável.
+
+### Motor de workflow (puro, determinístico — sem DB/IO/LLM)
+- **`backend/app/workflow_rules.py`**: ruleset declarativo v1 (`WORKFLOW_RULESET_VERSION =
+  "workflow-v1"`): 14 fases F0–F13, estados de fase, tipos de transição, matriz de avanço,
+  catálogo de 8 hard stops (com a fase que bloqueiam) e eventos de invalidação; helpers
+  (`phase_index`, `forward_targets`, `hard_stops_for_phase`).
+- **`backend/app/workflow_engine.py`**: `OpportunityContext` (dataclass congelado montado por
+  fora — a agregação dos domínios é de um serviço de leitura, fora desta onda), `HardStopSignal`
+  (estado `CONFIRMADO` bloqueia; `HIPOTESE` não), `PhaseEvaluation`, `TransitionDecision`, e as
+  funções puras `compute_hard_stops`, `evaluate_phase`, `can_transition`.
+- **Invariante ADR-004:** o engine recusa o avanço `F8 → F9` com qualquer hard stop ativo
+  (`CONFIRMADO`), independentemente de qualquer score; `F8 → F9` exige decisão humana `APROVADA`.
+
+### Escopo desta onda (e o que ficou de fora, intencionalmente)
+Entregue: modelos + migrations + engine puro + testes, conforme os 7 pontos autorizados. **Não**
+foram criados `workflow_service.py`, routers/endpoints de workflow nem schemas Pydantic — não
+fazem parte do escopo da Onda 1 (nenhuma rota nova; contrato OpenAPI inalterado). Esses itens
+pertencem às entregas seguintes (B1.3/B1.8) e dependem de nova autorização de onda.
+
+### Testes
+- **`tests/test_workflow_engine.py`** (puro, sem DB): versão do ruleset, matriz de transições
+  válidas/inválidas, gates de saída, hard stops e o invariante ADR-004 (hard stop `CONFIRMADO`
+  bloqueia mesmo com score alto; `HIPOTESE` não).
+- **`tests/test_opportunity_isolation.py`** (PostgreSQL, fixtures sintéticas, rollback): I1/I2/I4
+  (histórico não vaza entre oportunidades), I7 (registro legado permanece `opportunity_id IS
+  NULL`; oportunidade nova não "adota" o legado), I3 (numeração de versão por oportunidade),
+  `post_auctions.property_id UNIQUE` preservado, I8 (apagar `Opportunity` não afeta o legado nem
+  o imóvel; cascade de `Property` intocado), 1:1 do workflow (UNIQUE).
+
+### Validação (banco descartável pgvector; sem LLM; sem tocar o 633 real)
+- Contrato OpenAPI: **99 paths idênticos** ao baseline (nenhuma rota nova).
+- Migrations: `upgrade head` (0001→0019) RC=0; `downgrade 0017` (reverte 0019 e 0018) RC=0;
+  `re-upgrade head` RC=0 — **totalmente reversível**.
+- Suíte backend: **658 passed, 2 skipped** (era 626/2; +32 testes novos).
+- Frontend: não tocado nesta onda (sem regressão; o CI do frontend permanece válido).
+- Preservação: todos os testes rodaram em PostgreSQL de teste efêmero; o banco de produção
+  (imóvel 633, V1–V9, `llm_runs`, 27 `canonical_key`, Central Jurídica) não foi tocado.
+
+### Commits da Onda 1
+- `ff422fd` — feat(workflow): domínio Opportunity + workflow engine puro + migrations 0018/0019 +
+  ajuste da 0001 + testes.
+
+- **Próximo passo:** aguardar autorização para a Onda 2. Gate 2 (backfill da oportunidade legada)
+  e as entregas de serviço/router/UI do workflow (B1.3/B1.8+) permanecem fora até autorização
+  explícita.
