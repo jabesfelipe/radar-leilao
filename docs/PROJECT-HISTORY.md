@@ -2199,3 +2199,28 @@ Prompt e backlog: docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md e docs/TODO-PLATAFORMA
 - **Preservação:** imóvel 633, V1–V9, 27 `canonical_key` e `llm_runs` intactos; sem LLM/DataJud
   real; `.env` real não lido. Pendência de **validação E2E pela UI** segue aberta.
 - **Próximo passo:** decisão do usuário sobre escopo/ordem dos épicos (gate) antes de código.
+
+
+## Fundação do Workflow — Especificação M0 + B1 (planejamento, sem implementação)
+
+- **Contexto:** diagnóstico da Fase Zero aprovado como base. Avanço para o detalhamento técnico
+  dos épicos **M0** (modularização da API) e **B1** (máquina de estados / workflow), que
+  estabelecem a arquitetura central para conduzir o ciclo de vida de uma oportunidade (F0–F13).
+- **Escopo desta etapa:** **apenas especificação e planejamento.** Nenhuma migration, modelo,
+  endpoint ou dado criado/alterado. Sem LLM/consulta externa. 633/V1–V9/`llm_runs`/27
+  `canonical_key` intactos.
+- **Decisões-chave:** (1) separar Imóvel/Oportunidade/Processo/Workflow/Dossiê; (2) `Opportunity`
+  aditiva e opcional (`opportunity_id` NULLABLE; `NULL`=legado) para não quebrar o passado;
+  (3) workflow orquestra e não substitui os domínios (engine puro que lê checklist/risco/veredito/
+  DD/finance/jurídico); (4) **hard stops independentes do score** (risco jurídico crítico nunca
+  mascarado); (5) transições imutáveis + reabertura/invalidação por evento; (6) ruleset de
+  workflow versionado; (7) M0 sem mudança de contrato (diff de OpenAPI).
+- **Entregáveis:** `ADR-WORKFLOW-ARCHITECTURE.md`, `SPEC-OPPORTUNITY-DOMAIN.md`,
+  `SPEC-WORKFLOW-ENGINE.md`, `MODEL-DATA-WORKFLOW.md`, `PLAN-M0-API-MODULARIZATION.md`,
+  `PLAN-B1-WORKFLOW-ENGINE.md`, `TODO-WORKFLOW-FOUNDATION.md`. STATUS §31 atualizado.
+- **Entidades novas propostas (justificadas, sem redundância):** `Opportunity`,
+  `OpportunityWorkflow` (1:1), `WorkflowTransition` (append-only). `WorkflowGateResult` descartada
+  por redundância (coberta por snapshots JSON).
+- **Plano de execução:** incremental — M0 (um domínio por PR, `properties` por último) e B1
+  (B1.1→B1.10); backfill de dados (`0021`) opcional e só com aprovação adicional + `pg_dump`.
+- **Próximo passo:** aguardar aprovação do usuário antes de implementar.

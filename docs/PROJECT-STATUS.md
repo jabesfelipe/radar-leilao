@@ -1698,3 +1698,43 @@ E2E real pela UI** permanece aberta e é critério de aceite do primeiro épico 
 
 **Próximo passo (gate):** decisão do usuário sobre escopo/ordem dos épicos antes de qualquer
 alteração de código (ver ROADMAP §8).
+
+
+---
+
+## 31. Fundação do Workflow — Especificação M0 + B1 (planejamento)
+
+> **Nota de leitura:** seção **aditiva**; não revoga o histórico. Registra a etapa de
+> **especificação técnica** dos épicos M0 (modularização da API) e B1 (máquina de estados /
+> workflow). **Nenhuma migration, modelo, endpoint ou dado foi criado/alterado.** Imóvel 633,
+> V1–V9, `llm_runs` e 27 `canonical_key` intactos. Sem LLM/consulta externa.
+
+**Decisões arquiteturais centrais (detalhe em `docs/ADR-WORKFLOW-ARCHITECTURE.md`):**
+- Separar 5 conceitos: **Imóvel** (`Property`), **Oportunidade** (nova `Opportunity`), **Processo
+  de Análise** (`Analysis`/`Verdict`/… re-ancorados), **Workflow** (`OpportunityWorkflow` +
+  `WorkflowTransition`), **Dossiê** (projeção read-only).
+- **1 Imóvel : N Oportunidades**; históricos não se misturam.
+- Introdução **aditiva e opcional**: `opportunity_id` **NULLABLE**; `NULL` = "oportunidade
+  legada" (cobre o passado, incl. 633/V1–V9). Sem alterar `cascade`; sem FK obrigatória.
+- Workflow **orquestra**, não substitui: engine **determinístico/puro** que **lê** os domínios
+  existentes para decidir gates; transições **imutáveis** (append-only) sobre `DomainEvent`.
+- **Hard stops independentes do score**: risco jurídico crítico nunca é mascarado por financeiro
+  alto; aprovação de comitê com hard stop ativo é **proibida** por construção.
+- Reabertura/invalidação por evento (`EDITAL_ATUALIZADO`/`MATRICULA_*`/`PRECO_*`/…) reusando
+  `ImpactAnalyzer`; regras de workflow **versionadas** (`ruleset_version`).
+- **M0 sem mudança de contrato**: `main.py` (~130 rotas) → `APIRouter` por domínio via
+  `include_router`, preservando paths/`response_model`/status; validado por diff de OpenAPI.
+
+**Entregáveis desta etapa (documentação):** `docs/ADR-WORKFLOW-ARCHITECTURE.md`,
+`docs/SPEC-OPPORTUNITY-DOMAIN.md`, `docs/SPEC-WORKFLOW-ENGINE.md`, `docs/MODEL-DATA-WORKFLOW.md`,
+`docs/PLAN-M0-API-MODULARIZATION.md`, `docs/PLAN-B1-WORKFLOW-ENGINE.md`,
+`docs/TODO-WORKFLOW-FOUNDATION.md`.
+
+**Migrations previstas (aditivas/reversíveis, a partir do head `0017`):** `0018_opportunity`,
+`0019_opportunity_workflow`, `0020_opportunity_fk_backfill_cols` (colunas NULLABLE) e
+`0021_opportunity_legacy_backfill` (**migration de dados opcional**, idempotente/reversível, só
+com `pg_dump` + aprovação explícita adicional).
+
+**Próximo passo (gate):** aprovação do usuário destas specs antes de qualquer implementação. A
+execução é incremental: **M0** (um domínio por PR, `properties` por último) e depois **B1**
+(PRs B1.1→B1.10; backfill B1.10 só com aprovação adicional).
