@@ -2167,3 +2167,12 @@ matrícula/processos/débitos/eventos.
   em modo textual sem `OPENAI_API_KEY` (sem LLM); imóvel 633 intacto (V1–V9, zero
   V10). Pendência de curadoria "136 + 27 → 45 regras" registrada (não inventada) em
   `docs/CENTRAL-JURIDICA.md` e `docs/TODO-CENTRAL-JURIDICA.md`.
+
+
+## DIRETRIZ — Plataforma completa Radar Leilão (06/11/2026)
+
+O escopo passa a mirar workflow ponta a ponta, com foco extrajudicial e fluxo judicial separado: intake, triagem, documentos, diligência jurídica/registral/fiscal/física, ocupação, viabilidade, decisão, lance, pagamento, transferência/registro, posse, regularização, reforma, locação/venda e encerramento, inclusive descarte fundamentado.
+
+Anotações recebidas (portais, matrícula, ônus, usufruto, certidões, tributos, FUNREJUS, IR, IPTU, condomínio, serviços, preço vil, ocupação, taxa de ocupação, notificação e negociação) são insumos de investigação, não regras prontas. Cada afirmação exige fonte primária, contexto, vigência, condições e revisão especializada. Não generalizar preço vil judicial para extrajudicial; não presumir taxa de ocupação, juros ou despesas cumuláveis; certidão negativa não garante imóvel livre.
+
+Prompt e backlog: docs/PROMPT-KIRO-PLATAFORMA-COMPLETA.md e docs/TODO-PLATAFORMA-COMPLETA.md. Plano, não implementação. Iniciar por diagnóstico e matriz de gaps, preservando 27 canonical_key, V1–V9 e imóvel 633.
