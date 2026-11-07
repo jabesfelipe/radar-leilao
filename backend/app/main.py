@@ -34,18 +34,16 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http
 # EXATAMENTE os paths/métodos/respostas originais (ver tests/contract/test_openapi_contract.py).
 from .routers import health as health_router  # noqa: E402
 from .routers import hubs as hubs_router  # noqa: E402
+from .routers import legal_central as legal_central_router  # noqa: E402
+from .routers.deps import property_or_404  # noqa: E402  (fonte única; reusado abaixo)
 app.include_router(health_router.router)
 app.include_router(hubs_router.router)
+app.include_router(legal_central_router.router)
 
 class AnalyzeRequest(BaseModel):
     domains: list[str] | None = None
     query: str = ""
 
-
-def property_or_404(db: Session, property_id: int) -> models.Property:
-    prop = db.get(models.Property, property_id)
-    if not prop: raise HTTPException(404, "Imóvel não encontrado")
-    return prop
 
 @app.get("/api/imoveis")
 def list_properties(db: Session = Depends(get_db)):
@@ -2027,51 +2025,6 @@ def review_due_diligence_front(property_id: int, frente: str, data: schemas.DueD
 
 
 # ============================================================================
-# CENTRAL JURÍDICA (camada transversal de conhecimento jurídico).
-# Biblioteca curada + referências legais EM CONTEXTO (checklist/etapa/imóvel).
-# Leitura determinística (sem LLM). O seed é idempotente.
+# CENTRAL JURÍDICA — movida para backend/app/routers/legal_central.py (M0).
+# Contrato preservado (mesmos paths/métodos/respostas); montada via include_router.
 # ============================================================================
-
-@app.get("/api/juridico/biblioteca")
-def legal_library(db: Session = Depends(get_db)):
-    """Visão agregada da biblioteca jurídica: fontes, dispositivos, regras e a
-    cobertura dos itens do Checklist Mestre com base legal. Materializa o catálogo
-    curado de forma idempotente na primeira leitura (sem embeddings aqui — a
-    indexação semântica roda sob demanda/offline)."""
-    created = legal_service.seed_legal_catalog(db, embed=False)
-    if any(created.values()):
-        db.commit()
-    return serialize(legal_service.library_overview(db))
-
-
-@app.get("/api/juridico/biblioteca/busca")
-def legal_library_search(q: str = "", contexto: str | None = None, limite: int = 20, db: Session = Depends(get_db)):
-    """Busca na biblioteca jurídica (vetorial quando há embeddings/API key; caso
-    contrário, busca textual determinística). ``contexto`` filtra por etapa."""
-    legal_service.seed_legal_catalog(db, embed=False); db.commit()
-    return serialize(legal_service.search_library(db, q, limit=limite, context=contexto))
-
-
-@app.get("/api/juridico/referencias/checklist/{canonical_key}")
-def legal_refs_for_checklist(canonical_key: str, db: Session = Depends(get_db)):
-    """Regras + base legal aplicáveis a UM item do checklist (por canonical_key).
-    É o que a UI usa para mostrar "Base legal e orientações" ao lado do item."""
-    legal_service.seed_legal_catalog(db, embed=False); db.commit()
-    return serialize(legal_service.references_for_checklist_key(db, canonical_key))
-
-
-@app.get("/api/juridico/referencias/contexto/{contexto}")
-def legal_refs_for_context(contexto: str, db: Session = Depends(get_db)):
-    """Regras aplicáveis a uma etapa/contexto transversal (ex.: DESOCUPACAO, LEILAO)."""
-    legal_service.seed_legal_catalog(db, embed=False); db.commit()
-    return serialize(legal_service.references_for_context(db, contexto))
-
-
-@app.get("/api/imoveis/{property_id}/juridico/central")
-def property_legal_central(property_id: int, db: Session = Depends(get_db)):
-    """Visão jurídica do imóvel enriquecida com a base legal contextual: síntese
-    jurídica (reuso de juridical_overview) + referências legais por item do
-    checklist com base associada. Não dispara análise nem LLM."""
-    prop = property_or_404(db, property_id)
-    legal_service.seed_legal_catalog(db, embed=False); db.commit()
-    return serialize(legal_service.property_legal_overview(db, prop))
