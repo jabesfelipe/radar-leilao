@@ -1,0 +1,98 @@
+name: CI
+
+# Integração contínua do Radar Leilão.
+# - backend: sobe PostgreSQL+pgvector descartável, aplica TODA a cadeia de
+#   migrations (0001→head) e roda a suíte pytest (inclui o guard-rail de contrato
+#   OpenAPI do M0). Nenhum dado de produção é tocado: o banco é efêmero do job.
+# - frontend: checagem de tipos (tsc) + testes (vitest).
+# LLM/integrações externas permanecem desligadas (sem chaves), como em dev.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (migrations + pytest)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: radar
+          POSTGRES_PASSWORD: radar
+          POSTGRES_DB: radar_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U radar -d radar_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Banco descartável do runner (nunca produção). DATABASE_URL alimenta tanto o
+      # Alembic quanto a app; RAG_TEST_DATABASE_URL habilita os testes de integração.
+      DATABASE_URL: postgresql+psycopg://radar:radar@localhost:5432/radar_test
+      RAG_TEST_DATABASE_URL: postgresql+psycopg://radar:radar@localhost:5432/radar_test
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Enable pgvector extension
+        env:
+          PGPASSWORD: radar
+        run: psql -h localhost -U radar -d radar_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+      - name: Apply migrations (0001 -> head)
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run backend test suite
+        run: pytest -q tests
+
+  frontend:
+    name: Frontend (tsc + vitest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type-check (tsc)
+        working-directory: frontend
+        run: npx tsc -b
+
+      - name: Run frontend tests (vitest)
+        working-directory: frontend
+        run: npm test
