@@ -60,6 +60,10 @@ TABLES_ADDED_LATER = (
     "legal_rules",
     "legal_provisions",
     "legal_sources",
+    # 0018_opportunity (Onda 1) — ordem de DROP respeita as FKs (filhas primeiro)
+    "workflow_transitions",
+    "opportunity_workflows",
+    "opportunities",
 )
 
 # Colunas adicionadas por migrations posteriores (removidas do schema base).
@@ -76,12 +80,13 @@ COLUMNS_ADDED_LATER = {
     "checklist_results": (  # 0003_checklist_mestre
         "item_version", "applicable", "previous_result_id",
     ),
-    "auctions": (  # 0004 + 0009 + 0012 + 0014
+    "auctions": (  # 0004 + 0009 + 0012 + 0014 + 0019
         "acquisition_value", "commission_percent", "commission_fixed",
         "first_auction_date", "first_auction_value",
         "second_auction_date", "second_auction_value",
         "financial_assumptions",  # 0012_premissas_financeiras
         "auctioneer_id",          # 0014_leiloeiros (FK -> auctioneers; dropada via CASCADE da tabela)
+        "opportunity_id",         # 0019_opportunity_fk (Onda 1)
     ),
     "legal_processes": (  # 0006_processos_juridicos + 0013_processo_correlacao
         "comarca", "nature", "polo_active", "polo_passive",
@@ -94,6 +99,14 @@ COLUMNS_ADDED_LATER = {
     ),
     # auction_notices.item também é de 0009, mas auction_notices é recriada por 0007
     # (está em TABLES_ADDED_LATER), então o DROP da tabela já remove a coluna.
+    # 0019_opportunity_fk (Onda 1): opportunity_id NULLABLE nas tabelas-base.
+    # auction_notices/post_auctions/due_diligence_fronts já estão em
+    # TABLES_ADDED_LATER (o DROP da tabela remove a coluna; 0019 a recria).
+    "analyses": ("opportunity_id",),
+    "verdicts": ("opportunity_id",),
+    "financial_analyses": ("opportunity_id",),
+    "checklist_executions": ("opportunity_id",),
+    "risks": ("opportunity_id",),
 }
 
 

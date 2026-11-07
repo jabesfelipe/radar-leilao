@@ -57,6 +57,7 @@ class Auction(TimestampMixin, Base):
     __tablename__ = "auctions"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     auction_date: Mapped[date | None] = mapped_column(Date)
     auction_stage: Mapped[str] = mapped_column(String(30), default="2º leilão")
     appraisal_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
@@ -139,9 +140,10 @@ class PropertyRegistration(TimestampMixin, Base):
 
 
 class AuctionNotice(TimestampMixin, Base):
-    __tablename__ = "auction_notices"
+    __tablename__ = "auction_notices"  # opportunity_id adicionado abaixo (Onda 1)
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     identifier: Mapped[str | None] = mapped_column(String(160))
     item: Mapped[str | None] = mapped_column(String(40))
     notice_date: Mapped[date | None] = mapped_column(Date)
@@ -225,6 +227,7 @@ class ChecklistExecution(TimestampMixin, Base):
     __tablename__ = "checklist_executions"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     analysis_version: Mapped[int | None] = mapped_column(Integer)
     triggered_by: Mapped[str] = mapped_column(String(80), default="MANUAL")
     property: Mapped[Property] = relationship(back_populates="checklist_executions")
@@ -347,6 +350,7 @@ class FinancialAnalysis(TimestampMixin, Base):
     __tablename__ = "financial_analyses"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     analysis_version: Mapped[int] = mapped_column(Integer)
     inputs: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     outputs: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -356,6 +360,7 @@ class Risk(TimestampMixin, Base):
     __tablename__ = "risks"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     category: Mapped[str] = mapped_column(String(60))
     description: Mapped[str] = mapped_column(Text)
     severity: Mapped[str] = mapped_column(String(20), default="MEDIA")
@@ -372,6 +377,7 @@ class Analysis(TimestampMixin, Base):
     __tablename__ = "analyses"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     version: Mapped[int] = mapped_column(Integer)
     scope: Mapped[str] = mapped_column(String(80), default="Completa")
     affected_domains: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -390,6 +396,7 @@ class Verdict(TimestampMixin, Base):
     __tablename__ = "verdicts"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     analysis_version: Mapped[int] = mapped_column(Integer)
     overall: Mapped[str] = mapped_column(String(30), default="PENDENTE")
     summary: Mapped[str] = mapped_column(Text)
@@ -563,7 +570,8 @@ class PostAuction(TimestampMixin, Base):
     imóveis apenas analisados não possuem este registro e seguem o fluxo atual."""
     __tablename__ = "post_auctions"
     id: Mapped[int] = mapped_column(primary_key=True)
-    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True, unique=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True, unique=True)  # UNIQUE preservado (Gate 1 opção A)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1); rastreabilidade
     status: Mapped[str] = mapped_column(String(30), default="EM_ANDAMENTO")
     current_stage: Mapped[str | None] = mapped_column(String(120))
     # Modalidade de condução da desocupação: PROPRIA | TERCEIRIZADA | None (indefinida).
@@ -772,6 +780,7 @@ class DueDiligenceFront(TimestampMixin, Base):
     __tablename__ = "due_diligence_fronts"
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado (Onda 1)
     frente: Mapped[str] = mapped_column(String(30), index=True)
     status: Mapped[str] = mapped_column(String(40), default="NAO_INICIADO")
     source: Mapped[str | None] = mapped_column(String(240))          # fonte consultada/registrada
@@ -964,3 +973,89 @@ class LegalRuleChecklistLink(TimestampMixin, Base):
     note: Mapped[str | None] = mapped_column(String(300))
     rule: Mapped[LegalRule] = relationship(back_populates="checklist_links")
     __table_args__ = (UniqueConstraint("rule_id", "canonical_key", name="uq_legal_rule_checklist"),)
+
+
+# ---------------------------------------------------------------------------
+# Domínio de Oportunidade + Workflow (Ciclo 2 — Onda 1)
+# Base: SPEC-OPPORTUNITY-DOMAIN, MODEL-DATA-WORKFLOW, SPEC-WORKFLOW-ENGINE.
+# Property 1:N Opportunity; Opportunity 1:1 OpportunityWorkflow; Opportunity 1:N
+# WorkflowTransition (append-only). opportunity_id é NULLABLE nas 9 tabelas de
+# trabalho (NULL = oportunidade legada implícita; sem backfill — Gate 2 bloqueado).
+# As novas colunas/relationships NÃO participam do cascade de Property.
+# ---------------------------------------------------------------------------
+
+
+class Opportunity(TimestampMixin, Base):
+    """Uma oferta de aquisição específica sobre um imóvel (este leilão/edital/
+    preço/data). 1 Imóvel : N Oportunidades. Agrega análise + workflow + decisão;
+    não substitui Auction (que é a oferta concreta/edital). Históricos de
+    oportunidades diferentes nunca se misturam (ver SPEC-OPPORTUNITY-ISOLATION)."""
+    __tablename__ = "opportunities"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), nullable=False, index=True)
+    codigo: Mapped[str | None] = mapped_column(String(120))
+    modality: Mapped[str] = mapped_column(String(40), default="INDEFINIDO", index=True)  # F1
+    modality_evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+    origin: Mapped[str | None] = mapped_column(String(120))
+    portal: Mapped[str | None] = mapped_column(String(120))
+    external_id: Mapped[str | None] = mapped_column(String(120))
+    status: Mapped[str] = mapped_column(String(30), default="EM_PROSPECCAO", index=True)
+    is_legacy: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    close_reason: Mapped[str | None] = mapped_column(String(240))
+    actor: Mapped[str] = mapped_column(String(120), default="sistema")
+    workflow: Mapped["OpportunityWorkflow | None"] = relationship(
+        back_populates="opportunity", uselist=False, cascade="all, delete-orphan"
+    )
+    transitions: Mapped[list["WorkflowTransition"]] = relationship(
+        back_populates="opportunity", cascade="all, delete-orphan", order_by="WorkflowTransition.id"
+    )
+    __table_args__ = (
+        Index("ix_opportunities_property_status", "property_id", "status"),
+    )
+
+
+class OpportunityWorkflow(TimestampMixin, Base):
+    """Estado vivo do workflow de uma oportunidade (fase corrente + estado por
+    fase). 1:1 com Opportunity. phase_states/active_hard_stops são projeção/cache
+    recalculável a partir dos domínios; a verdade permanece nos domínios."""
+    __tablename__ = "opportunity_workflows"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    opportunity_id: Mapped[int] = mapped_column(
+        ForeignKey("opportunities.id"), nullable=False, unique=True, index=True
+    )
+    current_phase: Mapped[str] = mapped_column(String(40), default="F0_INTAKE", index=True)
+    phase_states: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    active_hard_stops: Mapped[list[str]] = mapped_column(JSON, default=list)
+    ruleset_version: Mapped[str | None] = mapped_column(String(40))
+    blocked: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    updated_by: Mapped[str] = mapped_column(String(120), default="sistema")
+    opportunity: Mapped[Opportunity] = relationship(back_populates="workflow")
+
+
+class WorkflowTransition(TimestampMixin, Base):
+    """Trilha IMUTÁVEL (append-only) de cada mudança de fase/estado/decisão de uma
+    oportunidade. Semântica própria de workflow (fase origem/destino, gates, hard
+    stops avaliados, decisão), complementando — não duplicando — EntityHistory.
+    Política append-only garantida no serviço (sem UPDATE/DELETE) + teste."""
+    __tablename__ = "workflow_transitions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    opportunity_id: Mapped[int] = mapped_column(ForeignKey("opportunities.id"), nullable=False, index=True)
+    from_phase: Mapped[str | None] = mapped_column(String(40))
+    to_phase: Mapped[str] = mapped_column(String(40))
+    transition_type: Mapped[str] = mapped_column(String(30), index=True)
+    result: Mapped[str] = mapped_column(String(30))
+    phase_state: Mapped[str] = mapped_column(String(30))
+    hard_stops: Mapped[list[str]] = mapped_column(JSON, default=list)
+    gate_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    score_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    decision: Mapped[str | None] = mapped_column(String(30))
+    justification: Mapped[str | None] = mapped_column(Text)
+    actor: Mapped[str] = mapped_column(String(120), default="sistema")
+    ruleset_version: Mapped[str | None] = mapped_column(String(40))
+    cause_event_id: Mapped[int | None] = mapped_column(ForeignKey("domain_events.id"))
+    opportunity: Mapped[Opportunity] = relationship(back_populates="transitions")
+    __table_args__ = (
+        Index("ix_workflow_transitions_opportunity_to_phase", "opportunity_id", "to_phase"),
+    )
