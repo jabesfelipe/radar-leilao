@@ -35,10 +35,13 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http
 from .routers import health as health_router  # noqa: E402
 from .routers import hubs as hubs_router  # noqa: E402
 from .routers import legal_central as legal_central_router  # noqa: E402
+from .routers import market as market_router  # noqa: E402
 from .routers.deps import property_or_404  # noqa: E402  (fonte única; reusado abaixo)
+from .routers.market import get_market  # noqa: E402,F401  (compat: testes importam get_market de main)
 app.include_router(health_router.router)
 app.include_router(hubs_router.router)
 app.include_router(legal_central_router.router)
+app.include_router(market_router.router)
 
 class AnalyzeRequest(BaseModel):
     domains: list[str] | None = None
@@ -278,11 +281,7 @@ def analyze_financial(property_id: int, db: Session = Depends(get_db)):
     db.add(analysis); db.commit()
     return {"property_id": property_id, "analysis_version": version, "premissas": inputs["premissas"], "financeiro": serialize(current)}
 
-@app.get("/api/imoveis/{property_id}/mercado")
-def get_market(property_id: int, db: Session = Depends(get_db)):
-    prop = property_or_404(db, property_id)
-    comparables = [{"kind": comparable.kind, "price": comparable.price, "rent": comparable.rent, "area_m2": comparable.area_m2} for comparable in prop.comparables]
-    return {"property_id": property_id, "mercado": calculate_market(comparables)}
+# /api/imoveis/{property_id}/mercado → routers/market.py (M0)
 
 @app.post("/api/imoveis/{property_id}/ocupacao")
 def create_occupancy(property_id: int, data: schemas.OccupancyCreate, db: Session = Depends(get_db)):
