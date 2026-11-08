@@ -641,3 +641,5 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .admin-history { margin-top: 12px; }
 .admin-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--text-muted, #64748b); }
 .admin-field select { padding: 8px 10px; border: 1px solid var(--border, #d1d5db); border-radius: 6px; font-size: 0.95rem; }
+.debts-count { color: var(--text-muted, #64748b); font-size: 0.85rem; }
+.debts-estimate { margin-top: 12px; }

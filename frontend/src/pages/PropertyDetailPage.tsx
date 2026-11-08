@@ -17,6 +17,7 @@ import { PropertyEditSection } from './PropertyEditSection'
 import { PostAuctionSection } from './PostAuctionSection'
 import { DueDiligenceSection } from './DueDiligenceSection'
 import { CentralJuridicaSection } from './CentralJuridicaSection'
+import { DebtsSection } from './DebtsSection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -33,6 +34,7 @@ const detailSections = [
   { id: 'juridico', label: 'Processos Jurídicos' },
   { id: 'central-juridica', label: 'Central Jurídica' },
   { id: 'financeiro', label: 'Financeiro' },
+  { id: 'debitos', label: 'Débitos e despesas' },
   { id: 'mercado', label: 'Mercado' },
   { id: 'ocupacao', label: 'Ocupação' },
   { id: 'checklist', label: 'Checklist' },
@@ -240,6 +242,8 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             <CentralJuridicaSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'financeiro' ? (
             <FinancialSection key={refreshKey} propertyId={property.id} />
+          ) : activeSection === 'debitos' ? (
+            <DebtsSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'mercado' ? (
             <MarketSection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'ocupacao' ? (
