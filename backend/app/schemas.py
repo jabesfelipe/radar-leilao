@@ -1089,3 +1089,58 @@ class UserUpdate(BaseModel):
     role: Literal["ADMIN", "ANALISTA", "OPERADOR", "CONSULTA"] | None = None
     active: bool | None = None
     password: str | None = Field(default=None, min_length=8)
+
+
+# --- Modalidades / Oportunidade / Workflow (Onda 2) ---
+ModalityCode = Literal[
+    "EXTRAJUDICIAL_ALIENACAO_FIDUCIARIA", "EXTRAJUDICIAL_OUTRA_GARANTIA",
+    "JUDICIAL", "VENDA_DIRETA", "INDEFINIDO",
+]
+
+
+class OpportunityCreate(BaseModel):
+    property_id: int
+    codigo: str | None = None
+    modality: ModalityCode = "INDEFINIDO"
+    origin: str | None = None
+    portal: str | None = None
+    external_id: str | None = None
+
+
+class OpportunityOut(BaseModel):
+    id: int; property_id: int; codigo: str | None; modality: str; status: str
+    origin: str | None; portal: str | None; external_id: str | None
+    is_legacy: bool; opened_at: datetime | None; closed_at: datetime | None
+    created_at: datetime; updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ModalityClassifyRequest(BaseModel):
+    """Classificação determinística a partir de sinais objetivos. Só confirma com
+    evidência (evidence_id); sem evidência permanece INDEFINIDO."""
+    signals_text: str | None = None
+    origin: str | None = None
+    evidence_id: int | None = None
+    confirm: bool = True  # quando houver evidência, aplica a modalidade proposta
+
+
+class ModalityCorrectRequest(BaseModel):
+    """Correção manual da modalidade por usuário autorizado (auditada)."""
+    modality: ModalityCode
+    justification: str = Field(min_length=3)
+    evidence_id: int | None = None
+
+
+class TransitionRequest(BaseModel):
+    target_phase: str = Field(min_length=2)
+    transition_type: str = "AVANCO"
+    justification: str | None = None
+    decision: Literal["APROVADA", "REPROVADA", "ADIADA"] | None = None
+
+
+class PhaseStateRequest(BaseModel):
+    """Marca o estado de uma fase (ex.: concluir o gate de saída para habilitar o
+    AVANÇO). ``phase`` omitido = fase corrente. Não contorna hard stops."""
+    state: str = Field(min_length=2)
+    phase: str | None = None
+    justification: str | None = None
