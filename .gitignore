@@ -5,7 +5,9 @@ __pycache__/
 node_modules/
 dist/
 frontend/.vite/
-storage/
+# Dados de runtime de documentos (NÃO ignorar o pacote Python backend/app/storage/).
+/storage/
+backend/storage/
 backend/uploads/
 *.db
 logs/

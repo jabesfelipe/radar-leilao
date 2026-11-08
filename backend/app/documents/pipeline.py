@@ -1,10 +1,12 @@
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 from sqlalchemy.orm import Session
 from .. import models
 from ..config import settings
 from ..logging_config import get_logger
+from ..storage import build_storage
 from .normalizer import DocumentNormalizer
 from .chunker import chunk_markdown
 from .embedding import embed_pending_chunks
@@ -46,19 +48,46 @@ class DocumentPipeline:
         document.status = states.PROCESSANDO_EMBEDDING
         version = None
         try:
-            property_dir = settings.storage_path / f"property-{document.property_id}"
-            original_dir, normalized_dir, metadata_dir = (property_dir / name for name in ("original", "normalized", "metadata"))
-            for path in (original_dir, normalized_dir, metadata_dir): path.mkdir(parents=True, exist_ok=True)
+            storage = build_storage(settings)
             version_number = dedup.next_version_number(document)
-            original_path = original_dir / f"v{version_number}-{filename}"
-            original_path.write_bytes(content)
+            stem = Path(filename).stem
+            base_key = f"property-{document.property_id}"
+            original_key = f"{base_key}/original/v{version_number}-{filename}"
+            normalized_key = f"{base_key}/normalized/v{version_number}-{stem}.md"
+            metadata_key = f"{base_key}/metadata/v{version_number}-{stem}.json"
+
+            # Persiste o arquivo original pela abstração de storage (local/S3/MinIO).
+            original_obj = storage.write_bytes(original_key, content)
+
+            # O normalizador exige um caminho local legível. Com backend local, usamos
+            # o próprio arquivo; com backend remoto, materializamos um temporário.
+            if storage.backend_name() == "local":
+                local_original = Path(original_obj.uri)
+                tmp_cleanup: Path | None = None
+            else:
+                suffix = Path(filename).suffix
+                fd, tmp_name = tempfile.mkstemp(suffix=suffix)
+                tmp_path = Path(tmp_name)
+                import os as _os
+                with _os.fdopen(fd, "wb") as fh:
+                    fh.write(content)
+                local_original = tmp_path
+                tmp_cleanup = tmp_path
+
             log.info("normalizacao iniciada: document_id=%s version=%s tipo=%s", document.id, version_number, document.document_type)
-            normalized, extraction = DocumentNormalizer().normalize(original_path, document.document_type)
+            try:
+                normalized, extraction = DocumentNormalizer().normalize(local_original, document.document_type)
+            finally:
+                if tmp_cleanup is not None:
+                    try:
+                        tmp_cleanup.unlink(missing_ok=True)  # limpa o temporário de processamento
+                    except OSError:
+                        pass
             log.info("normalizacao concluida: document_id=%s version=%s markdown_chars=%d", document.id, version_number, len(normalized or ""))
-            normalized_path = normalized_dir / f"v{version_number}-{Path(filename).stem}.md"
-            normalized_path.write_text(normalized, encoding="utf-8")
-            (metadata_dir / f"v{version_number}-{Path(filename).stem}.json").write_text(json.dumps(extraction, ensure_ascii=False, indent=2), encoding="utf-8")
-            version = models.DocumentVersion(document_id=document.id, version=version_number, content_hash=digest, original_path=str(original_path), normalized_path=str(normalized_path), normalized_markdown=normalized, extraction_metadata=extraction, status=states.AGUARDANDO_EMBEDDING)
+
+            normalized_obj = storage.write_text(normalized_key, normalized)
+            storage.write_text(metadata_key, json.dumps(extraction, ensure_ascii=False, indent=2))
+            version = models.DocumentVersion(document_id=document.id, version=version_number, content_hash=digest, original_path=original_obj.uri, normalized_path=normalized_obj.uri, normalized_markdown=normalized, extraction_metadata=extraction, status=states.AGUARDANDO_EMBEDDING)
             self.db.add(version); self.db.flush()
             chunk_count = 0
             for chunk in chunk_markdown(normalized, extraction):

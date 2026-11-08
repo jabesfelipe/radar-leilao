@@ -7,6 +7,16 @@ class Settings(BaseSettings):
     app_name: str = "Radar Leilão API"
     database_url: str = "postgresql+psycopg://radar:radar_local@localhost:5432/radar_leilao"
     storage_dir: str = "storage/documents"
+    # Abstração de storage (Fase 4): "local" (padrão) ou "s3"/"minio". A troca para S3
+    # exige boto3 + bucket/credenciais via ambiente (nunca versionados); sem isso, o
+    # backend S3 falha de forma clara e o local continua sendo o padrão seguro.
+    storage_backend: str = "local"
+    storage_s3_bucket: str | None = None
+    storage_s3_endpoint_url: str | None = None  # MinIO: http://minio:9000
+    storage_s3_region: str | None = None
+    storage_s3_access_key: str | None = None
+    storage_s3_secret_key: str | None = None
+    storage_s3_prefix: str = "documents"
     llm_provider: str = "openai"
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
