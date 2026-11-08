@@ -1,6 +1,37 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (20/09/2026 — Ciclo 2, Onda 1 concluída):** fundação do domínio
+**Status global (20/09/2026 — Etapa A: Central de Débitos/Despesas + Parâmetros administráveis):**
+fundação de dados, serviços, APIs e 1ª UI administrativa entregues (aditivo, preservando
+`Debt`/`Cost`). 6 tabelas novas via migration `0020_central_debitos` (down_revision `0019`,
+aditiva/reversível, sem backfill — Gate 2 bloqueado): `municipalities`, `debt_types`,
+`debt_sources`, `property_debts` (normalizado; `opportunity_id` NULLABLE), `parameters`
+(catálogo central transversal) e `parameter_history` (trilha imutável). Serviços:
+`parameters.py` (resolução por precedência MUNICIPIO_CATEGORIA→MUNICIPIO→CATEGORIA→GLOBAL→default
++ versionamento com histórico) e `debts_service.py` (seeds idempotentes, normalização com o
+invariante ESTIMADO≠CONFIRMADO, consolidação por natureza sem dupla contagem). APIs: routers
+`/api/admin/*` (leitura aberta; escrita protegida por `X-Admin-Token`, falha-fechada 503/401 —
+**provisório até RBAC Onda 11**) e `/api/imoveis/{id}/debitos`. `build_finance` **não** alterado.
+Contrato OpenAPI 113 paths (+14 intencionais). 1ª UI admin (`/administracao`). Validação em banco
+descartável: **backend 682 passed / 2 skipped**, migrations up/down(0019)/up RC=0,
+**frontend tsc OK + 141 passed**. Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central
+Jurídica mantida. **Fora de escopo (não iniciado):** coletores/scraping, consulta real, agentes,
+modalidades, Etapas B–F. Detalhes em `docs/CENTRAL-DEBITOS-DESPESAS-ADMIN-ETAPA-A.md` e
+`docs/PROJECT-HISTORY.md` (seção "Etapa A — Central de Débitos"). **Próximo passo:** aguardar
+autorização da Etapa B.
+
+**Status global anterior (20/09/2026 — Auditoria Master do Produto):** auditoria executiva/técnica concluída
+(somente documentação; sem código/migrations/commits). O **núcleo de análise** está maduro e em
+grande parte **VALIDADO** (E2E real no imóvel 633); a camada de **workflow ponta a ponta** é
+fundação pura não-exposta (Onda 1); **auth/RBAC, modalidade (F1), radar (F0), lance (F9), saída
+(F12) e parâmetros fiscais** estão ausentes. Indicadores (denominador = 30 features, metodologia
+explícita): ~40% VALIDADO, ~37% parcial, ~17% não iniciado. Painel e inventário honestos em
+`docs/PRODUCT-DASHBOARD.md`, `docs/FEATURE-INVENTORY.md`, `docs/ROADMAP-EXECUTION.md` e
+`docs/FEATURE-BACKLOG.md`. Caminho crítico: expor workflow (Onda 1b) → modalidade (Onda 2) →
+checklist dinâmico (Onda 4) → financeiro (Onda 5) → comitê/hard stops (Onda 6); auth/RBAC (Onda 11)
+é bloqueante para produção. Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica
+mantida; Gate 2 não autorizado. Detalhes em `docs/PROJECT-HISTORY.md` (seção "Auditoria Master").
+
+**Status global anterior (20/09/2026 — Ciclo 2, Onda 1 concluída):** fundação do domínio
 Opportunity/Workflow entregue em `main` (HEAD `ff422fd`). Novos modelos `Opportunity`
 (Property 1:N), `OpportunityWorkflow` (1:1) e `WorkflowTransition` (append-only); coluna
 `opportunity_id` **NULLABLE** nas 9 tabelas de trabalho (NULL = legado) via migrations aditivas e

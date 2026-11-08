@@ -2461,3 +2461,83 @@ pertencem às entregas seguintes (B1.3/B1.8) e dependem de nova autorização de
 - **Próximo passo:** aguardar autorização para a Onda 2. Gate 2 (backfill da oportunidade legada)
   e as entregas de serviço/router/UI do workflow (B1.3/B1.8+) permanecem fora até autorização
   explícita.
+
+
+---
+
+## Auditoria Master do Produto — 20/09/2026 (somente documentação)
+
+- **Contexto:** auditoria executiva e técnica do estado real do produto, a pedido do usuário.
+  **Nenhum código, migration, dado ou commit** foi alterado; atividade exclusivamente de análise e
+  documentação. Base: código efetivo em HEAD `7f61667`, confirmado por varredura do repositório e
+  por sub-agentes de investigação (não apenas a documentação).
+- **Métricas reais levantadas:** 99 paths OpenAPI (131 decorators), 50 modelos ORM, 19 migrations
+  (`0001`→`0019`), 54 arquivos/658 funções de teste backend, 22 arquivos/137 casos de teste frontend,
+  21 páginas/seções de frontend, 287 commits.
+- **Diagnóstico honesto:** o **núcleo de análise** (cadastro, documentos/RAG, checklist, risco,
+  veredito, financeiro, mercado, ocupação, pós-arrematação, leiloeiros, dossiê) está maduro e, em
+  grande parte, **VALIDADO** (E2E real no 633). A camada de **workflow ponta a ponta** existe apenas
+  como **fundação pura não-exposta** (Onda 1), e os transversais **auth/RBAC**, **modalidade (F1)**,
+  **radar/descoberta (F0)**, **lance (F9)**, **saída (F12)** e **parâmetros fiscais** estão ausentes.
+  Integrações externas (DataJud/Maps/RI/Prefeitura/portais) falham-fechado sem credencial.
+- **Indicadores (denominador = 30 features catalogadas, metodologia explícita):** ~40% VALIDADO,
+  ~37% IMPLEMENTADO PARCIALMENTE, ~3% em desenvolvimento, ~3% especificado, ~17% não iniciado; ~80%
+  com algum código operacional (não confundir com "produto 80% pronto" — ver dashboard).
+- **Entregáveis criados (apenas documentação):**
+  - `docs/PRODUCT-DASHBOARD.md` — painel executivo, metodologia, indicadores gerais e por módulo,
+    maturidade por fase (F0–F13), integrações, dívidas técnicas e riscos.
+  - `docs/FEATURE-INVENTORY.md` — inventário de 30 funcionalidades com status real, o que
+    falta/parcial, dependências, riscos, critérios de conclusão e referências a código/testes.
+  - `docs/ROADMAP-EXECUTION.md` — roadmap consolidado e priorizado por onda, com caminho crítico e
+    reconciliação da numeração de migrations (0018/0019 consolidadas; próxima livre = 0020).
+  - `docs/FEATURE-BACKLOG.md` — processo de gestão de features (7 estágios) + modelo de cadastro +
+    backlog inicial (FB-001..FB-012) derivado dos gaps.
+- **Caminho crítico recomendado:** Onda 1b (expor workflow) → Onda 2 (modalidade) → Onda 4 (checklist
+  dinâmico) → Onda 5 (financeiro+fiscal) → Onda 6 (comitê/hard stops); **Onda 11 (auth/RBAC)** é
+  bloqueante para produção multiusuário.
+- **Preservação:** 633/V1–V9/`financial_analyses` V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica
+  intactos; Gate 2 permanece NÃO autorizado; nenhuma migration executada.
+- **Próximo passo:** aguardar avaliação do diagnóstico pelo usuário antes de retomar implementação
+  (Onda 2 ou outra).
+
+## Etapa A — Central de Débitos/Despesas + Parâmetros administráveis
+
+Entrega da **fundação** da Central de Débitos/Despesas e do catálogo central de
+parâmetros administráveis. Totalmente **aditiva**: `Debt`/`Cost` e seus endpoints
+permanecem intactos, `build_finance` não foi alterado, não houve backfill (Gate 2
+bloqueado) e `opportunity_id` em `property_debts` é NULLABLE (Gate 1). Escopo
+limitado à Etapa A — coletores/scraping, consulta real, agentes LLM, modalidades e as
+Etapas B–F **não** foram iniciados.
+
+**Modelo de dados (migration `0020_central_debitos`, down_revision `0019_opportunity_fk`,
+reversível):** `municipalities`, `debt_types` (catálogo), `debt_sources` (apenas
+cadastro), `property_debts` (débito normalizado rico), `parameters` (catálogo central
+transversal) e `parameter_history` (trilha imutável). `0001` teve `TABLES_ADDED_LATER`
+atualizado com as 6 novas tabelas (ordem filhas→pais).
+
+**Serviços:** `parameters.py` (resolução por precedência
+MUNICIPIO_CATEGORIA→MUNICIPIO→CATEGORIA→GLOBAL→default_value→default, com versionamento
+e histórico imutável) e `debts_service.py` (seeds idempotentes de 20 tipos e 4
+municípios com IBGE, normalização que preserva ESTIMADO≠CONFIRMADO, consolidação por
+natureza sem dupla contagem incluindo o legado `Debt`).
+
+**APIs:** router `/api/admin/*` (municípios, tipos, fontes, parâmetros + resolver +
+histórico + categorias) — leitura aberta, escrita protegida por `X-Admin-Token` ==
+`settings.admin_api_token` (falha-fechada: 503 sem token, 401 token inválido),
+**proteção provisória documentada até RBAC (Onda 11)** — e `/api/imoveis/{id}/debitos`
+(lista/consolidação/registro manual/edição com revalidação de invariantes). Contrato
+OpenAPI passou de 99 para **113 paths** (+14 adições intencionais; baseline regenerado).
+
+**Frontend:** 1ª UI administrativa (`/administracao`) com abas
+overview/municípios/fontes/tipos/parâmetros, token digitado na tela, listagens reais,
+cadastro, edição de parâmetro (nova versão) e histórico. Item no Sidebar + rota no App.
+
+**Validação (banco descartável, PostgreSQL/pgvector efêmero):** backend **682 passed /
+2 skipped** (RC=0; +24 testes, incluindo `tests/test_parameters.py` e
+`tests/test_central_debitos.py`); migrations `upgrade head`→`downgrade 0019`→`re-upgrade`
+RC=0; frontend `tsc -b` OK + **141 passed / 23 arquivos**. Preservação 633 / V1–V9 /
+`llm_runs` / 27 `canonical_key` / Central Jurídica mantida (testes só em banco efêmero).
+
+**Débito técnico registrado:** o token administrativo é provisório e **não** substitui
+RBAC; a área admin só deve ser exposta em produção após a Onda 11. Documentação técnica
+completa em `docs/CENTRAL-DEBITOS-DESPESAS-ADMIN-ETAPA-A.md`.
