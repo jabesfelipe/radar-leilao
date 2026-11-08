@@ -3751,6 +3751,46 @@
     "title": "LocationUpdate",
     "type": "object"
    },
+   "LoginRequest": {
+    "properties": {
+     "email": {
+      "minLength": 3,
+      "title": "Email",
+      "type": "string"
+     },
+     "password": {
+      "minLength": 1,
+      "title": "Password",
+      "type": "string"
+     }
+    },
+    "required": [
+     "email",
+     "password"
+    ],
+    "title": "LoginRequest",
+    "type": "object"
+   },
+   "MeOut": {
+    "properties": {
+     "permissions": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Permissions",
+      "type": "array"
+     },
+     "user": {
+      "$ref": "#/components/schemas/UserOut"
+     }
+    },
+    "required": [
+     "user",
+     "permissions"
+    ],
+    "title": "MeOut",
+    "type": "object"
+   },
    "MunicipalityCreate": {
     "properties": {
      "coverage_active": {
@@ -7679,6 +7719,178 @@
     "title": "StageUpdate",
     "type": "object"
    },
+   "TokenOut": {
+    "properties": {
+     "access_token": {
+      "title": "Access Token",
+      "type": "string"
+     },
+     "expires_in": {
+      "title": "Expires In",
+      "type": "integer"
+     },
+     "token_type": {
+      "default": "bearer",
+      "title": "Token Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "access_token",
+     "expires_in"
+    ],
+    "title": "TokenOut",
+    "type": "object"
+   },
+   "UserCreate": {
+    "properties": {
+     "active": {
+      "default": true,
+      "title": "Active",
+      "type": "boolean"
+     },
+     "email": {
+      "minLength": 3,
+      "title": "Email",
+      "type": "string"
+     },
+     "name": {
+      "default": "",
+      "title": "Name",
+      "type": "string"
+     },
+     "password": {
+      "minLength": 8,
+      "title": "Password",
+      "type": "string"
+     },
+     "role": {
+      "default": "CONSULTA",
+      "enum": [
+       "ADMIN",
+       "ANALISTA",
+       "OPERADOR",
+       "CONSULTA"
+      ],
+      "title": "Role",
+      "type": "string"
+     }
+    },
+    "required": [
+     "email",
+     "password"
+    ],
+    "title": "UserCreate",
+    "type": "object"
+   },
+   "UserOut": {
+    "properties": {
+     "active": {
+      "title": "Active",
+      "type": "boolean"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "email": {
+      "title": "Email",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "last_login_at": {
+      "anyOf": [
+       {
+        "format": "date-time",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Last Login At"
+     },
+     "name": {
+      "title": "Name",
+      "type": "string"
+     },
+     "role": {
+      "title": "Role",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "email",
+     "name",
+     "role",
+     "active",
+     "created_at"
+    ],
+    "title": "UserOut",
+    "type": "object"
+   },
+   "UserUpdate": {
+    "properties": {
+     "active": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Active"
+     },
+     "name": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Name"
+     },
+     "password": {
+      "anyOf": [
+       {
+        "minLength": 8,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Password"
+     },
+     "role": {
+      "anyOf": [
+       {
+        "enum": [
+         "ADMIN",
+         "ANALISTA",
+         "OPERADOR",
+         "CONSULTA"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Role"
+     }
+    },
+    "title": "UserUpdate",
+    "type": "object"
+   },
    "ValidationError": {
     "properties": {
      "loc": {
@@ -7772,6 +7984,22 @@
     "parameters": [
      {
       "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
       "name": "x-admin-token",
       "required": false,
       "schema": {
@@ -7834,6 +8062,22 @@
       "schema": {
        "title": "Coverage Id",
        "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
       }
      },
      {
@@ -7956,6 +8200,22 @@
     "parameters": [
      {
       "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
       "name": "x-admin-token",
       "required": false,
       "schema": {
@@ -8018,6 +8278,22 @@
       "schema": {
        "title": "Source Id",
        "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
       }
      },
      {
@@ -8096,6 +8372,22 @@
     "parameters": [
      {
       "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
       "name": "x-admin-token",
       "required": false,
       "schema": {
@@ -8158,6 +8450,22 @@
       "schema": {
        "title": "Municipality Id",
        "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
       }
      },
      {
@@ -8278,6 +8586,22 @@
    "post": {
     "operationId": "create_parameter_api_admin_parametros_post",
     "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
      {
       "in": "header",
       "name": "x-admin-token",
@@ -8437,6 +8761,22 @@
      },
      {
       "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
       "name": "x-admin-token",
       "required": false,
       "schema": {
@@ -8551,6 +8891,22 @@
     "parameters": [
      {
       "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
       "name": "x-admin-token",
       "required": false,
       "schema": {
@@ -8617,6 +8973,22 @@
      },
      {
       "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
       "name": "x-admin-token",
       "required": false,
       "schema": {
@@ -8665,6 +9037,316 @@
     "summary": "Update Debt Type",
     "tags": [
      "admin"
+    ]
+   }
+  },
+  "/api/auth/login": {
+   "post": {
+    "operationId": "login_api_auth_login_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenOut"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Login",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/auth/me": {
+   "get": {
+    "operationId": "me_api_auth_me_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MeOut"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Me",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/auth/usuarios": {
+   "get": {
+    "operationId": "list_users_api_auth_usuarios_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Users",
+    "tags": [
+     "auth"
+    ]
+   },
+   "post": {
+    "operationId": "create_user_api_auth_usuarios_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UserCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserOut"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create User",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/auth/usuarios/{user_id}": {
+   "patch": {
+    "operationId": "update_user_api_auth_usuarios__user_id__patch",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "user_id",
+      "required": true,
+      "schema": {
+       "title": "User Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UserUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserOut"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Update User",
+    "tags": [
+     "auth"
     ]
    }
   },
