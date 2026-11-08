@@ -14,7 +14,7 @@ Não altera ``Debt``/``Cost`` nem ``build_finance``: a consolidação é LEITURA
 """
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import select
@@ -101,14 +101,16 @@ def seed_municipalities(db: Session) -> int:
 
 
 def seed_all(db: Session) -> dict[str, int]:
-    """Seed idempotente de catálogo + municípios + cobertura inicial (Etapa B).
+    """Seed idempotente de catálogo + municípios + cobertura inicial (Etapa B) +
+    parâmetros de negócio centralizados (Etapas C/D).
 
     A cobertura é semeada por último (depende de municípios e tipos existentes)."""
-    from . import coverage_service  # import local evita ciclo de importação
+    from . import coverage_service, parameter_seeds  # import local evita ciclo de importação
     types = seed_debt_types(db)
     munis = seed_municipalities(db)
     coverage = coverage_service.seed_coverage(db)
-    return {"debt_types": types, "municipalities": munis, "coverage": coverage}
+    parameters = parameter_seeds.seed_parameters(db)
+    return {"debt_types": types, "municipalities": munis, "coverage": coverage, "parameters": parameters}
 
 
 def normalize_debt_payload(db: Session, data: dict[str, Any]) -> dict[str, Any]:
@@ -139,6 +141,14 @@ def normalize_debt_payload(db: Session, data: dict[str, Any]) -> dict[str, Any]:
     out["nature"] = nature
     out["status"] = status
     out["reliability"] = reliability
+    # Coage valores monetários/data a tipos nativos: o fluxo de consulta (Etapa E)
+    # pode trazê-los como texto; a consolidação soma Decimal (nunca str).
+    for money in ("original_amount", "interest", "penalty", "correction", "updated_amount"):
+        if out.get(money) is not None and not isinstance(out[money], Decimal):
+            try:
+                out[money] = Decimal(str(out[money]))
+            except (InvalidOperation, ValueError) as exc:
+                raise ValueError(f"Valor inválido para {money}: {out[money]!r}") from exc
     return out
 
 

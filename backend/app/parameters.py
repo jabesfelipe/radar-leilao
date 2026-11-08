@@ -254,3 +254,38 @@ def resolve_detail(
         },
         "used_default": origem is None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Snapshot de parâmetros por execução (imutabilidade de análises históricas)
+# ---------------------------------------------------------------------------
+
+# Chaves de parâmetros de negócio que influenciam a análise financeira/estimativas.
+# Gravadas no snapshot de cada execução para que uma alteração administrativa futura
+# NÃO altere retroativamente uma análise já realizada (invariante — preserva V1–V9).
+FINANCE_PARAMETER_KEYS = (
+    "mercado.amostra_minima",
+    "mercado.cv_dispersao_alta",
+    "condominio.periodo_presumido_meses",
+    "condominio.margem_seguranca_pct",
+    "condominio.fator_otimista",
+    "checklist.idade_alerta_1_anos",
+    "checklist.idade_alerta_2_anos",
+)
+
+
+def parameter_snapshot(db: Session, *, keys: tuple[str, ...] = FINANCE_PARAMETER_KEYS, now: datetime | None = None) -> list[dict[str, Any]]:
+    """Resolve e retorna o snapshot (chave/valor/origem/versão) dos parâmetros de
+    negócio no momento da execução. Determinístico; serializa valores como texto."""
+    snapshot: list[dict[str, Any]] = []
+    for key in keys:
+        detail = resolve_detail(db, key, now=now)
+        value = detail.get("value")
+        detail["value"] = None if value is None else serialize_value(value, _data_type_for(db, key))
+        snapshot.append(detail)
+    return snapshot
+
+
+def _data_type_for(db: Session, key: str) -> str:
+    param = db.scalar(select(models.Parameter).where(models.Parameter.key == key))
+    return param.data_type if param else "STRING"
