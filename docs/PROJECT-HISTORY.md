@@ -2682,3 +2682,33 @@ paths. Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica
 ponta-a-ponta permanecem: modalidades (Onda 2 — hoje `Property.modality` é string
 livre), ciclo de vida de workflow exposto (motor F0–F13 existe, não exposto) e
 consolidação do dashboard por fase/modalidade.
+
+
+## Onda 2 — Modalidades + Workflow + Dashboard (2026-11)
+
+Entrega das três frentes operacionais sobre a fundação Opportunity/Workflow (migration
+`0018`), **sem nenhuma migration nova** e preservando todo o histórico (imóvel 633, análises
+V1–V9, 45 `llm_runs`, 27 `canonical_key`, Central Jurídica).
+
+- **Modalidades canônicas** (`backend/app/modality_rules.py`, `modality-v1`): 5 modalidades,
+  classificação determinística evidence-gated (sem evidência ⇒ `INDEFINIDO`; LLM nunca
+  confirma), aplicabilidade de checklist por modalidade **aditiva** (27 keys preservadas),
+  supressão de hard stops específicos de alienação fiduciária.
+- **Workflow operacional** (`backend/app/workflow_service.py` + `routers/opportunities.py`):
+  liga o motor **puro** F0–F13 (não alterado) aos domínios reais; transições **append-only**
+  (inclusive BLOQUEADA) para auditoria; `set_phase_state` conclui o gate de saída de uma fase;
+  regras validadas só no backend; hard stop não contornável; escrita exige usuário real +
+  `analysis:write` (`authorized_writer`).
+- **Dashboard** (`routers/dashboard.py`): agregação real por fase/modalidade/município/status
+  + riscos críticos, com fontes rastreáveis.
+- **Frontend**: `services/opportunities.ts`, `pages/OpportunitiesPage.tsx`, item de Sidebar +
+  rota, painel no Dashboard Hub.
+- **Correção de bug** no router (`_actor` recebia o papel string de `require_permission` em vez
+  do `User`) → `AttributeError`; corrigido com a dependência `authorized_writer`.
+- **Validação** (banco descartável `radar_onda2_val`, criado e dropado; `radar_leilao`
+  intocado): migrations up/down(0022)/up RC=0; OpenAPI 138 paths; backend 745 passed/2 skipped
+  + novos testes Onda 2 verdes (67 passed na verificação dirigida); frontend tsc OK + 153
+  passed/26 arquivos. Preservação comprovada por consulta direta: `llm_runs=45`,
+  `canonical_keys=27`, imóvel 633 presente.
+
+Relatório completo: `docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`.

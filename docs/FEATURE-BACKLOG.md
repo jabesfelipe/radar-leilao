@@ -78,17 +78,27 @@
 > **não** foram aprovados — é a fila para o usuário priorizar. Os que já têm onda no
 > `ROADMAP-EXECUTION.md` referenciam-na.
 
-### FB-001 — Expor Workflow/Oportunidade (serviço + API + UI)
-- **Estágio:** ESPECIFICADA (Onda 1b). **Problema:** o engine de workflow existe mas não é usável.
+### FB-001 — Expor Workflow/Oportunidade (serviço + API + UI) — ✅ IMPLEMENTADO (Onda 2)
+- **Estágio:** **IMPLEMENTADO E TESTADO** (Onda 2, 2026-11). O motor puro F0–F13 foi exposto
+  via `workflow_service.py` + `routers/opportunities.py` (estado/transições/hard stops/
+  histórico append-only/`fase/estado`) e UI `OpportunitiesPage.tsx`. Regras só no backend;
+  hard stop não contornável. Sem migration nova (reusa `0018`).
 - **Benefício:** conduzir um imóvel por fases com trilha auditável. **Módulos:** A, F, E.
-- **Complexidade:** G. **Prioridade:** P0. **Impacto arquitetural:** Aditivo (rotas novas) + serviço.
-- **Encaixe:** Onda 1b (caminho crítico). **Decisão:** pendente.
+- **Evidência:** `tests/test_workflow_api.py`; `docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`.
 
-### FB-002 — Modalidades de aquisição (F1)
-- **Estágio:** ESPECIFICADA (Onda 2, `PLAN-WAVE-2-MODALIDADES.md`). **Problema:** regras não variam
-  por modalidade. **Benefício:** tratar judicial × extrajudicial corretamente. **Módulos:** A6, B3, F.
-- **Complexidade:** M-G. **Prioridade:** P0. **Impacto:** Aditivo (migration `0020` + ruleset).
-- **Decisão:** pendente (inclui decidir `LICITACAO`).
+### FB-002 — Modalidades de aquisição (F1) — ✅ IMPLEMENTADO (Onda 2)
+- **Estágio:** **IMPLEMENTADO E TESTADO** (Onda 2, 2026-11). Catálogo canônico declarativo
+  (`modality_rules.py`, `modality-v1`): 5 modalidades, classificação evidence-gated,
+  aplicabilidade de checklist por modalidade (27 keys preservadas). `LICITACAO` ficou **fora
+  de escopo** (não cadastrada). Sem migration nova (`Opportunity.modality` já é `String`).
+- **Benefício:** tratar judicial × extrajudicial corretamente. **Módulos:** A6, B3, F.
+- **Evidência:** `tests/test_modalidades.py`; `docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`.
+
+### FB-002b — Dashboard operacional por fase/modalidade — ✅ IMPLEMENTADO (Onda 2)
+- **Estágio:** **IMPLEMENTADO E TESTADO** (Onda 2, 2026-11). `GET /api/dashboard/oportunidades`
+  agrega real por fase/modalidade/município/status + riscos críticos (fontes rastreáveis);
+  painel no Dashboard Hub.
+- **Evidência:** `tests/test_dashboard.py`.
 
 ### FB-003 — Autenticação + RBAC + multiusuário
 - **Estágio:** IMPLEMENTADO E TESTADO (Onda 11). **Problema (resolvido):** não havia login/papéis.

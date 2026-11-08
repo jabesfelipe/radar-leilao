@@ -1,6 +1,36 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (2026-11 — Onda 11: Autenticação e RBAC real):** implementada, integrada
+**Status global (2026-11 — Onda 2: Modalidades + Workflow operacional + Dashboard):**
+entregues, integradas (backend ↔ frontend) e testadas as três frentes, **sem migration
+nova** (o domínio Opportunity/Workflow já existe desde `0018`; `Opportunity.modality` já é
+`String` default `INDEFINIDO`). **Modalidades** — catálogo canônico declarativo em código
+(`modality_rules.py`, `modality-v1`): 5 modalidades (`EXTRAJUDICIAL_ALIENACAO_FIDUCIARIA`,
+`EXTRAJUDICIAL_OUTRA_GARANTIA`, `JUDICIAL`, `VENDA_DIRETA`, `INDEFINIDO`; `LICITACAO` fora de
+escopo). Classificação **evidence-gated** (sem evidência ⇒ `INDEFINIDO` + revisão manual; LLM
+nunca confirma). Aplicabilidade de checklist por modalidade como metadado **aditivo** (os 27
+`canonical_key` são preservados; só marca `APLICAVEL`/`NAO_APLICAVEL`). **Workflow** — motor
+puro F0–F13 (`workflow_engine.py`/`workflow_rules.py` **intactos**) exposto via
+`workflow_service.py` (monta `OpportunityContext` dos domínios reais + persiste transições
+**append-only**, inclusive BLOQUEADA) e router `/api/oportunidades` (estado/transições/hard
+stops/pendências/histórico/checklist-aplicável/`fase/estado`/classificar/corrigir). Regras
+validadas **só no backend**; hard stop ativo **não** contornável pelo cliente; escrita exige
+usuário autenticado real + `analysis:write` (dependência `authorized_writer`); leitura exige
+`get_current_user`. **Dashboard** — `GET /api/dashboard/oportunidades` agrega REAL por
+fase/modalidade/município/status + bloqueadas + riscos críticos (fontes rastreáveis; zero
+explícito). **Frontend** — página **Oportunidades** (lista/filtros/criar/detalhe/transição/
+concluir fase/corrigir modalidade), item na Sidebar + rota, painel de dashboard no Hub.
+**Bug de produção corrigido:** router usava retorno de `require_permission` (papel string)
+como `User` → `AttributeError`; corrigido via `authorized_writer`. Contrato OpenAPI **138
+paths** (+15). Validação em banco descartável (`radar_onda2_val`, criado e **dropado**):
+migrations up/down(0022)/up **RC=0**; **backend 745 passed / 2 skipped** + novos testes da
+Onda 2 verdes (verificação dirigida **67 passed**); **frontend tsc OK + 153 passed / 26
+arquivos**. **Preservação comprovada por consulta direta ao `radar_leilao`:** `llm_runs=45`,
+`canonical_keys=27`, imóvel **633 presente** (V1–V9/Central Jurídica intactos). Próxima
+migration livre permanece **0024**. Detalhes em
+`docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`. **Próximo passo:** avaliar `LICITACAO` e
+dashboards de SLA/funil (fundação de agregação pronta).
+
+**Status global anterior (2026-11 — Onda 11: Autenticação e RBAC real):** implementada, integrada
 e testada a camada de identidade local (sem provedor externo). Modelo `User` (migration
 `0023_usuarios`, aditiva/reversível): e-mail único + senha com hash **bcrypt** + papel +
 ativo. `auth.py` (JWT HS256 assinado por `JWT_SECRET_KEY`, falha-fechada 503 sem segredo;

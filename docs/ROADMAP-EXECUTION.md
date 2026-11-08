@@ -26,11 +26,16 @@
 - **Atualização (Etapas C–F da Central de Débitos):** a migration `0022_consulta_estimativa` foi
   executada (consulta de débito + estimativa condominial).
 - **Atualização (Onda 11 — Auth/RBAC):** a migration `0023_usuarios` foi executada (identidade local
-  + RBAC real). Portanto a **Onda 2 (modalidade)** deverá usar a próxima livre, **`0024`**.
+  + RBAC real).
+- **Atualização (Onda 2 — Modalidades + Workflow + Dashboard, 2026-11):** entregue **sem migration
+  nova** (reusa o domínio Opportunity/Workflow de `0018`; `Opportunity.modality` já era `String`).
+  A modalidade canônica vive em código (`modality_rules.py`). Portanto a **próxima migration livre
+  permanece `0024`**.
 - As ondas do Ciclo 2 permanecem as mesmas; a **Onda 0 (M0+CI)** e a **Onda 1 (Opportunity/Workflow)**
   estão concluídas; as **Etapas A–F da Central de Débitos** estão concluídas (coletores automáticos e
-  identidade/RBAC permanecem dependências externas); a **Onda 2 (modalidade)** está planejada
-  (`PLAN-WAVE-2-MODALIDADES.md`).
+  identidade/RBAC permanecem dependências externas); a **Onda 1b (workflow exposto)** e a **Onda 2
+  (modalidades + dashboard)** estão **concluídas** (2026-11, ver
+  `docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`).
 
 ## 3. Legenda
 - **Prioridade:** P0 (crítico/caminho crítico) · P1 (alto valor) · P2 (evolução).
@@ -94,7 +99,11 @@
   + termos + autorização por município). **NÃO implementado (deliberado):** scraping/consulta real,
   providers automáticos, workers.
 
-### Onda 1b — Serviço + API + UI de Workflow/Oportunidade ⬅️ **CAMINHO CRÍTICO**
+### Onda 1b — Serviço + API + UI de Workflow/Oportunidade ✅ CONCLUÍDA (2026-11)
+- **Entregue:** `workflow_service.py` + `routers/opportunities.py` (rotas aditivas) expõem o motor
+  puro F0–F13; transições append-only (inclusive BLOQUEADA); `set_phase_state` conclui o gate;
+  UI `OpportunitiesPage.tsx`. Contrato cresceu só por adição (138 paths); 633 intacto. Ver
+  `docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`.
 - **Prioridade:** P0. **Valor:** materializa a Onda 1 (hoje o engine é código não-ligado).
 - **Complexidade:** G. **Dependências:** Onda 1. **Impacto técnico:** novo `workflow_service.py`,
   router `workflow.py` (rotas aditivas), dossiê por oportunidade, UI de oportunidades.
@@ -104,7 +113,11 @@
   dossiê read-only; contrato cresce só por adição; 633 intacto.
 - **Risco:** médio-alto (1ª exposição do workflow; acoplamento com leitura por oportunidade).
 
-### Onda 2 — Modalidades (F1)
+### Onda 2 — Modalidades (F1) + Dashboard ✅ CONCLUÍDA (2026-11)
+- **Entregue:** catálogo canônico declarativo (`modality_rules.py`, `modality-v1`), classificação
+  evidence-gated, aplicabilidade de checklist por modalidade (27 keys preservadas), dashboard
+  agregado por fase/modalidade/município. **Sem migration nova** (próxima livre segue `0024`).
+  `LICITACAO` ficou fora de escopo. Ver `docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`.
 - **Prioridade:** P0 (destrava regras por modalidade). **Valor:** alto (produto trata judicial ×
   extrajudicial). **Complexidade:** M-G. **Dependências:** Onda 1. **Migrations:** `0020_modality`.
 - **Entrega:** vocabulário canônico + classificação com evidência + aplicabilidade por modalidade no
