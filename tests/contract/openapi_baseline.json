@@ -15662,6 +15662,138 @@
     ]
    }
   },
+  "/api/monitoring/rag/pending": {
+   "get": {
+    "description": "Versões de documento com embeddings pendentes (fila do worker). Somente leitura.",
+    "operationId": "rag_pending_api_monitoring_rag_pending_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Rag Pending",
+    "tags": [
+     "monitoring"
+    ]
+   }
+  },
+  "/api/monitoring/rag/reprocess": {
+   "post": {
+    "description": "Dispara (assíncrono) uma varredura de reprocessamento de embeddings pendentes.\n\nIdempotente (só toca chunks sem vetor). Sem provider/chave, não chama OpenAI —\napenas mantém o estado AGUARDANDO_EMBEDDING. Retorna imediatamente (BackgroundTask).",
+    "operationId": "rag_reprocess_api_monitoring_rag_reprocess_post",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 10,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Rag Reprocess",
+    "tags": [
+     "monitoring"
+    ]
+   }
+  },
   "/api/monitoring/readiness": {
    "get": {
     "operationId": "readiness_api_monitoring_readiness_get",

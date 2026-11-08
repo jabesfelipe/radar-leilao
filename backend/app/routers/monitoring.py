@@ -9,19 +9,29 @@ retornos. Não dispara processamento nem chamadas externas.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from .. import models
 from ..auth import get_current_user
-from ..authz import require_permission, PERM_ADMIN_WRITE
+from ..authz import require_permission, PERM_ADMIN_WRITE, PERM_ANALYSIS_WRITE
 from ..config import settings
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from ..documents.embedding_backfill import coverage_report
 from ..documents.storage_governance import diagnose as storage_diagnose
+from ..documents import worker as doc_worker
 
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
+
+
+def _run_reprocess_scan(limit: int) -> None:
+    """Executa uma varredura do worker numa sessão própria (BackgroundTask)."""
+    db = SessionLocal()
+    try:
+        doc_worker.run_once(db, limit=limit)
+    finally:
+        db.close()
 
 
 @router.get("/readiness")
@@ -67,3 +77,20 @@ def storage_diagnostics(db: Session = Depends(get_db), _role: str = Depends(requ
     ]
     report.pop("storage_root", None)
     return report
+
+
+@router.get("/rag/pending")
+def rag_pending(limit: int = 50, db: Session = Depends(get_db), _: models.User = Depends(get_current_user)):
+    """Versões de documento com embeddings pendentes (fila do worker). Somente leitura."""
+    vids = doc_worker.pending_versions(db, limit=max(1, min(limit, 500)))
+    return {"pendentes": len(vids), "version_ids": vids}
+
+
+@router.post("/rag/reprocess")
+def rag_reprocess(background: BackgroundTasks, limit: int = 10, _role: str = Depends(require_permission(PERM_ANALYSIS_WRITE))):
+    """Dispara (assíncrono) uma varredura de reprocessamento de embeddings pendentes.
+
+    Idempotente (só toca chunks sem vetor). Sem provider/chave, não chama OpenAI —
+    apenas mantém o estado AGUARDANDO_EMBEDDING. Retorna imediatamente (BackgroundTask)."""
+    background.add_task(_run_reprocess_scan, max(1, min(limit, 100)))
+    return {"status": "agendado", "limit": max(1, min(limit, 100))}

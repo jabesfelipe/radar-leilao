@@ -110,6 +110,39 @@ services:
       start_period: 40s
     networks: [internal]
 
+  # Worker de processamento assíncrono de documentos (embeddings pendentes).
+  # DB-backed (sem Redis): faz polling das versões pendentes e processa idempotente.
+  worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.prod
+    image: radar-leilao-backend-prod:latest
+    container_name: radar-prod-worker
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-radar}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-radar_leilao}
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-radar_leilao}
+      POSTGRES_USER: ${POSTGRES_USER:-radar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-30}
+      WORKER_BATCH_LIMIT: ${WORKER_BATCH_LIMIT:-10}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
+      STORAGE_DIR: /app/backend/storage/documents
+    volumes:
+      - backend_storage:/app/backend/storage
+    # Não aplica migrations; apenas processa a fila. Entrypoint próprio do worker.
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["cd /app/backend && python -m app.worker_main"]
+    networks: [internal]
+
   frontend:
     build:
       context: .
