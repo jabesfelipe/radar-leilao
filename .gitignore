@@ -9,6 +9,10 @@ frontend/.vite/
 /storage/
 backend/storage/
 backend/uploads/
+# Arquivos temporários de diagnóstico/validação (scratch) na raiz.
+/_*.txt
+/_*.sh
+/_*.sql
 *.db
 logs/
 backups/

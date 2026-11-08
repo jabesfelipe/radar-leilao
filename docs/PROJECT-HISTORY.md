@@ -2712,3 +2712,35 @@ V1–V9, 45 `llm_runs`, 27 `canonical_key`, Central Jurídica).
   `canonical_keys=27`, imóvel 633 presente.
 
 Relatório completo: `docs/ONDA-2-WORKFLOW-DASHBOARD-RELATORIO.md`.
+
+
+## Production-ready — RAG endurecido + Infraestrutura de hospedagem (2026-11)
+
+Ciclo sobre a Onda 2 (já publicada). Tudo aditivo, sem migration nova, preservando os
+invariantes históricos (633, V1–V9, 45 `llm_runs`, 27 `canonical_key`, Central Jurídica).
+
+- **RAG (dedup/idempotência/estados):** `documents/dedup.py` (SHA-256, reaproveitamento
+  por documento), `documents/states.py` (vocabulário canônico + compat legado), pipeline
+  idempotente, `documents/embedding_backfill.py` (dry-run desabilitado por padrão).
+  Commits `6741af0`, `b8f096d`.
+- **RAG (busca/isolamento):** `rag/retriever.py` filtro `opportunity_id`;
+  `docs/RAG-ARCHITECTURE.md` (IVFFlat×HNSW, knowledge_items). Commit `41b0e98`.
+- **Storage:** `backend/app/storage/{base,local,s3,__init__}.py` + integração ao pipeline;
+  `documents/storage_governance.py` (diagnóstico dry-run, 633 protegido); endpoint
+  `/api/monitoring/storage`. Correção de `.gitignore` (`storage/` ignorava o pacote).
+  Commits `70dd78b`, `1db5de7`.
+- **Infra de produção:** `docker-compose.prod.yml`, `Dockerfile.prod` (backend não-root +
+  frontend nginx), `docker/nginx-proxy.conf`, CORS configurável, `.env.prod.example`.
+  Commit `a05efd4`.
+- **Backup/restore:** `scripts/prod/pg-backup.sh` (`pg_dump -Fc`), `pg-restore-verify.sh`
+  (banco isolado) — testado end-to-end. Commit `f7dc32b`.
+- **Workers:** `documents/worker.py` + `worker_main.py` (DB-backed, sem Redis) + endpoints
+  de fila/reprocesso + serviço `worker` no compose. Commit `d2ff4ca`.
+- **UX:** painel de saúde do RAG no dashboard (`RagHealthPanel`). Commit `bbbbb2c`.
+- **Testes/CI:** `test_e2e_oportunidade.py` (fluxo sintético ponta-a-ponta). Commit
+  `ad4459b`. CI (`.github/workflows/ci.yml`) já roda suíte completa + migrations + tsc/vitest.
+- **Docs:** ARCHITECTURE, RAG-ARCHITECTURE, RAG-LIFECYCLE, DEPLOYMENT, DATABASE-MIGRATION,
+  BACKUP-RESTORE, PRODUCTION-CHECKLIST, OPERATIONS-RUNBOOK, CAPACITY-PLANNING.
+
+Contrato OpenAPI final: **143 paths**. Validação por fase em banco descartável; preservação
+reconfirmada (prop633=1, llm_runs=45, canonical_keys=27).

@@ -1,6 +1,34 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (2026-11 — Onda 2: Modalidades + Workflow operacional + Dashboard):**
+**Status global (2026-11 — Production-ready: RAG endurecido + infra de hospedagem):**
+sobre a Onda 2 publicada, o ciclo endureceu o RAG e preparou a hospedagem externa, tudo
+**aditivo e sem migration nova** (próxima livre segue `0024`), preservando os invariantes
+(imóvel 633, V1–V9, 45 `llm_runs`, 27 `canonical_key`, Central Jurídica). **RAG:** dedup
+por SHA-256 (`documents/dedup.py`), estados canônicos de processamento (`states.py`),
+ingestão idempotente (reaproveita conteúdo byte-idêntico), backfill de embeddings com
+**dry-run desabilitado por padrão** (nunca chama OpenAI sozinho), isolamento de
+recuperação por oportunidade (`retriever.py` filtro `opportunity_id`), e decisão
+documentada IVFFlat×HNSW (`RAG-ARCHITECTURE.md`/`RAG-LIFECYCLE.md`). **Storage:** abstração
+`backend/app/storage` (Local default; S3/MinIO preparado, import-guarded, nunca cria
+bucket) integrada ao pipeline; governança de diretórios órfãos **dry-run** (633 sempre
+protegido). **Workers:** processamento assíncrono **DB-backed** (sem Redis/Celery) —
+`documents/worker.py` + `worker_main.py`, idempotente, com retry/estado/graceful shutdown;
+endpoints `/api/monitoring/rag/pending` e `/reprocess`. **Infra de produção:**
+`docker-compose.prod.yml` (postgres sem porta exposta, serviço `migrate` controlado,
+proxy nginx 80/443 como único ponto exposto), `Dockerfile.prod` backend (não-root,
+uvicorn workers) e frontend (nginx), CORS configurável. **Backup/restore:** `pg_dump -Fc`
++ verificação + retenção não destrutiva + restore-verify em banco isolado (**testado**).
+**Monitoramento:** `/api/monitoring/{readiness,rag,storage,rag/pending,rag/reprocess}` +
+painel de saúde do RAG no dashboard. **Contrato OpenAPI = 143 paths.** Validação por fase
+em banco descartável (dropado), `radar_leilao` intocado: Onda2 67 / RAG 19+12 / storage 25
+/ worker 6 / e2e 4 — todos verdes; frontend tsc OK + 153 testes. CI (GitHub Actions) roda a
+suíte completa + migrations + tsc/vitest a cada push. Docs novas: `ARCHITECTURE`,
+`RAG-ARCHITECTURE`, `RAG-LIFECYCLE`, `DEPLOYMENT`, `DATABASE-MIGRATION`, `BACKUP-RESTORE`,
+`PRODUCTION-CHECKLIST`, `OPERATIONS-RUNBOOK`, `CAPACITY-PLANNING`. **Próximo passo:**
+emitir certificados HTTPS na VPS, aplicar migração controlada e executar o checklist de
+produção (ver `docs/PRODUCTION-CHECKLIST.md`).
+
+**Status global anterior (2026-11 — Onda 2: Modalidades + Workflow operacional + Dashboard):**
 entregues, integradas (backend ↔ frontend) e testadas as três frentes, **sem migration
 nova** (o domínio Opportunity/Workflow já existe desde `0018`; `Opportunity.modality` já é
 `String` default `INDEFINIDO`). **Modalidades** — catálogo canônico declarativo em código
