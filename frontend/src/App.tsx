@@ -5,6 +5,7 @@ import { PropertiesPage } from './pages/PropertiesPage'
 import { PropertyDetailPage } from './pages/PropertyDetailPage'
 import { AuctioneersPage } from './pages/AuctioneersPage'
 import { AdminPage } from './pages/AdminPage'
+import { OpportunitiesPage } from './pages/OpportunitiesPage'
 import { LoginPage } from './pages/LoginPage'
 import {
   DashboardHub, FinancialHub, JuridicalHub, RisksHub, VerdictsHub,
@@ -88,6 +89,7 @@ function App() {
 
 const pageDescription: Record<string, string> = {
   '/dashboard': 'Painel de decisão: indicadores, pipeline e alertas calculados dos dados reais.',
+  '/oportunidades': 'Ciclo de vida das oportunidades (F0–F13): fase, hard stops, transições e histórico.',
   '/imoveis': 'Cadastre e acompanhe os imóveis que fazem parte do seu radar.',
   '/documentos': 'Central documental: todos os documentos do Radar, com filtros e rastreabilidade.',
   '/juridico': 'Central jurídica: processos, correlação e riscos consolidados.',
@@ -116,6 +118,7 @@ function HubRouter({ path, onOpenProperty }: { path: string; onOpenProperty: (id
     case '/veredito': return <VerdictsHub onOpenProperty={onOpenProperty} />
     case '/historico': return <HistoryHub onOpenProperty={onOpenProperty} />
     case '/leiloeiros': return <AuctioneersPage />
+    case '/oportunidades': return <OpportunitiesPage />
     case '/administracao': return <AdminPage />
     default: return <DashboardHub onOpenProperty={onOpenProperty} />
   }

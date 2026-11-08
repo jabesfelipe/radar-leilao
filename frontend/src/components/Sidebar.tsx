@@ -1,4 +1,4 @@
-import { LayoutDashboard, Building2, FileText, Scale, Wallet, BarChart3, Home, ClipboardCheck, ShieldAlert, BadgeCheck, History, Gavel, Settings, X } from 'lucide-react'
+import { LayoutDashboard, Building2, FileText, Scale, Wallet, BarChart3, Home, ClipboardCheck, ShieldAlert, BadgeCheck, History, Gavel, Settings, GitBranch, X } from 'lucide-react'
 import { IconButton } from './ui'
 
 type NavigationItem = {
@@ -9,6 +9,7 @@ type NavigationItem = {
 
 export const navigationItems: NavigationItem[] = [
   { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/oportunidades', label: 'Oportunidades', icon: GitBranch },
   { path: '/imoveis', label: 'Imóveis', icon: Building2 },
   { path: '/documentos', label: 'Documentos', icon: FileText },
   { path: '/juridico', label: 'Jurídico', icon: Scale },

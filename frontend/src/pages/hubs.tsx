@@ -7,6 +7,43 @@ import {
   formatMoney, formatPercent,
   type DashboardData, type PropertySummary,
 } from '../services/hub'
+import { getDashboard as getOpportunitiesDashboard, type DashboardData as OppDashboardData } from '../services/opportunities'
+
+// Painel de oportunidades/workflow no dashboard: agregações REAIS do backend
+// (/api/dashboard/oportunidades), por fase, modalidade, status e município.
+function OpportunitiesDashboardPanel() {
+  const [data, setData] = useState<OppDashboardData | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    getOpportunitiesDashboard().then((d) => { if (active) setData(d) }).catch((e) => { if (active) setError(e instanceof Error ? e.message : 'Falha') })
+    return () => { active = false }
+  }, [])
+  if (error) return null  // não quebra o dashboard se o painel de oportunidades falhar
+  if (!data) return null
+  const entries = (obj: Record<string, number>) => Object.entries(obj).sort((a, b) => b[1] - a[1])
+  return (
+    <Section title="Oportunidades (workflow)" description="Consolidação real por fase, modalidade, status e município." className="hub-section">
+      <div className="hub-kpis">
+        <Card padding="lg" className="hub-kpi hub-kpi-default"><span className="hub-kpi-label">Total</span><strong className="hub-kpi-value">{data.total_oportunidades}</strong></Card>
+        <Card padding="lg" className="hub-kpi hub-kpi-danger"><span className="hub-kpi-label">Bloqueadas</span><strong className="hub-kpi-value">{data.bloqueadas}</strong></Card>
+        <Card padding="lg" className="hub-kpi hub-kpi-danger"><span className="hub-kpi-label">Riscos críticos</span><strong className="hub-kpi-value">{data.riscos_criticos_ativos}</strong></Card>
+      </div>
+      <div className="hub-pipeline">
+        {entries(data.por_fase).map(([k, v]) => (
+          <Card key={k} padding="md" className="hub-pipeline-step"><span>{k}</span><strong>{v}</strong></Card>
+        ))}
+      </div>
+      {entries(data.por_modalidade).length > 0 && (
+        <div className="hub-pipeline">
+          {entries(data.por_modalidade).map(([k, v]) => (
+            <Card key={k} padding="md" className="hub-pipeline-step"><span>{k}</span><strong>{v}</strong></Card>
+          ))}
+        </div>
+      )}
+    </Section>
+  )
+}
 
 type HubProps = { onOpenProperty: (id: number) => void }
 
@@ -56,6 +93,7 @@ export function DashboardHub({ onOpenProperty }: HubProps) {
             <Kpi label="Riscos altos" value={d.kpis.riscos_altos} tone="danger" />
             <Kpi label="Oportunidades" value={d.kpis.oportunidades} tone="success" />
           </div>
+          <OpportunitiesDashboardPanel />
           <Section title="Pipeline" description="Estados reais dos imóveis no Radar." className="hub-section">
             <div className="hub-pipeline">
               {Object.entries(d.pipeline).map(([k, v]) => (
