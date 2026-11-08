@@ -1112,6 +1112,27 @@ COVERAGE_LEVELS = (
     "INDISPONIVEL",          # sem via conhecida
 )
 
+# --- Consulta de débito / orquestração (Etapa E) ------------------------------
+# Status de UMA execução de consulta (manual/assistida ou futura automatizada).
+# Alinhado ao padrão de due_diligence_fronts: "sem ocorrência" ≠ "não consultado".
+DEBT_QUERY_STATUSES = (
+    "PENDENTE",                   # planejada, ainda não executada
+    "EM_EXECUCAO",
+    "CONCLUIDA",                  # retornou resultado
+    "PARCIAL",                    # resultado incompleto
+    "SEM_OCORRENCIA",             # consulta feita, nada encontrado (≠ ausência de débito)
+    "INDISPONIVEL",               # fonte indisponível no momento
+    "REQUER_INTERVENCAO_MANUAL",  # precisa de ação humana (identificador/portal)
+    "ERRO",                       # falha técnica
+)
+
+# Modo de execução de uma consulta.
+DEBT_QUERY_MODES = ("MANUAL", "ASSISTIDA", "AUTOMATICA")
+
+# --- Estimativa condominial (Etapa C) -----------------------------------------
+# Grau de confiança da estimativa (NUNCA é passivo confirmado).
+ESTIMATE_CONFIDENCE = ("BAIXA", "MEDIA", "ALTA")
+
 # Catálogo central de parâmetros.
 PARAMETER_DATA_TYPES = ("STRING", "INTEGER", "DECIMAL", "BOOLEAN", "JSON")
 PARAMETER_SCOPES = ("GLOBAL", "MUNICIPIO", "CATEGORIA", "MUNICIPIO_CATEGORIA")
@@ -1296,3 +1317,72 @@ class MunicipalityCoverage(TimestampMixin, Base):
         UniqueConstraint("municipality_id", "debt_type_code", name="uq_coverage_municipality_type"),
         Index("ix_coverage_municipality_type", "municipality_id", "debt_type_code"),
     )
+
+
+class DebtQuery(TimestampMixin, Base):
+    """Execução de uma consulta de débito (Etapa E), manual/assistida ou futura
+    automatizada. Rastreabilidade por consulta: fonte, provider, status, origem do
+    resultado e evidência. Separa CONSULTA de normalização/persistência — o resultado
+    normalizado vira ``PropertyDebt`` (reusado), e esta tabela guarda o histórico da
+    execução. NENHUMA consulta externa é disparada pelo modelo; ele apenas registra.
+
+    ``opportunity_id`` é NULLABLE (NULL = legado; Gate 1). ``debt_id`` liga ao
+    ``PropertyDebt`` gerado (quando houver). ``provider`` identifica o adaptador
+    determinístico utilizado (ex.: ``manual_assistida``)."""
+    __tablename__ = "debt_queries"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), nullable=False, index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado
+    municipality_id: Mapped[int | None] = mapped_column(ForeignKey("municipalities.id"), index=True)
+    debt_type_code: Mapped[str] = mapped_column(String(60), nullable=False, index=True)
+    provider: Mapped[str] = mapped_column(String(80), default="manual_assistida")  # nome do adaptador
+    provider_version: Mapped[str | None] = mapped_column(String(40))
+    mode: Mapped[str] = mapped_column(String(20), default="MANUAL")                # DEBT_QUERY_MODES
+    status: Mapped[str] = mapped_column(String(30), default="PENDENTE", index=True)  # DEBT_QUERY_STATUSES
+    source_id: Mapped[int | None] = mapped_column(ForeignKey("debt_sources.id"))
+    identifier: Mapped[str | None] = mapped_column(String(160))                    # identificador usado (ex.: inscrição)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)                       # tentativas (retry controlado)
+    message: Mapped[str | None] = mapped_column(Text)                              # mensagem/limitação/erro estruturado
+    debt_id: Mapped[int | None] = mapped_column(ForeignKey("property_debts.id"))   # PropertyDebt gerado (quando houver)
+    evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+    __table_args__ = (
+        Index("ix_debt_queries_property_status", "property_id", "status"),
+    )
+
+
+class CondominiumEstimate(TimestampMixin, Base):
+    """Estimativa PARAMETRIZADA de despesa condominial (Etapa C). NUNCA é passivo
+    confirmado: é sempre ESTIMADO, com memória de cálculo, premissas, grau de
+    confiança e cenários conservador/provável/otimista.
+
+    Distingue rigorosamente (campos de CONTEXTO, nunca prova de dívida):
+    idade do imóvel, idade do condomínio, tempo de financiamento e período presumido
+    de inadimplência. O período de inadimplência é um PARÂMETRO explícito
+    (``months_delinquent``), nunca derivado da idade do imóvel/financiamento.
+
+    Os valores dos cenários são gravados como snapshot do cálculo; os parâmetros
+    efetivamente usados ficam em ``assumptions`` (JSON) para auditoria/imutabilidade."""
+    __tablename__ = "condominium_estimates"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), nullable=False, index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado
+    monthly_reference: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))   # valor mensal de referência (informado ou do parâmetro)
+    monthly_source: Mapped[str] = mapped_column(String(20), default="ESTIMADO")  # INFORMADO | ESTIMADO
+    months_delinquent: Mapped[int | None] = mapped_column(Integer)              # período PRESUMIDO de inadimplência (parâmetro)
+    safety_margin_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))    # fração (0.10 = 10%)
+    # Contexto (NUNCA passivo): separados explicitamente.
+    property_age_years: Mapped[int | None] = mapped_column(Integer)
+    condominium_age_years: Mapped[int | None] = mapped_column(Integer)
+    financing_age_years: Mapped[int | None] = mapped_column(Integer)
+    # Resultado (snapshot do cálculo determinístico).
+    scenario_conservador: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    scenario_provavel: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    scenario_otimista: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    confidence: Mapped[str] = mapped_column(String(10), default="BAIXA")        # ESTIMATE_CONFIDENCE
+    assumptions: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)     # parâmetros usados + memória de cálculo
+    justification: Mapped[str | None] = mapped_column(Text)
+    reference_date: Mapped[date | None] = mapped_column(Date)
+    evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))

@@ -64,6 +64,9 @@ TABLES_ADDED_LATER = (
     "workflow_transitions",
     "opportunity_workflows",
     "opportunities",
+    # 0022_consulta_estimativa (Etapas C/E) — filhas (dropar antes das pais da Etapa A/B)
+    "debt_queries",
+    "condominium_estimates",
     # 0021_cobertura_municipal (Etapa B) — filha de municipalities/debt_sources (dropar antes)
     "municipality_coverage",
     # 0020_central_debitos (Etapa A) — filhas antes das pais (FKs)
