@@ -3791,6 +3791,89 @@
     "title": "MeOut",
     "type": "object"
    },
+   "ModalityClassifyRequest": {
+    "description": "Classificação determinística a partir de sinais objetivos. Só confirma com\nevidência (evidence_id); sem evidência permanece INDEFINIDO.",
+    "properties": {
+     "confirm": {
+      "default": true,
+      "title": "Confirm",
+      "type": "boolean"
+     },
+     "evidence_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Evidence Id"
+     },
+     "origin": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Origin"
+     },
+     "signals_text": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Signals Text"
+     }
+    },
+    "title": "ModalityClassifyRequest",
+    "type": "object"
+   },
+   "ModalityCorrectRequest": {
+    "description": "Correção manual da modalidade por usuário autorizado (auditada).",
+    "properties": {
+     "evidence_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Evidence Id"
+     },
+     "justification": {
+      "minLength": 3,
+      "title": "Justification",
+      "type": "string"
+     },
+     "modality": {
+      "enum": [
+       "EXTRAJUDICIAL_ALIENACAO_FIDUCIARIA",
+       "EXTRAJUDICIAL_OUTRA_GARANTIA",
+       "JUDICIAL",
+       "VENDA_DIRETA",
+       "INDEFINIDO"
+      ],
+      "title": "Modality",
+      "type": "string"
+     }
+    },
+    "required": [
+     "modality",
+     "justification"
+    ],
+    "title": "ModalityCorrectRequest",
+    "type": "object"
+   },
    "MunicipalityCreate": {
     "properties": {
      "coverage_active": {
@@ -4371,6 +4454,75 @@
     "title": "OccupantContactUpdate",
     "type": "object"
    },
+   "OpportunityCreate": {
+    "properties": {
+     "codigo": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Codigo"
+     },
+     "external_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "External Id"
+     },
+     "modality": {
+      "default": "INDEFINIDO",
+      "enum": [
+       "EXTRAJUDICIAL_ALIENACAO_FIDUCIARIA",
+       "EXTRAJUDICIAL_OUTRA_GARANTIA",
+       "JUDICIAL",
+       "VENDA_DIRETA",
+       "INDEFINIDO"
+      ],
+      "title": "Modality",
+      "type": "string"
+     },
+     "origin": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Origin"
+     },
+     "portal": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Portal"
+     },
+     "property_id": {
+      "title": "Property Id",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "property_id"
+    ],
+    "title": "OpportunityCreate",
+    "type": "object"
+   },
    "ParameterCreate": {
     "properties": {
      "allowed_values": {
@@ -4752,6 +4904,43 @@
      }
     },
     "title": "ParameterUpdate",
+    "type": "object"
+   },
+   "PhaseStateRequest": {
+    "description": "Marca o estado de uma fase (ex.: concluir o gate de saída para habilitar o\nAVANÇO). ``phase`` omitido = fase corrente. Não contorna hard stops.",
+    "properties": {
+     "justification": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Justification"
+     },
+     "phase": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phase"
+     },
+     "state": {
+      "minLength": 2,
+      "title": "State",
+      "type": "string"
+     }
+    },
+    "required": [
+     "state"
+    ],
+    "title": "PhaseStateRequest",
     "type": "object"
    },
    "PortalAccessCreate": {
@@ -7742,6 +7931,52 @@
     "title": "TokenOut",
     "type": "object"
    },
+   "TransitionRequest": {
+    "properties": {
+     "decision": {
+      "anyOf": [
+       {
+        "enum": [
+         "APROVADA",
+         "REPROVADA",
+         "ADIADA"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Decision"
+     },
+     "justification": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Justification"
+     },
+     "target_phase": {
+      "minLength": 2,
+      "title": "Target Phase",
+      "type": "string"
+     },
+     "transition_type": {
+      "default": "AVANCO",
+      "title": "Transition Type",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target_phase"
+    ],
+    "title": "TransitionRequest",
+    "type": "object"
+   },
    "UserCreate": {
     "properties": {
      "active": {
@@ -9733,6 +9968,53 @@
      }
     },
     "summary": "Dashboard"
+   }
+  },
+  "/api/dashboard/oportunidades": {
+   "get": {
+    "operationId": "opportunities_dashboard_api_dashboard_oportunidades_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Opportunities Dashboard",
+    "tags": [
+     "dashboard"
+    ]
    }
   },
   "/api/documentos": {
@@ -15347,6 +15629,1050 @@
      }
     },
     "summary": "Occupancy Hub"
+   }
+  },
+  "/api/oportunidades": {
+   "get": {
+    "operationId": "list_opportunities_api_oportunidades_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "municipality",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Municipality"
+      }
+     },
+     {
+      "in": "query",
+      "name": "modality",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Modality"
+      }
+     },
+     {
+      "in": "query",
+      "name": "status",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Status"
+      }
+     },
+     {
+      "in": "query",
+      "name": "phase",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Phase"
+      }
+     },
+     {
+      "in": "query",
+      "name": "limit",
+      "required": false,
+      "schema": {
+       "default": 50,
+       "maximum": 200,
+       "minimum": 1,
+       "title": "Limit",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "offset",
+      "required": false,
+      "schema": {
+       "default": 0,
+       "minimum": 0,
+       "title": "Offset",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Opportunities",
+    "tags": [
+     "oportunidades"
+    ]
+   },
+   "post": {
+    "operationId": "create_opportunity_api_oportunidades_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OpportunityCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Create Opportunity",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/modalidades": {
+   "get": {
+    "operationId": "list_modalities_api_oportunidades_modalidades_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Modalities",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}": {
+   "get": {
+    "operationId": "get_opportunity_api_oportunidades__opportunity_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Opportunity",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/checklist-aplicavel": {
+   "get": {
+    "operationId": "get_checklist_applicability_api_oportunidades__opportunity_id__checklist_aplicavel_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Checklist Applicability",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/estado": {
+   "get": {
+    "operationId": "get_state_api_oportunidades__opportunity_id__estado_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get State",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/fase/estado": {
+   "post": {
+    "operationId": "set_phase_state_api_oportunidades__opportunity_id__fase_estado_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PhaseStateRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Set Phase State",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/hard-stops": {
+   "get": {
+    "operationId": "get_hard_stops_api_oportunidades__opportunity_id__hard_stops_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Hard Stops",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/historico": {
+   "get": {
+    "operationId": "get_history_api_oportunidades__opportunity_id__historico_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get History",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/modalidade/classificar": {
+   "post": {
+    "operationId": "classify_modality_api_oportunidades__opportunity_id__modalidade_classificar_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ModalityClassifyRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Classify Modality",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/modalidade/corrigir": {
+   "post": {
+    "operationId": "correct_modality_api_oportunidades__opportunity_id__modalidade_corrigir_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ModalityCorrectRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Correct Modality",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/pendencias": {
+   "get": {
+    "operationId": "get_pending_api_oportunidades__opportunity_id__pendencias_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Pending",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/reavaliar": {
+   "post": {
+    "operationId": "reevaluate_api_oportunidades__opportunity_id__reavaliar_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Reevaluate",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/transicao": {
+   "post": {
+    "operationId": "request_transition_api_oportunidades__opportunity_id__transicao_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TransitionRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Request Transition",
+    "tags": [
+     "oportunidades"
+    ]
+   }
+  },
+  "/api/oportunidades/{opportunity_id}/transicoes": {
+   "get": {
+    "operationId": "list_transitions_api_oportunidades__opportunity_id__transicoes_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "opportunity_id",
+      "required": true,
+      "schema": {
+       "title": "Opportunity Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Transitions",
+    "tags": [
+     "oportunidades"
+    ]
    }
   },
   "/api/riscos": {
