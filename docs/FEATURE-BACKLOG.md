@@ -154,10 +154,15 @@
   Ver `docs/CENTRAL-DEBITOS-DESPESAS-ADMIN-ETAPA-A.md`.
 
 ### FB-014 — Municípios, cobertura e fontes (Etapa B)
-- **Estágio:** ESPECIFICADA. **Problema:** não há cadastro de município/fonte; tudo manual e genérico.
-  **Benefício:** cobertura independente por município×tipo, extensível sem código. **Módulos:** C2, B.
-- **Complexidade:** M-G. **Prioridade:** P1. **Impacto:** Estrutural. **Dependência:** FB-013.
-  **Decisão:** pendente (confirmar 4 municípios + tipos ativos — §21.8).
+- **Estágio:** IMPLEMENTADA (Etapa B) e VALIDADA em banco descartável. **Problema:** não havia cadastro
+  de cobertura por tipo (só flag global) nem cadastro efetivo de fontes. **Benefício:** cobertura
+  independente por município×tipo, extensível sem código. **Módulos:** C2, B.
+- **Complexidade:** M-G. **Prioridade:** P1. **Impacto:** Estrutural. **Dependência:** FB-013 (atendida).
+  **Entrega:** tabela `municipality_coverage` (migration `0021`, reversível) + vocabulários canônicos +
+  `coverage_service` (seed como dado; matriz com não investigados) + APIs `/api/admin/cobertura` +
+  fontes validadas e com UI de cadastro/edição + inventário documental das 4 fontes oficiais +
+  especificação de adaptadores (sem coletor). **Fora de escopo:** consulta real/automação (Etapas E/F).
+  Ver `docs/COBERTURA-MUNICIPAL-FONTES-ETAPA-B.md` e `docs/SPEC-ADAPTADORES-CONSULTA-MUNICIPAL.md`.
 
 ### FB-015 — Estimativa condominial + alertas de idade (Etapa C)
 - **Estágio:** ESPECIFICADA. **Problema:** sem condomínio acessível, falta estimativa confiável e

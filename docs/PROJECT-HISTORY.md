@@ -2541,3 +2541,53 @@ RC=0; frontend `tsc -b` OK + **141 passed / 23 arquivos**. Preservação 633 / V
 **Débito técnico registrado:** o token administrativo é provisório e **não** substitui
 RBAC; a área admin só deve ser exposta em produção após a Onda 11. Documentação técnica
 completa em `docs/CENTRAL-DEBITOS-DESPESAS-ADMIN-ETAPA-A.md`.
+
+## Etapa B — Cobertura municipal e fontes de consulta
+
+Evolução da Central de Débitos para uma **estrutura operacional de cobertura** por
+município × tipo de débito. Totalmente **aditiva**: `Debt`/`Cost`/`PropertyDebt`,
+evidências, endpoints, motor financeiro e parâmetros (Etapa A) permanecem intactos; sem
+backfill; Central Jurídica não tocada.
+
+**Modelo de dados (migration `0021_cobertura_municipal`, down_revision
+`0020_central_debitos`, reversível):** nova tabela `municipality_coverage` (município ×
+`debt_type_code`) com `level`, `situation`, `method`, `active`, `source_id` (opcional),
+`identifier_required`, `limitations`, `observations`, `last_validated_at`; unicidade
+`(municipality_id, debt_type_code)`. Vocabulários canônicos adicionados em `models.py`:
+`COVERAGE_LEVELS`, `DEBT_SOURCE_SITUATIONS`, `DEBT_CONSULTATION_METHODS`. `0001` teve
+`TABLES_ADDED_LATER` atualizado (tabela folha, dropada antes das tabelas da Etapa A).
+
+**Serviço (`coverage_service.py`):** `COVERAGE_SEED` como **dado** (não condicional) —
+seed honesto em que só o IPTU dos 4 municípios é `AUTOMATIZAVEL`/portal público e os
+demais tipos ficam `NAO_INVESTIGADA`/`MANUAL`; `seed_coverage` idempotente (integrado ao
+`seed_all`); `create_coverage`/`update_coverage` com validação de referências, vocabulário
+e recusa de duplicidade (`mark_validated` carimba a última validação); `coverage_matrix`
+expõe explicitamente as combinações **não investigadas** com ressalva.
+
+**APIs:** `/api/admin/cobertura` (GET matriz, POST, PATCH — escrita protegida por
+`X-Admin-Token`, **provisório até RBAC Onda 11**). O cadastro de fontes passou a validar
+`debt_category` contra o catálogo e os vocabulários de `source_type`/`situation`.
+Contrato OpenAPI de 113 para **115 paths** (+2; baseline regenerado).
+
+**Frontend:** aba **Cobertura** (matriz com Badge de nível, ativar/desativar, marcar
+validação, lista de cobertura não investigada com ação "marcar em investigação" e
+formulário de nova cobertura) e aba **Fontes** reescrita com formulário de cadastro/edição
+(antes era somente leitura).
+
+**Inventário de fontes (documental)** dos 4 municípios — Curitiba, São José dos Pinhais,
+Fazenda Rio Grande (PR) e Assis (SP) — levantando a existência de portais públicos de
+consulta de IPTU, **sem** qualquer consulta de débito real, scraping ou contorno de
+CAPTCHA/autenticação; nenhuma API oficial confirmada. **Especificação da arquitetura de
+adaptadores** (`SPEC-ADAPTADORES-CONSULTA-MUNICIPAL.md`) definindo o contrato
+`MunicipalDebtProvider`, entrada/saída normalizada, resiliência e status de consulta —
+**nenhum coletor/adaptador foi implementado** (Etapas E/F).
+
+**Validação (banco descartável, PostgreSQL/pgvector efêmero):** backend **694 passed /
+2 skipped** (RC=0; +12 testes em `tests/test_cobertura_municipal.py`); migrations
+`upgrade head`→`downgrade 0020`→`re-upgrade` RC=0; frontend `tsc -b` OK + **143 passed /
+23 arquivos**. Preservação 633 / V1–V9 / `llm_runs` / 27 `canonical_key` / Central
+Jurídica mantida (testes só em banco efêmero).
+
+**Débito técnico:** o token administrativo continua provisório e **não** substitui RBAC;
+coletores/consulta real/agentes/modalidades seguem fora de escopo. Documentação técnica
+completa em `docs/COBERTURA-MUNICIPAL-FONTES-ETAPA-B.md`.

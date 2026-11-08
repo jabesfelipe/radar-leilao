@@ -1,6 +1,30 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (20/09/2026 — Etapa A: Central de Débitos/Despesas + Parâmetros administráveis):**
+**Status global (20/09/2026 — Etapa B: Cobertura municipal e fontes de consulta):**
+entregue a **matriz operacional de cobertura município × tipo de débito** (aditiva,
+preservando a Etapa A). Nova tabela `municipality_coverage` via migration
+`0021_cobertura_municipal` (down_revision `0020`, reversível, sem backfill): cobertura
+**independente por município × tipo**, como dado administrável — nunca em condicional
+fixa. Vocabulários canônicos `COVERAGE_LEVELS`/`DEBT_SOURCE_SITUATIONS`/
+`DEBT_CONSULTATION_METHODS`. Serviço `coverage_service.py` (seed honesto: só IPTU dos 4
+municípios como `AUTOMATIZAVEL`/portal; dívida ativa/taxas `NAO_INVESTIGADA`;
+create/update com validação de referências/vocabulário/duplicidade; matriz expõe
+combinações **não investigadas**). APIs `/api/admin/cobertura` (GET matriz / POST / PATCH;
+escrita protegida por `X-Admin-Token` — **provisório até RBAC Onda 11**) e fontes agora
+validadas e com UI de cadastro/edição. 1ª visão administrativa de cobertura
+(`/administracao` → aba Cobertura). **Inventário documental** das fontes oficiais dos 4
+municípios (pesquisa de existência de portais públicos; **nenhuma consulta real/scraping**;
+nenhuma API oficial confirmada) e **especificação da arquitetura de adaptadores**
+(`SPEC-ADAPTADORES-CONSULTA-MUNICIPAL.md`) — **nenhum coletor/adaptador implementado**.
+Contrato OpenAPI 115 paths (+2). Validação em banco descartável: **backend 694 passed /
+2 skipped**, migrations up/down(0020)/up RC=0, **frontend tsc OK + 143 passed**.
+Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica mantida.
+**Fora de escopo (não iniciado):** coletores/scraping, consulta real, agentes,
+modalidades, Etapas C–F. Detalhes em `docs/COBERTURA-MUNICIPAL-FONTES-ETAPA-B.md` e
+`docs/PROJECT-HISTORY.md` (seção "Etapa B — Cobertura municipal"). **Próximo passo:**
+aguardar autorização da Etapa C.
+
+**Status global anterior (20/09/2026 — Etapa A: Central de Débitos/Despesas + Parâmetros administráveis):**
 fundação de dados, serviços, APIs e 1ª UI administrativa entregues (aditivo, preservando
 `Debt`/`Cost`). 6 tabelas novas via migration `0020_central_debitos` (down_revision `0019`,
 aditiva/reversível, sem backfill — Gate 2 bloqueado): `municipalities`, `debt_types`,

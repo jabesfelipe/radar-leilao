@@ -20,11 +20,13 @@
   Logo, a próxima migration livre era **`0020`**, não `0022`. A numeração segue a cadeia efetiva; o
   conteúdo lógico das ondas é preservado.
 - **Atualização (Etapa A da Central de Débitos):** a migration `0020_central_debitos` foi executada
-  para a fundação da Central (ver §4 abaixo). Portanto a **Onda 2 (modalidade)** deverá usar a próxima
-  livre, **`0021`**.
+  para a fundação da Central (ver §4 abaixo).
+- **Atualização (Etapa B da Central de Débitos):** a migration `0021_cobertura_municipal` foi executada
+  para a cobertura município × tipo. Portanto a **Onda 2 (modalidade)** deverá usar a próxima livre,
+  **`0022`**.
 - As ondas do Ciclo 2 permanecem as mesmas; a **Onda 0 (M0+CI)** e a **Onda 1 (Opportunity/Workflow)**
-  estão concluídas; a **Etapa A (Central de Débitos/Despesas + Parâmetros)** está concluída (fundação);
-  a **Onda 2 (modalidade)** está planejada (`PLAN-WAVE-2-MODALIDADES.md`).
+  estão concluídas; as **Etapas A e B (Central de Débitos/Despesas + Parâmetros + Cobertura)** estão
+  concluídas; a **Onda 2 (modalidade)** está planejada (`PLAN-WAVE-2-MODALIDADES.md`).
 
 ## 3. Legenda
 - **Prioridade:** P0 (crítico/caminho crítico) · P1 (alto valor) · P2 (evolução).
@@ -55,6 +57,22 @@
   descartável. **Refs:** `docs/CENTRAL-DEBITOS-DESPESAS-ADMIN-ETAPA-A.md`.
 - **Dependência ABERTA:** auth/RBAC (Onda 11) para expor a admin em produção. **Fora de escopo:**
   coletores/scraping/consulta real/agentes/modalidades (Etapas B–F).
+
+### Etapa B — Cobertura municipal e fontes de consulta ✅ CONCLUÍDA
+- **Prioridade:** P1. **Valor:** cobertura operacional por município × tipo, extensível sem código.
+  **Complexidade:** M-G.
+- **Entrega:** tabela `municipality_coverage` (migration `0021_cobertura_municipal`, aditiva/reversível);
+  vocabulários canônicos de nível/situação/método; `coverage_service.py` (seed como dado, matriz com
+  combinações não investigadas, validação de referências/vocabulário/duplicidade); APIs
+  `/api/admin/cobertura` (escrita protegida por `X-Admin-Token` provisório) + fontes validadas e com UI
+  de cadastro/edição; aba Cobertura na admin; inventário documental das 4 fontes oficiais; especificação
+  de adaptadores (`SPEC-ADAPTADORES-CONSULTA-MUNICIPAL.md`).
+- **Critério de aceite:** cobertura independente por município×tipo; nenhuma lista fixa no código;
+  migrations reversíveis (up/down(0020)/up RC=0); backend 694/2; frontend tsc + 143; contrato 115 paths;
+  Etapa A/633 intactos. **Status:** VALIDADO em banco descartável.
+  **Refs:** `docs/COBERTURA-MUNICIPAL-FONTES-ETAPA-B.md`.
+- **NÃO implementado (deliberado):** coletores/adaptadores concretos, consulta real, `debt_query`,
+  workers. **Dependência ABERTA:** auth/RBAC (Onda 11). **Fora de escopo:** Etapas C–F.
 
 ### Onda 1b — Serviço + API + UI de Workflow/Oportunidade ⬅️ **CAMINHO CRÍTICO**
 - **Prioridade:** P0. **Valor:** materializa a Onda 1 (hoje o engine é código não-ligado).
