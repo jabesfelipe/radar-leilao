@@ -48,6 +48,17 @@ class Settings(BaseSettings):
     # authz.py). Ex.: '{"operador":"<token>"}'. Ausente => só o papel admin
     # (admin_api_token). Provisório até auth/RBAC (Onda 11); nunca versionar tokens.
     authz_role_tokens: str | None = None
+    # ---- Autenticação/RBAC real (Onda 11) ----
+    # Segredo para assinar o JWT (HS256). SEM segredo configurado => emissão/validação
+    # de token recusada (falha-fechada). Nunca versionar; vem do ambiente.
+    jwt_secret_key: str | None = None
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 480  # 8h; sessão expira e exige novo login
+    # Bootstrap OPCIONAL do 1º usuário administrador (idempotente, via env). Sem estes
+    # valores, NENHUM usuário/senha padrão é criado (sem credencial default em produção).
+    auth_bootstrap_admin_email: str | None = None
+    auth_bootstrap_admin_password: str | None = None
+    auth_bootstrap_admin_name: str = "Administrador"
     # ---- Due Diligence integrada (4 frentes) ----
     # Integrações externas OPCIONAIS: ausência de chave => frente fica "NAO_CONFIGURADO"
     # (o sistema NUNCA simula uma consulta bem-sucedida). Todas defaultam para None,

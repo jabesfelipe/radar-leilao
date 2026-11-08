@@ -64,6 +64,8 @@ TABLES_ADDED_LATER = (
     "workflow_transitions",
     "opportunity_workflows",
     "opportunities",
+    # 0023_usuarios (Onda 11) — tabela standalone (sem dependentes)
+    "users",
     # 0022_consulta_estimativa (Etapas C/E) — filhas (dropar antes das pais da Etapa A/B)
     "debt_queries",
     "condominium_estimates",

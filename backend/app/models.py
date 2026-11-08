@@ -1386,3 +1386,34 @@ class CondominiumEstimate(TimestampMixin, Base):
     justification: Mapped[str | None] = mapped_column(Text)
     reference_date: Mapped[date | None] = mapped_column(Date)
     evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+
+
+# ============================================================================
+# AUTENTICAÇÃO / RBAC (Onda 11)
+# Identidade local em PostgreSQL. Senha SEMPRE com hash (bcrypt); nunca em claro.
+# Papéis com permissões explícitas (ver authz.py). O antigo X-Admin-Token permanece
+# apenas como compatibilidade temporária, não como identidade.
+# ============================================================================
+
+# Papéis de usuário. Permissões explícitas vivem em authz.ROLE_PERMISSIONS.
+USER_ROLES = ("ADMIN", "ANALISTA", "OPERADOR", "CONSULTA")
+
+
+class User(TimestampMixin, Base):
+    """Usuário do Radar. Autenticação por e-mail + senha (hash bcrypt); autorização
+    por papel (``role`` em USER_ROLES). ``active=False`` bloqueia o login (falha-
+    fechada). Nenhum usuário/senha padrão é criado automaticamente — o bootstrap do
+    primeiro admin é opcional e vem do ambiente."""
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(200), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="CONSULTA")  # USER_ROLES
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime)
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_user_email"),
+        Index("ix_users_email", "email"),
+        Index("ix_users_role", "role"),
+    )
