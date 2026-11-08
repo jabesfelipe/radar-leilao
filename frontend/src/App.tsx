@@ -5,11 +5,15 @@ import { PropertiesPage } from './pages/PropertiesPage'
 import { PropertyDetailPage } from './pages/PropertyDetailPage'
 import { AuctioneersPage } from './pages/AuctioneersPage'
 import { AdminPage } from './pages/AdminPage'
+import { LoginPage } from './pages/LoginPage'
 import {
   DashboardHub, FinancialHub, JuridicalHub, RisksHub, VerdictsHub,
   MarketHub, OccupancyHub, ChecklistHub, DocumentsHub, HistoryHub,
 } from './pages/hubs'
 import { navigationItems } from './components/Sidebar'
+import { installAuthFetch, isAuthenticated, getUser, clearSession } from './services/session'
+
+installAuthFetch()
 
 const defaultPath = '/dashboard'
 
@@ -27,11 +31,20 @@ function matchPropertyDetail(pathname: string): number | null {
 
 function App() {
   const [currentPath, setCurrentPath] = useState(() => normalizePath(window.location.pathname))
+  const [authed, setAuthed] = useState(() => isAuthenticated())
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(normalizePath(window.location.pathname))
+    const handleAuthChanged = () => setAuthed(isAuthenticated())
+    const handleUnauthorized = () => setAuthed(false)
     window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
+    window.addEventListener('radar:auth-changed', handleAuthChanged)
+    window.addEventListener('radar:unauthorized', handleUnauthorized)
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+      window.removeEventListener('radar:auth-changed', handleAuthChanged)
+      window.removeEventListener('radar:unauthorized', handleUnauthorized)
+    }
   }, [])
 
   const navigate = (path: string) => {
@@ -42,10 +55,19 @@ function App() {
 
   const openProperty = (id: number) => navigate(`/imoveis/${id}`)
 
+  // Proteção de rotas: sem sessão autenticada, só a tela de login é renderizada. O
+  // backend bloqueia operações de escrita de forma independente (não confia no front).
+  if (!authed) {
+    return <LoginPage onAuthenticated={() => setAuthed(true)} />
+  }
+
+  const user = getUser()
+  const onLogout = () => { clearSession(); setAuthed(false) }
+
   const detailPropertyId = matchPropertyDetail(currentPath)
   if (detailPropertyId !== null) {
     return (
-      <Layout currentPath="/imoveis" onNavigate={navigate}>
+      <Layout currentPath="/imoveis" onNavigate={navigate} user={user} onLogout={onLogout}>
         <PageContainer title="Detalhe do imóvel" description="Centro de navegação do imóvel e ponto de partida para as análises.">
           <PropertyDetailPage propertyId={detailPropertyId} onBack={() => navigate('/imoveis')} />
         </PageContainer>
@@ -56,7 +78,7 @@ function App() {
   const page = navigationItems.find((item) => item.path === currentPath) ?? navigationItems[0]
 
   return (
-    <Layout currentPath={currentPath} onNavigate={navigate}>
+    <Layout currentPath={currentPath} onNavigate={navigate} user={user} onLogout={onLogout}>
       <PageContainer title={page.label} description={pageDescription[page.path] ?? ''}>
         <HubRouter path={page.path} onOpenProperty={openProperty} />
       </PageContainer>
