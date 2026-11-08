@@ -15,8 +15,11 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..auth import get_current_user
+from ..authz import require_permission, PERM_ADMIN_WRITE
+from ..config import settings
 from ..database import get_db
 from ..documents.embedding_backfill import coverage_report
+from ..documents.storage_governance import diagnose as storage_diagnose
 
 router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
@@ -47,3 +50,20 @@ def rag_metrics(db: Session = Depends(get_db), _: models.User = Depends(get_curr
         "versoes_em_erro": int(versoes_erro),
         "embeddings": cobertura,
     }
+
+
+@router.get("/storage")
+def storage_diagnostics(db: Session = Depends(get_db), _role: str = Depends(require_permission(PERM_ADMIN_WRITE))):
+    """Diagnóstico de governança de storage (somente leitura, admin).
+
+    Inventaria os diretórios de documentos, classifica (REFERENCED/NOT_REFERENCED/
+    UNCERTAIN) e calcula o espaço recuperável. NUNCA exclui nada; o imóvel 633 é
+    sempre protegido. Exige permissão administrativa."""
+    report = storage_diagnose(db, settings.storage_path)
+    # Não expõe caminhos absolutos completos por diretório — apenas nome, classificação,
+    # tamanho e motivo (reduz vazamento de topologia do host).
+    report["diretorios"] = [
+        {k: v for k, v in d.items() if k != "path"} for d in report.get("diretorios", [])
+    ]
+    report.pop("storage_root", None)
+    return report

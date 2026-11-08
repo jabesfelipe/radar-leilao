@@ -15709,6 +15709,70 @@
     ]
    }
   },
+  "/api/monitoring/storage": {
+   "get": {
+    "description": "Diagnóstico de governança de storage (somente leitura, admin).\n\nInventaria os diretórios de documentos, classifica (REFERENCED/NOT_REFERENCED/\nUNCERTAIN) e calcula o espaço recuperável. NUNCA exclui nada; o imóvel 633 é\nsempre protegido. Exige permissão administrativa.",
+    "operationId": "storage_diagnostics_api_monitoring_storage_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-admin-token",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "X-Admin-Token"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Storage Diagnostics",
+    "tags": [
+     "monitoring"
+    ]
+   }
+  },
   "/api/ocupacao": {
    "get": {
     "operationId": "occupancy_hub_api_ocupacao_get",
