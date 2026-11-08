@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # configurado, operações de ESCRITA administrativa são recusadas (503). É medida
     # PROVISÓRIA até a frente de auth/RBAC (Onda 11); NÃO substitui RBAC real.
     admin_api_token: str | None = None
+    # Mapa opcional papel→token (JSON) para autorização por papel (Etapa C–F,
+    # authz.py). Ex.: '{"operador":"<token>"}'. Ausente => só o papel admin
+    # (admin_api_token). Provisório até auth/RBAC (Onda 11); nunca versionar tokens.
+    authz_role_tokens: str | None = None
     # ---- Due Diligence integrada (4 frentes) ----
     # Integrações externas OPCIONAIS: ausência de chave => frente fica "NAO_CONFIGURADO"
     # (o sistema NUNCA simula uma consulta bem-sucedida). Todas defaultam para None,

@@ -1005,3 +1005,48 @@ class CoverageOut(BaseModel):
     limitations: str | None; observations: str | None; last_validated_at: datetime | None
     created_at: datetime; updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Consulta de débito (Etapa E) ---
+class DebtQueryItemIn(BaseModel):
+    """Lançamento informado no fluxo de consulta ASSISTIDA (valores lidos da fonte
+    oficial pelo operador). ESTIMADO nunca é tratado como OFICIAL (validado no serviço)."""
+    debt_type_code: str | None = None
+    original_amount: Decimal | None = None
+    updated_amount: Decimal | None = None
+    reference_date: date | None = None
+    competence: str | None = None
+    status: str = "INFORMADO"
+    reliability: str = "INFORMADO"
+    origin: str | None = None
+    external_id: str | None = None
+    observations: str | None = None
+
+
+class DebtQueryRequest(BaseModel):
+    debt_type_code: str = Field(min_length=1)
+    municipality_id: int | None = None
+    source_id: int | None = None
+    identifier: str | None = None
+    max_attempts: int = 1
+    sem_ocorrencia: bool = False
+    mensagem: str | None = None
+    itens: list[DebtQueryItemIn] | None = None
+
+
+# --- Estimativa condominial (Etapa C) ---
+class CondominiumEstimateRequest(BaseModel):
+    """Entrada da estimativa. Qualquer parâmetro ausente é resolvido no catálogo
+    central. Os campos de idade são CONTEXTO (nunca prova de dívida) e são separados
+    rigorosamente; o período de inadimplência é explícito (nunca derivado de idade)."""
+    monthly_reference: Decimal | None = None
+    months_delinquent: int | None = Field(default=None, ge=0, le=120)
+    safety_margin_pct: Decimal | None = Field(default=None, ge=0, le=2)
+    municipality_id: int | None = None
+    property_age_years: int | None = Field(default=None, ge=0, le=200)
+    condominium_age_years: int | None = Field(default=None, ge=0, le=200)
+    financing_age_years: int | None = Field(default=None, ge=0, le=200)
+    age_known: bool = True
+    justification: str | None = None
+    evidence_id: int | None = None
+    persist: bool = True

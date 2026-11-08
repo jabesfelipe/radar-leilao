@@ -12,28 +12,23 @@ externa/scraping é executada: fontes são apenas cadastradas.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import models, schemas, parameters as params, debts_service, coverage_service
 from ..config import settings
 from ..database import get_db
+from ..authz import require_permission, PERM_ADMIN_WRITE, PERM_PARAM_WRITE
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
-
-def require_admin(x_admin_token: str | None = Header(default=None)) -> str:
-    """Autoriza operações administrativas de ESCRITA. Falha-fechada.
-
-    Dependência registrada: substituir por auth/RBAC (Onda 11). Enquanto isso, o
-    token administrativo protege a escrita (não há login/papéis no produto ainda)."""
-    expected = settings.admin_api_token
-    if not expected:
-        raise HTTPException(503, "Administração indisponível: ADMIN_API_TOKEN não configurado (proteção obrigatória).")
-    if not x_admin_token or x_admin_token != expected:
-        raise HTTPException(401, "Token de administração ausente ou inválido (X-Admin-Token).")
-    return "admin"
+# Autorização por PAPEL/PERMISSÃO sobre o token (authz.py). `require_admin` mantém o
+# nome histórico, agora exigindo a permissão de escrita administrativa; parâmetros
+# usam uma permissão própria. Falha-fechada (503 sem token / 401 inválido / 403 sem
+# permissão). Dependência registrada: auth/RBAC de usuários reais é da Onda 11.
+require_admin = require_permission(PERM_ADMIN_WRITE)
+require_param_admin = require_permission(PERM_PARAM_WRITE)
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +181,7 @@ def parameter_history(parameter_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/parametros", status_code=201)
-def create_parameter(data: schemas.ParameterCreate, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+def create_parameter(data: schemas.ParameterCreate, db: Session = Depends(get_db), _: str = Depends(require_param_admin)):
     try:
         payload = data.model_dump()
         justification = payload.pop("justification", None)
@@ -198,7 +193,7 @@ def create_parameter(data: schemas.ParameterCreate, db: Session = Depends(get_db
 
 
 @router.patch("/parametros/{parameter_id}")
-def update_parameter(parameter_id: int, data: schemas.ParameterUpdate, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+def update_parameter(parameter_id: int, data: schemas.ParameterUpdate, db: Session = Depends(get_db), _: str = Depends(require_param_admin)):
     param = db.get(models.Parameter, parameter_id)
     if not param:
         raise HTTPException(404, "Parâmetro não encontrado")
