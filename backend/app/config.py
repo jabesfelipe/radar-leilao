@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # portal_admin_token protege o endpoint de recuperação (header X-Portal-Admin-Token).
     portal_secret_key: str | None = None
     portal_admin_token: str | None = None
+    # Token de administração da Central de Débitos/Parâmetros (Etapa A). Protege as
+    # operações administrativas (header X-Admin-Token). Falha-fechada: sem token
+    # configurado, operações de ESCRITA administrativa são recusadas (503). É medida
+    # PROVISÓRIA até a frente de auth/RBAC (Onda 11); NÃO substitui RBAC real.
+    admin_api_token: str | None = None
     # ---- Due Diligence integrada (4 frentes) ----
     # Integrações externas OPCIONAIS: ausência de chave => frente fica "NAO_CONFIGURADO"
     # (o sistema NUNCA simula uma consulta bem-sucedida). Todas defaultam para None,
