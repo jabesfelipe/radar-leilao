@@ -29,7 +29,7 @@ from .services import (aggregate_llm_usage, build_finance, current_auction, chec
 configure_logging()
 log = get_logger("api")
 app = FastAPI(title=settings.app_name, version="0.2.0")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # M0 — modularização gradual da API em routers por domínio. Cada router preserva
 # EXATAMENTE os paths/métodos/respostas originais (ver tests/contract/test_openapi_contract.py).

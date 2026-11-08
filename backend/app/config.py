@@ -91,7 +91,16 @@ class Settings(BaseSettings):
     # Validade (horas) do cache de uma consulta externa de due diligence antes de
     # sugerir nova consulta (evita chamadas desnecessárias / custo — SPEC §12).
     due_diligence_cache_hours: int = 24
+    # ---- CORS (Fase 5 — produção) ----
+    # Origens permitidas (CSV). Default: origens de desenvolvimento. Em produção,
+    # defina CORS_ALLOW_ORIGINS com o domínio público do frontend (ex.:
+    # "https://app.exemplo.com"). Nunca usar "*" com allow_credentials=True.
+    cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in (self.cors_allow_origins or "").split(",") if o.strip()]
 
     @model_validator(mode="after")
     def validate_runtime(self):

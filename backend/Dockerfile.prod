@@ -1,0 +1,42 @@
+# Backend do Radar Leilão — imagem de PRODUÇÃO (FastAPI + Alembic).
+# Diferenças vs. dev: usuário NÃO-root, entrypoint controlado (sem auto-migrate),
+# uvicorn com múltiplos workers configuráveis. Mesmas dependências (requirements.txt).
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+# Dependências de sistema: curl (healthcheck) + OCR local opcional (Tesseract/Poppler).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl tesseract-ocr tesseract-ocr-por poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt /app/backend/requirements.txt
+RUN pip install -r /app/backend/requirements.txt
+
+COPY backend /app/backend
+COPY judicial_api /app/judicial_api
+COPY docker/backend-entrypoint.prod.sh /app/docker/backend-entrypoint.prod.sh
+COPY docker/judicial-entrypoint.sh /app/docker/judicial-entrypoint.sh
+RUN sed -i 's/\r$//' /app/docker/backend-entrypoint.prod.sh /app/docker/judicial-entrypoint.sh \
+    && chmod +x /app/docker/backend-entrypoint.prod.sh /app/docker/judicial-entrypoint.sh
+
+# Usuário não-root (segurança). O diretório de storage é criado e cedido ao usuário;
+# em produção recomenda-se backend de storage S3/MinIO (volume só para cache local).
+RUN useradd --create-home --uid 10001 radar \
+    && mkdir -p /app/backend/storage \
+    && chown -R radar:radar /app
+USER radar
+
+WORKDIR /app/backend
+EXPOSE 8000
+
+# Workers configuráveis via UVICORN_WORKERS (default 2). Timeout de graceful shutdown.
+ENV UVICORN_WORKERS=2
+ENTRYPOINT ["/app/docker/backend-entrypoint.prod.sh"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-2} --timeout-graceful-shutdown 20 --proxy-headers --forwarded-allow-ips='*'"]
