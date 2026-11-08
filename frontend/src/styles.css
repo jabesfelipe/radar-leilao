@@ -637,5 +637,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .admin-form { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .admin-form-title { font-weight: 700; margin: 0; }
 .admin-check { display: flex; align-items: center; gap: 8px; font-size: 0.9rem; }
-.admin-row-actions { display: flex; gap: 8px; }
+.admin-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .admin-history { margin-top: 12px; }
+.admin-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--text-muted, #64748b); }
+.admin-field select { padding: 8px 10px; border: 1px solid var(--border, #d1d5db); border-radius: 6px; font-size: 0.95rem; }

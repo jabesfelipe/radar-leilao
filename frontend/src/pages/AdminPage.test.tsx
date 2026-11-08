@@ -14,6 +14,12 @@ const parametros = { total: 1, itens: [
   { id: 10, key: 'condominio.margem_seguranca_pct', name: 'Margem', category: 'estimativa', data_type: 'DECIMAL', scope: 'GLOBAL', value: '0.1', status: 'ATIVO', version: 1, updated_by: 'admin' },
 ] }
 const tipos = { total: 1, itens: [{ id: 1, code: 'IPTU', label: 'IPTU', group: 'MUNICIPAL', default_nature: 'DIVIDA_EXISTENTE', impacts_finance: true, active: true }] }
+const cobertura = {
+  total: 1,
+  itens: [{ id: 5, municipality_id: 1, debt_type_code: 'IPTU', level: 'AUTOMATIZAVEL', situation: 'DISPONIVEL', method: 'PORTAL_PUBLICO', active: true, last_validated_at: null }],
+  nao_investigados: [{ municipality_id: 1, debt_type_code: 'DIVIDA_ATIVA_MUNICIPAL', level: 'NAO_INVESTIGADA' }],
+  ressalva: 'Cobertura não investigada não implica ausência de débito; é um estado a ser apurado.',
+}
 
 function routeFetch() {
   globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
@@ -21,6 +27,7 @@ function routeFetch() {
     if (url.includes('/api/admin/municipios')) return ok(municipios)
     if (url.includes('/api/admin/parametros')) return ok(parametros)
     if (url.includes('/api/admin/tipos-debito')) return ok(tipos)
+    if (url.includes('/api/admin/cobertura')) return ok(cobertura)
     if (url.includes('/api/admin/fontes')) return ok({ total: 0, itens: [] })
     return ok({ total: 0, itens: [] })
   }) as unknown as typeof fetch
@@ -54,5 +61,22 @@ describe('AdminPage', () => {
     expect(await screen.findByText('condominio.margem_seguranca_pct')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Histórico' })).toBeInTheDocument()
+  })
+
+  it('mostra a matriz de cobertura com nível e cobertura não investigada', async () => {
+    render(<AdminPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Cobertura' }))
+    // AUTOMATIZAVEL e "Cobertura não investigada" aparecem em múltiplos nós
+    // (Badge/option e Alert/título do card) → usar getAllByText.
+    await waitFor(() => expect(screen.getAllByText('AUTOMATIZAVEL').length).toBeGreaterThan(0))
+    expect(screen.getAllByText(/Cobertura não investigada/i).length).toBeGreaterThan(0)
+    expect(screen.getByText('DIVIDA_ATIVA_MUNICIPAL')).toBeInTheDocument()
+  })
+
+  it('oferece formulário de cadastro de fontes na aba Fontes', async () => {
+    render(<AdminPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Fontes de consulta' }))
+    expect(await screen.findByText('Nova fonte')).toBeInTheDocument()
+    expect(screen.getByText('Nome da fonte')).toBeInTheDocument()
   })
 })

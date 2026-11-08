@@ -61,6 +61,16 @@ export type ParameterHistoryItem = {
   id: number; version: number; action: string; previous_value?: string | null
   new_value?: string | null; actor: string; justification?: string | null; created_at: string
 }
+export type Coverage = {
+  id: number; municipality_id: number; debt_type_code: string; level: string
+  situation: string; method: string; active: boolean; source_id?: number | null
+  identifier_required?: string | null; limitations?: string | null
+  observations?: string | null; last_validated_at?: string | null
+}
+export type CoverageGap = { municipality_id: number; debt_type_code: string; level: string }
+export type CoverageMatrix = {
+  total: number; itens: Coverage[]; nao_investigados: CoverageGap[]; ressalva: string
+}
 
 type ListResponse<T> = { total: number; itens: T[] }
 
@@ -80,6 +90,16 @@ export const createDebtType = (data: Partial<DebtType>, token: string) =>
 export const listSources = () => request<ListResponse<DebtSource>>('/api/admin/fontes')
 export const createSource = (data: Partial<DebtSource>, token: string) =>
   request<DebtSource>('/api/admin/fontes', { method: 'POST', headers: adminHeaders(token), body: JSON.stringify(data) })
+export const updateSource = (id: number, data: Partial<DebtSource>, token: string) =>
+  request<DebtSource>(`/api/admin/fontes/${id}`, { method: 'PATCH', headers: adminHeaders(token), body: JSON.stringify(data) })
+
+// --- Cobertura municipal × tipo (Etapa B) ---
+export const listCoverage = (municipalityId?: number) =>
+  request<CoverageMatrix>(`/api/admin/cobertura${municipalityId != null ? `?municipality_id=${municipalityId}` : ''}`)
+export const createCoverage = (data: Partial<Coverage>, token: string) =>
+  request<Coverage>('/api/admin/cobertura', { method: 'POST', headers: adminHeaders(token), body: JSON.stringify(data) })
+export const updateCoverage = (id: number, data: Partial<Coverage> & { mark_validated?: boolean }, token: string) =>
+  request<Coverage>(`/api/admin/cobertura/${id}`, { method: 'PATCH', headers: adminHeaders(token), body: JSON.stringify(data) })
 
 // --- Parâmetros ---
 export const listParameters = () => request<ListResponse<Parameter>>('/api/admin/parametros')

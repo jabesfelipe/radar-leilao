@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
 import {
-  listMunicipalities, createMunicipality, listDebtTypes, createDebtType, listSources,
+  listMunicipalities, createMunicipality, listDebtTypes, createDebtType, listSources, createSource, updateSource,
+  listCoverage, createCoverage, updateCoverage,
   listParameters, createParameter, updateParameter, parameterHistory,
   type Municipality, type DebtType, type DebtSource, type Parameter, type ParameterHistoryItem,
+  type Coverage, type CoverageMatrix,
 } from '../services/admin'
 
-type Tab = 'overview' | 'municipios' | 'tipos' | 'fontes' | 'parametros'
+type Tab = 'overview' | 'municipios' | 'cobertura' | 'tipos' | 'fontes' | 'parametros'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Visão geral' },
   { key: 'municipios', label: 'Municípios' },
+  { key: 'cobertura', label: 'Cobertura' },
   { key: 'fontes', label: 'Fontes de consulta' },
   { key: 'tipos', label: 'Tipos de débito' },
   { key: 'parametros', label: 'Parâmetros' },
 ]
+
+// Mapeia nível de cobertura/situação para o tom visual do Badge.
+const LEVEL_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
+  NAO_INVESTIGADA: 'neutral', MANUAL: 'warning', PARCIAL: 'warning',
+  AUTOMATIZAVEL: 'info', INTEGRACAO_DISPONIVEL: 'success', INDISPONIVEL: 'danger',
+}
 
 export function AdminPage() {
   const [tab, setTab] = useState<Tab>('overview')
@@ -45,7 +54,8 @@ export function AdminPage() {
       </nav>
       {tab === 'overview' && <OverviewTab />}
       {tab === 'municipios' && <MunicipiosTab token={adminToken} />}
-      {tab === 'fontes' && <FontesTab />}
+      {tab === 'cobertura' && <CoberturaTab token={adminToken} />}
+      {tab === 'fontes' && <FontesTab token={adminToken} />}
       {tab === 'tipos' && <TiposTab token={adminToken} />}
       {tab === 'parametros' && <ParametrosTab token={adminToken} />}
     </div>
@@ -68,12 +78,15 @@ function OverviewTab() {
   const mun = useAsync(useCallback(() => listMunicipalities(), []))
   const par = useAsync(useCallback(() => listParameters(), []))
   const typ = useAsync(useCallback(() => listDebtTypes(), []))
+  const cov = useAsync(useCallback(() => listCoverage(), []))
   return (
     <Section title="Visão geral" description="Resumo da cobertura e da parametrização.">
       <div className="admin-grid">
         <Card padding="md"><strong>{mun.data?.total ?? '—'}</strong><span>Municípios cadastrados</span></Card>
         <Card padding="md"><strong>{mun.data?.itens.filter((m) => m.coverage_active).length ?? '—'}</strong><span>Com cobertura ativa</span></Card>
         <Card padding="md"><strong>{typ.data?.total ?? '—'}</strong><span>Tipos de débito</span></Card>
+        <Card padding="md"><strong>{cov.data?.total ?? '—'}</strong><span>Coberturas mapeadas</span></Card>
+        <Card padding="md"><strong>{cov.data?.nao_investigados?.length ?? '—'}</strong><span>Não investigadas</span></Card>
         <Card padding="md"><strong>{par.data?.total ?? '—'}</strong><span>Parâmetros</span></Card>
       </div>
     </Section>
@@ -125,22 +138,186 @@ function MunicipiosTab({ token }: { token: string }) {
   )
 }
 
-function FontesTab() {
-  const { data, loading, error } = useAsync(useCallback(() => listSources(), []))
+const SOURCE_TYPES = ['API_OFICIAL', 'SERVICO_OFICIAL', 'PORTAL_PUBLICO', 'CONSULTA_MANUAL', 'DOCUMENTO', 'OUTRA_FONTE']
+const SITUATIONS = ['NAO_INVESTIGADA', 'EM_INVESTIGACAO', 'DISPONIVEL', 'INDISPONIVEL', 'DEPENDE_AUTENTICACAO', 'BLOQUEADA']
+
+const emptySource = { municipality_id: '', debt_category: '', name: '', authority: '', official_url: '', source_type: 'CONSULTA_MANUAL', method: '', situation: 'NAO_INVESTIGADA', limitations: '', observations: '' }
+
+function FontesTab({ token }: { token: string }) {
+  const { data, loading, error, reload } = useAsync(useCallback(() => listSources(), []))
+  const [form, setForm] = useState<Record<string, string>>({ ...emptySource })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [saving, setSaving] = useState(false)
+
+  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }))
+  const reset = () => { setForm({ ...emptySource }); setEditingId(null) }
+  const edit = (s: DebtSource) => {
+    setEditingId(s.id)
+    setForm({
+      municipality_id: String(s.municipality_id), debt_category: s.debt_category ?? '', name: s.name,
+      authority: s.authority ?? '', official_url: s.official_url ?? '', source_type: s.source_type,
+      method: s.method ?? '', situation: s.situation, limitations: s.limitations ?? '', observations: s.observations ?? '',
+    })
+    setErr(''); setMsg('')
+  }
+  const submit = async () => {
+    setErr(''); setMsg(''); setSaving(true)
+    try {
+      const payload: Partial<DebtSource> = {
+        debt_category: form.debt_category || null, name: form.name, authority: form.authority || null,
+        official_url: form.official_url || null, source_type: form.source_type, method: form.method || null,
+        situation: form.situation, limitations: form.limitations || null, observations: form.observations || null,
+      }
+      if (editingId != null) {
+        await updateSource(editingId, payload, token)
+        setMsg('Fonte atualizada.')
+      } else {
+        await createSource({ ...payload, municipality_id: Number(form.municipality_id) }, token)
+        setMsg('Fonte cadastrada.')
+      }
+      reset(); await reload()
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Falha ao salvar.') } finally { setSaving(false) }
+  }
+
   if (loading) return <LoadingState label="Carregando fontes..." />
   return (
-    <Section title="Fontes de consulta" description="Cadastro de fontes por município/categoria. Nenhuma consulta é executada nesta etapa.">
+    <Section title="Fontes de consulta" description="Cadastro de fontes por município/categoria. Nenhuma consulta é executada nesta etapa — apenas o mapeamento das fontes.">
       {error && <Alert tone="danger">{error}</Alert>}
-      {(data?.itens.length ?? 0) === 0 ? <EmptyState title="Sem fontes" description="As fontes serão cadastradas na Etapa B (mapeamento por município)." /> : (
+      {msg && <Alert tone="success">{msg}</Alert>}
+      {err && <Alert tone="danger">{err}</Alert>}
+      {(data?.itens.length ?? 0) === 0 ? <EmptyState title="Sem fontes" description="Cadastre a primeira fonte no formulário abaixo." /> : (
         <table className="admin-table">
-          <thead><tr><th>Fonte</th><th>Município</th><th>Categoria</th><th>Tipo</th><th>Situação</th></tr></thead>
+          <thead><tr><th>Fonte</th><th>Município</th><th>Categoria</th><th>Tipo</th><th>Situação</th><th>Validada</th><th></th></tr></thead>
           <tbody>
             {data?.itens.map((s: DebtSource) => (
-              <tr key={s.id}><td>{s.name}</td><td>#{s.municipality_id}</td><td>{s.debt_category ?? '—'}</td><td>{s.source_type}</td><td>{s.situation}</td></tr>
+              <tr key={s.id}>
+                <td>{s.name}</td><td>#{s.municipality_id}</td><td>{s.debt_category ?? '—'}</td>
+                <td>{s.source_type}</td><td><Badge tone={s.situation === 'DISPONIVEL' ? 'success' : s.situation === 'NAO_INVESTIGADA' ? 'neutral' : 'warning'}>{s.situation}</Badge></td>
+                <td>{s.last_validated_at ? new Date(s.last_validated_at).toLocaleDateString() : '—'}</td>
+                <td className="admin-row-actions"><Button variant="ghost" onClick={() => edit(s)}>Editar</Button></td>
+              </tr>
             ))}
           </tbody>
         </table>
       )}
+      <Card padding="md" className="admin-form">
+        <p className="admin-form-title">{editingId != null ? `Editar fonte #${editingId}` : 'Nova fonte'}</p>
+        {editingId == null && <Input label="ID do município" value={form.municipality_id} onChange={(e) => set('municipality_id', e.target.value)} />}
+        <Input label="Nome da fonte" value={form.name} onChange={(e) => set('name', e.target.value)} />
+        <Input label="Categoria (code do tipo de débito, opcional)" value={form.debt_category} onChange={(e) => set('debt_category', e.target.value.toUpperCase())} />
+        <Input label="Órgão responsável" value={form.authority} onChange={(e) => set('authority', e.target.value)} />
+        <Input label="URL oficial" value={form.official_url} onChange={(e) => set('official_url', e.target.value)} />
+        <label className="admin-field">Tipo de fonte
+          <select value={form.source_type} onChange={(e) => set('source_type', e.target.value)}>
+            {SOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <label className="admin-field">Situação
+          <select value={form.situation} onChange={(e) => set('situation', e.target.value)}>
+            {SITUATIONS.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </label>
+        <Input label="Método (texto)" value={form.method} onChange={(e) => set('method', e.target.value)} />
+        <Input label="Limitações" value={form.limitations} onChange={(e) => set('limitations', e.target.value)} />
+        <Input label="Observações" value={form.observations} onChange={(e) => set('observations', e.target.value)} />
+        <div className="admin-row-actions">
+          <Button onClick={submit} disabled={saving || !form.name || (editingId == null && !form.municipality_id)}>
+            {editingId != null ? 'Salvar' : 'Cadastrar'}
+          </Button>
+          {editingId != null && <Button variant="ghost" onClick={reset}>Cancelar</Button>}
+        </div>
+      </Card>
+    </Section>
+  )
+}
+
+function CoberturaTab({ token }: { token: string }) {
+  const { data, loading, error, reload } = useAsync(useCallback(() => listCoverage(), []))
+  const types = useAsync(useCallback(() => listDebtTypes(), []))
+  const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [busy, setBusy] = useState(false)
+  const [form, setForm] = useState({ municipality_id: '', debt_type_code: '', level: 'MANUAL' })
+
+  const toggleActive = async (c: Coverage) => {
+    setErr(''); setMsg(''); setBusy(true)
+    try { await updateCoverage(c.id, { active: !c.active }, token); setMsg(`Cobertura ${c.active ? 'desativada' : 'ativada'}.`); await reload() }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Falha.') } finally { setBusy(false) }
+  }
+  const markValidated = async (c: Coverage) => {
+    setErr(''); setMsg(''); setBusy(true)
+    try { await updateCoverage(c.id, { mark_validated: true }, token); setMsg('Validação registrada.'); await reload() }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Falha.') } finally { setBusy(false) }
+  }
+  const investigate = async (municipality_id: number, debt_type_code: string) => {
+    setErr(''); setMsg(''); setBusy(true)
+    try { await createCoverage({ municipality_id, debt_type_code, level: 'MANUAL', situation: 'EM_INVESTIGACAO', method: 'MANUAL' }, token); setMsg('Cobertura registrada (em investigação).'); await reload() }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Falha.') } finally { setBusy(false) }
+  }
+  const submit = async () => {
+    setErr(''); setMsg(''); setBusy(true)
+    try { await createCoverage({ municipality_id: Number(form.municipality_id), debt_type_code: form.debt_type_code, level: form.level }, token); setMsg('Cobertura criada.'); setForm({ municipality_id: '', debt_type_code: '', level: 'MANUAL' }); await reload() }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Falha.') } finally { setBusy(false) }
+  }
+
+  if (loading) return <LoadingState label="Carregando cobertura..." />
+  const matrix = data as CoverageMatrix | null
+  return (
+    <Section title="Matriz de cobertura" description="O que cada município cobre por tipo de débito. Cobertura independente por município × tipo. Nenhuma consulta é executada.">
+      {error && <Alert tone="danger">{error}</Alert>}
+      {msg && <Alert tone="success">{msg}</Alert>}
+      {err && <Alert tone="danger">{err}</Alert>}
+      <Alert tone="info">{matrix?.ressalva ?? 'Cobertura não investigada não implica ausência de débito.'}</Alert>
+      {(matrix?.itens?.length ?? 0) === 0 ? <EmptyState title="Sem cobertura" description="Cadastre a cobertura abaixo." /> : (
+        <table className="admin-table">
+          <thead><tr><th>Município</th><th>Tipo</th><th>Nível</th><th>Situação</th><th>Método</th><th>Ativa</th><th>Validada</th><th></th></tr></thead>
+          <tbody>
+            {matrix?.itens.map((c: Coverage) => (
+              <tr key={c.id}>
+                <td>#{c.municipality_id}</td><td>{c.debt_type_code}</td>
+                <td><Badge tone={LEVEL_TONE[c.level] ?? 'neutral'}>{c.level}</Badge></td>
+                <td>{c.situation}</td><td>{c.method}</td>
+                <td><Badge tone={c.active ? 'success' : 'neutral'}>{c.active ? 'Sim' : 'Não'}</Badge></td>
+                <td>{c.last_validated_at ? new Date(c.last_validated_at).toLocaleDateString() : '—'}</td>
+                <td className="admin-row-actions">
+                  <Button variant="ghost" onClick={() => toggleActive(c)} disabled={busy}>{c.active ? 'Desativar' : 'Ativar'}</Button>
+                  <Button variant="ghost" onClick={() => markValidated(c)} disabled={busy}>Validar</Button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {(matrix?.nao_investigados?.length ?? 0) > 0 && (
+        <Card padding="md" className="admin-form">
+          <p className="admin-form-title">Cobertura não investigada ({matrix?.nao_investigados?.length})</p>
+          <table className="admin-table">
+            <thead><tr><th>Município</th><th>Tipo</th><th></th></tr></thead>
+            <tbody>
+              {matrix?.nao_investigados.map((g) => (
+                <tr key={`${g.municipality_id}-${g.debt_type_code}`}>
+                  <td>#{g.municipality_id}</td><td>{g.debt_type_code}</td>
+                  <td className="admin-row-actions"><Button variant="ghost" onClick={() => investigate(g.municipality_id, g.debt_type_code)} disabled={busy}>Marcar em investigação</Button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      <Card padding="md" className="admin-form">
+        <p className="admin-form-title">Nova cobertura</p>
+        <Input label="ID do município" value={form.municipality_id} onChange={(e) => setForm({ ...form, municipality_id: e.target.value })} />
+        <label className="admin-field">Tipo de débito
+          <select value={form.debt_type_code} onChange={(e) => setForm({ ...form, debt_type_code: e.target.value })}>
+            <option value="">—</option>
+            {types.data?.itens.map((t: DebtType) => <option key={t.code} value={t.code}>{t.code}</option>)}
+          </select>
+        </label>
+        <label className="admin-field">Nível
+          <select value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })}>
+            {['NAO_INVESTIGADA', 'MANUAL', 'PARCIAL', 'AUTOMATIZAVEL', 'INTEGRACAO_DISPONIVEL', 'INDISPONIVEL'].map((l) => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </label>
+        <Button onClick={submit} disabled={busy || !form.municipality_id || !form.debt_type_code}>Cadastrar</Button>
+      </Card>
     </Section>
   )
 }
