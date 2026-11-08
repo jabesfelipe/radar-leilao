@@ -38,10 +38,14 @@ from .routers import legal_central as legal_central_router  # noqa: E402
 from .routers import market as market_router  # noqa: E402
 from .routers.deps import property_or_404  # noqa: E402  (fonte única; reusado abaixo)
 from .routers.market import get_market  # noqa: E402,F401  (compat: testes importam get_market de main)
+from .routers import admin as admin_router  # noqa: E402
+from .routers import debts as debts_router  # noqa: E402
 app.include_router(health_router.router)
 app.include_router(hubs_router.router)
 app.include_router(legal_central_router.router)
 app.include_router(market_router.router)
+app.include_router(admin_router.router)
+app.include_router(debts_router.router)
 
 class AnalyzeRequest(BaseModel):
     domains: list[str] | None = None

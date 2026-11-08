@@ -744,3 +744,219 @@ class DueDiligenceFrontReview(BaseModel):
     reviewed: bool = True
     reviewed_by: str | None = None
     summary: str | None = None
+
+
+# ============================================================================
+# CENTRAL DE DÉBITOS/DESPESAS + PARÂMETROS ADMINISTRÁVEIS (Etapa A)
+# ============================================================================
+
+# --- Municípios ---
+class MunicipalityCreate(BaseModel):
+    name: str = Field(min_length=1)
+    state: str = Field(min_length=2, max_length=2)
+    ibge_code: str | None = None
+    coverage_active: bool = False
+    status: str = "ATIVO"
+    observations: str | None = None
+
+
+class MunicipalityUpdate(BaseModel):
+    name: str | None = None
+    state: str | None = Field(default=None, max_length=2)
+    ibge_code: str | None = None
+    coverage_active: bool | None = None
+    status: str | None = None
+    observations: str | None = None
+
+
+class MunicipalityOut(BaseModel):
+    id: int; name: str; state: str; ibge_code: str | None; coverage_active: bool
+    status: str; observations: str | None
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Tipos de débito (catálogo) ---
+class DebtTypeCreate(BaseModel):
+    code: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    group: str = "OUTRO"
+    default_nature: str = "DIVIDA_EXISTENTE"
+    canonical_cost_key: str | None = None
+    impacts_finance: bool = True
+    active: bool = True
+    description: str | None = None
+
+
+class DebtTypeUpdate(BaseModel):
+    label: str | None = None
+    group: str | None = None
+    default_nature: str | None = None
+    canonical_cost_key: str | None = None
+    impacts_finance: bool | None = None
+    active: bool | None = None
+    description: str | None = None
+
+
+class DebtTypeOut(BaseModel):
+    id: int; code: str; label: str; group: str; default_nature: str
+    canonical_cost_key: str | None; impacts_finance: bool; active: bool; description: str | None
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Fontes ---
+class DebtSourceCreate(BaseModel):
+    municipality_id: int
+    debt_category: str | None = None
+    name: str = Field(min_length=1)
+    authority: str | None = None
+    official_url: str | None = None
+    source_type: str = "CONSULTA_MANUAL"
+    method: str | None = None
+    situation: str = "NAO_INVESTIGADA"
+    access_requirements: str | None = None
+    limitations: str | None = None
+    observations: str | None = None
+    active: bool = True
+
+
+class DebtSourceUpdate(BaseModel):
+    debt_category: str | None = None
+    name: str | None = None
+    authority: str | None = None
+    official_url: str | None = None
+    source_type: str | None = None
+    method: str | None = None
+    situation: str | None = None
+    access_requirements: str | None = None
+    limitations: str | None = None
+    observations: str | None = None
+    active: bool | None = None
+
+
+class DebtSourceOut(BaseModel):
+    id: int; municipality_id: int; debt_category: str | None; name: str; authority: str | None
+    official_url: str | None; source_type: str; method: str | None; situation: str
+    access_requirements: str | None; limitations: str | None; observations: str | None
+    last_validated_at: datetime | None; active: bool
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Débito normalizado (PropertyDebt) ---
+class PropertyDebtCreate(BaseModel):
+    """Registro manual normalizado de débito/despesa. Separa valor_original de
+    valor_atualizado; marca natureza/status/confiabilidade. ESTIMADO nunca é tratado
+    como CONFIRMADO (validado no serviço)."""
+    debt_type_code: str = Field(min_length=1)
+    opportunity_id: int | None = None
+    municipality_id: int | None = None
+    subcategory: str | None = None
+    nature: str | None = None
+    creditor: str | None = None
+    external_id: str | None = None
+    competence: str | None = None
+    fiscal_year: int | None = None
+    due_date: date | None = None
+    original_amount: Decimal | None = None
+    interest: Decimal | None = None
+    penalty: Decimal | None = None
+    correction: Decimal | None = None
+    updated_amount: Decimal | None = None
+    reference_date: date | None = None
+    status: str = "INFORMADO"
+    reliability: str = "INFORMADO"
+    origin: str | None = None
+    source_id: int | None = None
+    acquisition_method: str | None = None
+    evidence_id: int | None = None
+    observations: str | None = None
+
+    @field_validator("original_amount", "interest", "penalty", "correction", "updated_amount")
+    @classmethod
+    def _nao_negativo(cls, v):
+        if v is not None and v < 0:
+            raise ValueError("valores não podem ser negativos")
+        return v
+
+
+class PropertyDebtUpdate(BaseModel):
+    subcategory: str | None = None
+    nature: str | None = None
+    creditor: str | None = None
+    external_id: str | None = None
+    competence: str | None = None
+    fiscal_year: int | None = None
+    due_date: date | None = None
+    original_amount: Decimal | None = None
+    interest: Decimal | None = None
+    penalty: Decimal | None = None
+    correction: Decimal | None = None
+    updated_amount: Decimal | None = None
+    reference_date: date | None = None
+    status: str | None = None
+    reliability: str | None = None
+    origin: str | None = None
+    source_id: int | None = None
+    acquisition_method: str | None = None
+    evidence_id: int | None = None
+    observations: str | None = None
+
+
+class PropertyDebtOut(BaseModel):
+    id: int; property_id: int; opportunity_id: int | None; municipality_id: int | None
+    debt_type_code: str; subcategory: str | None; nature: str; creditor: str | None
+    external_id: str | None; competence: str | None; fiscal_year: int | None; due_date: date | None
+    original_amount: Decimal | None; interest: Decimal | None; penalty: Decimal | None
+    correction: Decimal | None; updated_amount: Decimal | None; reference_date: date | None
+    status: str; reliability: str; origin: str | None; source_id: int | None
+    acquisition_method: str | None; evidence_id: int | None; queried_at: datetime | None
+    observations: str | None; created_at: datetime; updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Parâmetros ---
+class ParameterCreate(BaseModel):
+    key: str = Field(min_length=1)
+    name: str | None = None
+    description: str | None = None
+    category: str = "geral"
+    data_type: Literal["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "JSON"] = "STRING"
+    scope: Literal["GLOBAL", "MUNICIPIO", "CATEGORIA", "MUNICIPIO_CATEGORIA"] = "GLOBAL"
+    municipality_id: int | None = None
+    debt_category: str | None = None
+    value: str | None = None
+    default_value: str | None = None
+    unit: str | None = None
+    allowed_values: list | None = None
+    min_value: Decimal | None = None
+    max_value: Decimal | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    status: Literal["ATIVO", "INATIVO"] = "ATIVO"
+    justification: str | None = None
+
+
+class ParameterUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    category: str | None = None
+    data_type: Literal["STRING", "INTEGER", "DECIMAL", "BOOLEAN", "JSON"] | None = None
+    unit: str | None = None
+    allowed_values: list | None = None
+    min_value: Decimal | None = None
+    max_value: Decimal | None = None
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
+    value: str | None = None
+    default_value: str | None = None
+    status: Literal["ATIVO", "INATIVO"] | None = None
+    justification: str | None = None
+
+
+class ParameterOut(BaseModel):
+    id: int; key: str; name: str; description: str | None; category: str; data_type: str
+    scope: str; municipality_id: int | None; debt_category: str | None; value: str | None
+    default_value: str | None; unit: str | None; allowed_values: list | None
+    min_value: Decimal | None; max_value: Decimal | None; valid_from: datetime | None
+    valid_until: datetime | None; status: str; version: int; updated_by: str
+    created_at: datetime; updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
