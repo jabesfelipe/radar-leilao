@@ -7,7 +7,7 @@ import {
   formatMoney, formatPercent,
   type DashboardData, type PropertySummary,
 } from '../services/hub'
-import { getDashboard as getOpportunitiesDashboard, type DashboardData as OppDashboardData } from '../services/opportunities'
+import { getDashboard as getOpportunitiesDashboard, getRagHealth, type DashboardData as OppDashboardData, type RagHealth } from '../services/opportunities'
 
 // Painel de oportunidades/workflow no dashboard: agregações REAIS do backend
 // (/api/dashboard/oportunidades), por fase, modalidade, status e município.
@@ -41,6 +41,36 @@ function OpportunitiesDashboardPanel() {
           ))}
         </div>
       )}
+    </Section>
+  )
+}
+
+// Painel de saúde do RAG (Fase 7): cobertura de embeddings e versões em erro — dados
+// REAIS de /api/monitoring/rag. Não quebra o dashboard se indisponível.
+function RagHealthPanel() {
+  const [data, setData] = useState<RagHealth | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let active = true
+    getRagHealth().then((d) => { if (active) setData(d) }).catch((e) => { if (active) setError(e instanceof Error ? e.message : 'Falha') })
+    return () => { active = false }
+  }, [])
+  if (error || !data) return null
+  const emb = data.embeddings
+  const coberturaTone = emb.cobertura_pct >= 80 ? 'hub-kpi-success' : emb.cobertura_pct >= 40 ? 'hub-kpi-warning' : 'hub-kpi-danger'
+  return (
+    <Section title="RAG — saúde do processamento" description="Cobertura de embeddings e pendências de ingestão (dados reais do backend)." className="hub-section">
+      <div className="hub-kpis">
+        <Card padding="lg" className="hub-kpi hub-kpi-default"><span className="hub-kpi-label">Documentos</span><strong className="hub-kpi-value">{data.documentos}</strong></Card>
+        <Card padding="lg" className="hub-kpi hub-kpi-default"><span className="hub-kpi-label">Chunks</span><strong className="hub-kpi-value">{emb.chunks_total}</strong></Card>
+        <Card padding="lg" className={`hub-kpi ${coberturaTone}`}><span className="hub-kpi-label">Cobertura de embeddings</span><strong className="hub-kpi-value">{emb.cobertura_pct}%</strong></Card>
+        <Card padding="lg" className="hub-kpi hub-kpi-warning"><span className="hub-kpi-label">Chunks sem vetor</span><strong className="hub-kpi-value">{emb.chunks_sem_embedding}</strong></Card>
+        <Card padding="lg" className={`hub-kpi ${data.versoes_em_erro > 0 ? 'hub-kpi-danger' : 'hub-kpi-default'}`}><span className="hub-kpi-label">Versões em erro</span><strong className="hub-kpi-value">{data.versoes_em_erro}</strong></Card>
+      </div>
+      <p className="hub-note">
+        Modelo: {emb.modelo} · dimensão {emb.dimensao} · provider {emb.provider_disponivel ? 'disponível' : 'indisponível (ingestão por texto)'}.
+        {emb.versions_com_pendencia > 0 ? ` ${emb.versions_com_pendencia} versão(ões) aguardando embedding.` : ' Sem pendências de embedding.'}
+      </p>
     </Section>
   )
 }
@@ -94,6 +124,7 @@ export function DashboardHub({ onOpenProperty }: HubProps) {
             <Kpi label="Oportunidades" value={d.kpis.oportunidades} tone="success" />
           </div>
           <OpportunitiesDashboardPanel />
+          <RagHealthPanel />
           <Section title="Pipeline" description="Estados reais dos imóveis no Radar." className="hub-section">
             <div className="hub-pipeline">
               {Object.entries(d.pipeline).map(([k, v]) => (

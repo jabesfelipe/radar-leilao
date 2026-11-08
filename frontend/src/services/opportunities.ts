@@ -75,3 +75,22 @@ export const correctModality = (id: number, data: { modality: string; justificat
   request<Record<string, unknown>>(`/api/oportunidades/${id}/modalidade/corrigir`, json('POST', data))
 
 export const getDashboard = () => request<DashboardData>('/api/dashboard/oportunidades')
+
+// Monitoramento de saúde do RAG (Fase 7): cobertura de embeddings e versões em erro.
+export type RagHealth = {
+  documentos: number
+  versoes: number
+  versoes_em_erro: number
+  embeddings: {
+    chunks_total: number
+    chunks_com_embedding: number
+    chunks_sem_embedding: number
+    cobertura_pct: number
+    versions_com_pendencia: number
+    modelo: string
+    dimensao: number
+    provider_disponivel: boolean
+  }
+}
+
+export const getRagHealth = () => request<RagHealth>('/api/monitoring/rag')

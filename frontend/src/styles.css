@@ -567,6 +567,8 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .hub-kpi-accent .hub-kpi-value { color: var(--color-accent-strong); }
 .hub-kpi-danger .hub-kpi-value { color: var(--color-danger); }
 .hub-kpi-success .hub-kpi-value { color: var(--color-success); }
+.hub-kpi-warning .hub-kpi-value { color: var(--color-warning, #b7791f); }
+.hub-note { color: var(--color-text-muted); font-size: 12px; margin-top: 10px; }
 .hub-section { margin-top: 4px; }
 .hub-pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .hub-pipeline-step { display: flex; align-items: center; justify-content: space-between; text-transform: capitalize; color: var(--color-text-muted); }
