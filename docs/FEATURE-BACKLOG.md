@@ -91,10 +91,15 @@
 - **Decisão:** pendente (inclui decidir `LICITACAO`).
 
 ### FB-003 — Autenticação + RBAC + multiusuário
-- **Estágio:** EM ANÁLISE (Onda 11). **Problema:** não há login/papéis; `actor` é texto.
+- **Estágio:** IMPLEMENTADO E TESTADO (Onda 11). **Problema (resolvido):** não havia login/papéis.
 - **Benefício:** uso seguro por múltiplos usuários. **Módulos:** Transversal (todos). **Complexidade:** G.
-- **Prioridade:** P0 (bloqueante para produção). **Impacto:** Transversal (ADR obrigatório).
-- **Decisão:** pendente.
+- **Prioridade:** P0 (era bloqueante para produção). **Impacto:** Transversal.
+- **Entrega:** modelo `User` (migration `0023`, bcrypt), JWT HS256 (`auth.py`), papéis
+  ADMIN/ANALISTA/OPERADOR/CONSULTA + permissões (`authz.py`), router `/api/auth`
+  (login/me/usuarios), proteção no backend + login/gate/logout no frontend, compat
+  `X-Admin-Token` em desativação. Testes: `tests/test_auth.py` (14) + `LoginPage.test.tsx`.
+  Ver `docs/MVP-CONSOLIDACAO-FINAL-2026-11.md`. **Evolução (não bloqueante):** MFA,
+  refresh token, rotação de segredo, bloqueio por tentativas.
 
 ### FB-004 — Comitê de decisão (F8) com score + hard stops
 - **Estágio:** EM ANÁLISE (Onda 6). **Problema:** Verdict não é decisão de comitê. **Benefício:**

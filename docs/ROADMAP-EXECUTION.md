@@ -24,8 +24,9 @@
 - **Atualização (Etapa B da Central de Débitos):** a migration `0021_cobertura_municipal` foi executada
   para a cobertura município × tipo.
 - **Atualização (Etapas C–F da Central de Débitos):** a migration `0022_consulta_estimativa` foi
-  executada (consulta de débito + estimativa condominial). Portanto a **Onda 2 (modalidade)** deverá usar
-  a próxima livre, **`0023`**.
+  executada (consulta de débito + estimativa condominial).
+- **Atualização (Onda 11 — Auth/RBAC):** a migration `0023_usuarios` foi executada (identidade local
+  + RBAC real). Portanto a **Onda 2 (modalidade)** deverá usar a próxima livre, **`0024`**.
 - As ondas do Ciclo 2 permanecem as mesmas; a **Onda 0 (M0+CI)** e a **Onda 1 (Opportunity/Workflow)**
   estão concluídas; as **Etapas A–F da Central de Débitos** estão concluídas (coletores automáticos e
   identidade/RBAC permanecem dependências externas); a **Onda 2 (modalidade)** está planejada
@@ -157,7 +158,13 @@
   termos/credenciais de portais (BLOQUEADO até autorização). Entrega: ingestão/snapshot/dedupe/
   detecção de mudança/alertas; fallback manual permanece.
 
-### Onda 11 — Segurança/operação (transversal) ⬅️ **BLOQUEANTE PARA PRODUÇÃO**
+### Onda 11 — Segurança/operação (transversal) — ✅ AUTH/RBAC CONCLUÍDO
+- **Entregue (2026-11):** autenticação real (usuários + bcrypt + JWT HS256) e RBAC
+  (papéis ADMIN/ANALISTA/OPERADOR/CONSULTA + permissões, validação no backend), migration
+  `0023_usuarios` (aditiva/reversível), router `/api/auth`, login/gate/logout no frontend,
+  compat `X-Admin-Token` em desativação. Backend 729/2, frontend 148, contrato 123 paths.
+  Ver `docs/MVP-CONSOLIDACAO-FINAL-2026-11.md`. **Resta (não bloqueante):** limites de
+  upload, observabilidade/tracing, backup/restore, runbooks, MFA/refresh/rotação.
 - **Prioridade:** P0 para expor multiusuário. **Complexidade:** G. **Entrega:** auth/RBAC,
   limites de upload (tamanho/MIME/streaming), observabilidade (métricas/tracing), backup/restore,
   runbooks. **Nota:** auth deve vir **antes** de qualquer exposição multiusuário real.

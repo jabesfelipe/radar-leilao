@@ -1,6 +1,27 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (20/09/2026 — Etapas C–F: estimativa, parâmetros consumidos, consulta e integração):**
+**Status global (2026-11 — Onda 11: Autenticação e RBAC real):** implementada, integrada
+e testada a camada de identidade local (sem provedor externo). Modelo `User` (migration
+`0023_usuarios`, aditiva/reversível): e-mail único + senha com hash **bcrypt** + papel +
+ativo. `auth.py` (JWT HS256 assinado por `JWT_SECRET_KEY`, falha-fechada 503 sem segredo;
+expiração configurável; `get_current_user` via `Authorization: Bearer`; auditoria de
+login sem PII). `authz.py` expandido com 4 papéis **ADMIN/ANALISTA/OPERADOR/CONSULTA** e
+permissões explícitas (`read`/`analysis:write`/`debt:query`/`admin:parameters`/
+`admin:write`/`user:manage`), validadas **no backend**. Router `/api/auth`
+(login/me/usuarios). `X-Admin-Token` preservado como **compat temporária** (endpoints
+admin aceitam JWT por papel OU token). Frontend: tela de **login** + gate de rotas em
+`App.tsx` + store de sessão + injeção global de `Authorization` + tratamento de 401/403
+(sessão expirada) + logout. **Nenhum usuário/senha padrão** é criado (bootstrap do 1º
+admin é opcional, via ambiente). Contrato OpenAPI **123 paths** (+4). Validação em banco
+descartável: **backend 729 passed / 2 skipped**, migrations up/down(0022)/up RC=0,
+**frontend tsc OK + 148 passed / 25 arquivos**. Preservação 633/V1–V9/`llm_runs`/27
+`canonical_key`/Central Jurídica mantida. Auditoria do produto (Fase 0) e matriz de
+maturidade em `docs/MVP-CONSOLIDACAO-FINAL-2026-11.md`; **pendências reais** para o fluxo
+ponta-a-ponta: modalidades (Onda 2), ciclo de vida de workflow exposto e consolidação do
+dashboard por fase/modalidade. **Próximo passo:** Onda 2 (modalidades) reutilizando a
+fundação Opportunity/Workflow.
+
+**Status global anterior (20/09/2026 — Etapas C–F: estimativa, parâmetros consumidos, consulta e integração):**
 entregues as Etapas C–F da Central de Débitos (aditivo, preservando A/B). **C** —
 estimativa condominial parametrizada (`estimates_service.py` + `CondominiumEstimate`):
 3 cenários, sempre `ESTIMADO` (nunca passivo), idade do imóvel ≠ condomínio ≠

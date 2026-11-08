@@ -2640,3 +2640,45 @@ token não é segurança definitiva de produção.
 `downgrade 0021` → `re-upgrade` RC=0; frontend `tsc -b` OK + **146 passed / 24 arquivos**.
 Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica mantida. Documentação
 consolidada em `docs/CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.
+
+## Onda 11 — Autenticação e RBAC real
+
+Resolvida a pendência de segurança administrativa: a camada provisória `X-Admin-Token`
+deixou de ser a única proteção. Identidade local em PostgreSQL (sem provedor externo),
+aditiva e reversível.
+
+**Modelo/migration.** `User` (migration `0023_usuarios`, down_revision `0022`): `email`
+único, `password_hash` (bcrypt), `name`, `role`, `active`, `last_login_at`. Nenhuma
+credencial padrão criada; bootstrap do 1º admin é opcional via ambiente, idempotente.
+`0001` teve `TABLES_ADDED_LATER` atualizado com `users`.
+
+**Backend.** `auth.py`: hashing bcrypt (senha mínima 8), JWT HS256 assinado por
+`JWT_SECRET_KEY` (falha-fechada 503 sem segredo), expiração configurável,
+`get_current_user`/`get_optional_user` via `Authorization: Bearer`, autenticação com
+mensagem genérica (não revela se o e-mail existe) e auditoria de login sem expor PII;
+`ensure_bootstrap_admin` idempotente. `authz.py` expandido: 4 papéis
+ADMIN/ANALISTA/OPERADOR/CONSULTA com permissões explícitas, `require_permission`/
+`require_role` resolvendo **usuário JWT (preferencial) OU X-Admin-Token (compat)**,
+falha-fechada (401/403/503). Router `/api/auth` (`login`, `me`, `usuarios` CRUD sob
+`user:manage`). Dependências novas: `PyJWT==2.10.1`, `bcrypt==4.2.1`.
+
+**Frontend.** `LoginPage` + gate em `App.tsx` (sem sessão → só login); `session.ts`
+(store memória+localStorage + wrapper global de `fetch` que injeta `Authorization` e, em
+401, limpa a sessão e volta ao login); `auth.ts` (login/me/usuários); header com usuário
++ logout. Proteção real no backend (o frontend não apenas esconde botões).
+
+**Compatibilidade.** Endpoints abertos do dossiê permanecem abertos (auth por-endpoint,
+nunca global) → os ~30 arquivos de teste existentes seguem verdes. `X-Admin-Token`/
+`authz_role_tokens` preservados como compat em desativação controlada (papéis
+`admin`→ADMIN, `operador`→OPERADOR).
+
+**Validação (banco descartável).** Backend **729 passed / 2 skipped** (+14 em
+`tests/test_auth.py`); migrations `upgrade head` (0023) → `downgrade 0022` →
+`re-upgrade` RC=0; frontend `tsc -b` OK + **148 passed / 25 arquivos**; contrato 123
+paths. Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica mantida.
+
+**Auditoria (Fase 0) e pendências.** Matriz de maturidade honesta em
+`docs/MVP-CONSOLIDACAO-FINAL-2026-11.md`. As maiores pendências para o fluxo
+ponta-a-ponta permanecem: modalidades (Onda 2 — hoje `Property.modality` é string
+livre), ciclo de vida de workflow exposto (motor F0–F13 existe, não exposto) e
+consolidação do dashboard por fase/modalidade.
