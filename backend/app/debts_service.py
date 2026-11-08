@@ -101,8 +101,14 @@ def seed_municipalities(db: Session) -> int:
 
 
 def seed_all(db: Session) -> dict[str, int]:
-    """Seed idempotente de catálogo + municípios (chamado na leitura dos endpoints)."""
-    return {"debt_types": seed_debt_types(db), "municipalities": seed_municipalities(db)}
+    """Seed idempotente de catálogo + municípios + cobertura inicial (Etapa B).
+
+    A cobertura é semeada por último (depende de municípios e tipos existentes)."""
+    from . import coverage_service  # import local evita ciclo de importação
+    types = seed_debt_types(db)
+    munis = seed_municipalities(db)
+    coverage = coverage_service.seed_coverage(db)
+    return {"debt_types": types, "municipalities": munis, "coverage": coverage}
 
 
 def normalize_debt_payload(db: Session, data: dict[str, Any]) -> dict[str, Any]:

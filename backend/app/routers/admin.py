@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import models, schemas, parameters as params, debts_service
+from .. import models, schemas, parameters as params, debts_service, coverage_service
 from ..config import settings
 from ..database import get_db
 
@@ -112,6 +112,15 @@ def list_sources(municipality_id: int | None = Query(default=None), debt_categor
 def create_source(data: schemas.DebtSourceCreate, db: Session = Depends(get_db), _: str = Depends(require_admin)):
     if not db.get(models.Municipality, data.municipality_id):
         raise HTTPException(400, "municipality_id inexistente")
+    # Valida a categoria contra o catálogo de tipos (quando informada): evita fonte órfã.
+    if data.debt_category is not None and not db.scalar(
+        select(models.DebtType).where(models.DebtType.code == data.debt_category)
+    ):
+        raise HTTPException(400, f"debt_category desconhecida: {data.debt_category!r} (cadastre em tipos-debito)")
+    if data.source_type not in models.DEBT_SOURCE_TYPES:
+        raise HTTPException(422, f"source_type inválido: {data.source_type}")
+    if data.situation not in models.DEBT_SOURCE_SITUATIONS:
+        raise HTTPException(422, f"situation inválida: {data.situation}")
     s = models.DebtSource(**data.model_dump())
     db.add(s); db.commit(); db.refresh(s)
     return schemas.DebtSourceOut.model_validate(s).model_dump()
@@ -122,7 +131,16 @@ def update_source(source_id: int, data: schemas.DebtSourceUpdate, db: Session = 
     s = db.get(models.DebtSource, source_id)
     if not s:
         raise HTTPException(404, "Fonte não encontrada")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    if changes.get("debt_category") is not None and not db.scalar(
+        select(models.DebtType).where(models.DebtType.code == changes["debt_category"])
+    ):
+        raise HTTPException(400, f"debt_category desconhecida: {changes['debt_category']!r}")
+    if changes.get("source_type") is not None and changes["source_type"] not in models.DEBT_SOURCE_TYPES:
+        raise HTTPException(422, f"source_type inválido: {changes['source_type']}")
+    if changes.get("situation") is not None and changes["situation"] not in models.DEBT_SOURCE_SITUATIONS:
+        raise HTTPException(422, f"situation inválida: {changes['situation']}")
+    for k, v in changes.items():
         setattr(s, k, v)
     db.commit(); db.refresh(s)
     return schemas.DebtSourceOut.model_validate(s).model_dump()
@@ -192,3 +210,39 @@ def update_parameter(parameter_id: int, data: schemas.ParameterUpdate, db: Sessi
         db.rollback(); raise HTTPException(422, str(exc)) from exc
     db.commit(); db.refresh(param)
     return schemas.ParameterOut.model_validate(param).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# Cobertura municipal × tipo de débito (Etapa B)
+# Leitura aberta; escrita protegida. Nenhuma consulta externa é executada aqui —
+# apenas a MATRIZ de cobertura é cadastrada/consultada.
+# ---------------------------------------------------------------------------
+@router.get("/cobertura")
+def list_coverage(municipality_id: int | None = Query(default=None), db: Session = Depends(get_db)):
+    """Matriz de cobertura (município × tipo). Semeia a cobertura inicial on-read
+    (idempotente) e expõe também os tipos ativos ainda NÃO investigados."""
+    debts_service.seed_all(db); db.commit()
+    return coverage_service.coverage_matrix(db, municipality_id=municipality_id)
+
+
+@router.post("/cobertura", status_code=201)
+def create_coverage(data: schemas.CoverageCreate, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+    try:
+        item = coverage_service.create_coverage(db, data.model_dump())
+    except coverage_service.CoverageError as exc:
+        db.rollback(); raise HTTPException(422, str(exc)) from exc
+    db.commit(); db.refresh(item)
+    return schemas.CoverageOut.model_validate(item).model_dump()
+
+
+@router.patch("/cobertura/{coverage_id}")
+def update_coverage(coverage_id: int, data: schemas.CoverageUpdate, db: Session = Depends(get_db), _: str = Depends(require_admin)):
+    item = db.get(models.MunicipalityCoverage, coverage_id)
+    if not item:
+        raise HTTPException(404, "Cobertura não encontrada")
+    try:
+        coverage_service.update_coverage(db, item, data.model_dump(exclude_unset=True))
+    except coverage_service.CoverageError as exc:
+        db.rollback(); raise HTTPException(422, str(exc)) from exc
+    db.commit(); db.refresh(item)
+    return schemas.CoverageOut.model_validate(item).model_dump()

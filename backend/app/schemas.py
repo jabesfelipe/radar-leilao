@@ -960,3 +960,48 @@ class ParameterOut(BaseModel):
     valid_until: datetime | None; status: str; version: int; updated_by: str
     created_at: datetime; updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Cobertura municipal (Etapa B) ---
+CoverageLevel = Literal[
+    "NAO_INVESTIGADA", "MANUAL", "PARCIAL", "AUTOMATIZAVEL", "INTEGRACAO_DISPONIVEL", "INDISPONIVEL",
+]
+SourceSituation = Literal[
+    "NAO_INVESTIGADA", "EM_INVESTIGACAO", "DISPONIVEL", "INDISPONIVEL", "DEPENDE_AUTENTICACAO", "BLOQUEADA",
+]
+ConsultationMethod = Literal[
+    "MANUAL", "PORTAL_PUBLICO", "SERVICO_OFICIAL", "API_OFICIAL", "DOCUMENTO", "INDEFINIDO",
+]
+
+
+class CoverageCreate(BaseModel):
+    municipality_id: int
+    debt_type_code: str = Field(min_length=1)
+    level: CoverageLevel = "NAO_INVESTIGADA"
+    situation: SourceSituation = "NAO_INVESTIGADA"
+    method: ConsultationMethod = "INDEFINIDO"
+    active: bool = True
+    source_id: int | None = None
+    identifier_required: str | None = None
+    limitations: str | None = None
+    observations: str | None = None
+
+
+class CoverageUpdate(BaseModel):
+    level: CoverageLevel | None = None
+    situation: SourceSituation | None = None
+    method: ConsultationMethod | None = None
+    active: bool | None = None
+    source_id: int | None = None
+    identifier_required: str | None = None
+    limitations: str | None = None
+    observations: str | None = None
+    mark_validated: bool | None = None  # registra last_validated_at = agora
+
+
+class CoverageOut(BaseModel):
+    id: int; municipality_id: int; debt_type_code: str; level: str; situation: str
+    method: str; active: bool; source_id: int | None; identifier_required: str | None
+    limitations: str | None; observations: str | None; last_validated_at: datetime | None
+    created_at: datetime; updated_at: datetime
+    model_config = ConfigDict(from_attributes=True)
