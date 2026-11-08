@@ -111,8 +111,13 @@ def test_endpoint_valida_imovel_inexistente():
 
 def test_endpoint_consumes_comparables_do_imovel():
     from backend.app.main import get_market
+    class _Empty:
+        def all(self): return []
     class Db:
         def get(self, model, property_id): return type("Property", (), {"id": property_id, "comparables": [type("Comparable", (), {"kind": "VENDA", "price": Decimal("100"), "rent": None, "area_m2": Decimal("10")})()]})()
+        # Etapa D: o router resolve parâmetros (mercado.amostra_minima/cv). Sem registros,
+        # a resolução recai no default (comportamento histórico preservado).
+        def scalars(self, *a, **k): return _Empty()
     result = get_market(1, Db())
     assert result["property_id"] == 1
     assert result["mercado"]["venda"]["preco_medio"] == Decimal("100")

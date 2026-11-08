@@ -1742,6 +1742,138 @@
     "title": "ComparableUpdate",
     "type": "object"
    },
+   "CondominiumEstimateRequest": {
+    "description": "Entrada da estimativa. Qualquer parâmetro ausente é resolvido no catálogo\ncentral. Os campos de idade são CONTEXTO (nunca prova de dívida) e são separados\nrigorosamente; o período de inadimplência é explícito (nunca derivado de idade).",
+    "properties": {
+     "age_known": {
+      "default": true,
+      "title": "Age Known",
+      "type": "boolean"
+     },
+     "condominium_age_years": {
+      "anyOf": [
+       {
+        "maximum": 200.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Condominium Age Years"
+     },
+     "evidence_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Evidence Id"
+     },
+     "financing_age_years": {
+      "anyOf": [
+       {
+        "maximum": 200.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Financing Age Years"
+     },
+     "justification": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Justification"
+     },
+     "monthly_reference": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Reference"
+     },
+     "months_delinquent": {
+      "anyOf": [
+       {
+        "maximum": 120.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Months Delinquent"
+     },
+     "municipality_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Municipality Id"
+     },
+     "persist": {
+      "default": true,
+      "title": "Persist",
+      "type": "boolean"
+     },
+     "property_age_years": {
+      "anyOf": [
+       {
+        "maximum": 200.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Property Age Years"
+     },
+     "safety_margin_pct": {
+      "anyOf": [
+       {
+        "maximum": 2.0,
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Safety Margin Pct"
+     }
+    },
+    "title": "CondominiumEstimateRequest",
+    "type": "object"
+   },
    "ConsultancyCreate": {
     "properties": {
      "address": {
@@ -2421,6 +2553,200 @@
      "category"
     ],
     "title": "DebtCreate",
+    "type": "object"
+   },
+   "DebtQueryItemIn": {
+    "description": "Lançamento informado no fluxo de consulta ASSISTIDA (valores lidos da fonte\noficial pelo operador). ESTIMADO nunca é tratado como OFICIAL (validado no serviço).",
+    "properties": {
+     "competence": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Competence"
+     },
+     "debt_type_code": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Debt Type Code"
+     },
+     "external_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "External Id"
+     },
+     "observations": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Observations"
+     },
+     "origin": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Origin"
+     },
+     "original_amount": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Original Amount"
+     },
+     "reference_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reference Date"
+     },
+     "reliability": {
+      "default": "INFORMADO",
+      "title": "Reliability",
+      "type": "string"
+     },
+     "status": {
+      "default": "INFORMADO",
+      "title": "Status",
+      "type": "string"
+     },
+     "updated_amount": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Updated Amount"
+     }
+    },
+    "title": "DebtQueryItemIn",
+    "type": "object"
+   },
+   "DebtQueryRequest": {
+    "properties": {
+     "debt_type_code": {
+      "minLength": 1,
+      "title": "Debt Type Code",
+      "type": "string"
+     },
+     "identifier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Identifier"
+     },
+     "itens": {
+      "anyOf": [
+       {
+        "items": {
+         "$ref": "#/components/schemas/DebtQueryItemIn"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Itens"
+     },
+     "max_attempts": {
+      "default": 1,
+      "title": "Max Attempts",
+      "type": "integer"
+     },
+     "mensagem": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Mensagem"
+     },
+     "municipality_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Municipality Id"
+     },
+     "sem_ocorrencia": {
+      "default": false,
+      "title": "Sem Ocorrencia",
+      "type": "boolean"
+     },
+     "source_id": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Source Id"
+     }
+    },
+    "required": [
+     "debt_type_code"
+    ],
+    "title": "DebtQueryRequest",
     "type": "object"
    },
    "DebtSourceCreate": {
@@ -9950,6 +10276,189 @@
      }
     },
     "summary": "Get Debts Consolidation",
+    "tags": [
+     "debitos"
+    ]
+   }
+  },
+  "/api/imoveis/{property_id}/debitos/consultar": {
+   "post": {
+    "description": "Executa uma consulta de débito via provider selecionado por (município × tipo).\nSem acesso a portal: usa o provider MANUAL/ASSISTIDO (fallback sempre válido),\nestruturando os valores informados pelo operador a partir da fonte oficial.\nPersiste a execução (DebtQuery) + os débitos normalizados + consolidação.",
+    "operationId": "run_debt_query_api_imoveis__property_id__debitos_consultar_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DebtQueryRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Run Debt Query",
+    "tags": [
+     "debitos"
+    ]
+   }
+  },
+  "/api/imoveis/{property_id}/debitos/consultas": {
+   "get": {
+    "description": "Histórico de consultas de débito do imóvel (manual/assistida). Leitura pura.",
+    "operationId": "list_debt_queries_api_imoveis__property_id__debitos_consultas_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Debt Queries",
+    "tags": [
+     "debitos"
+    ]
+   }
+  },
+  "/api/imoveis/{property_id}/debitos/estimar-condominio": {
+   "post": {
+    "description": "Calcula (e opcionalmente persiste) a estimativa condominial parametrizada —\n3 cenários, SEMPRE marcada ESTIMADO (nunca passivo confirmado). Idade do imóvel/\ncondomínio/financiamento são contexto; inadimplência é parâmetro explícito. Também\ndevolve os alertas de idade parametrizáveis (que respeitam a qualidade da info).",
+    "operationId": "estimate_condominium_api_imoveis__property_id__debitos_estimar_condominio_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CondominiumEstimateRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Estimate Condominium",
+    "tags": [
+     "debitos"
+    ]
+   }
+  },
+  "/api/imoveis/{property_id}/debitos/estimativas-condominio": {
+   "get": {
+    "operationId": "list_condominium_estimates_api_imoveis__property_id__debitos_estimativas_condominio_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List Condominium Estimates",
     "tags": [
      "debitos"
     ]

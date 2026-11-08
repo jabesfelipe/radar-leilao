@@ -106,7 +106,8 @@ def test_coverage_matrix_expoe_nao_investigados(db):
 
 def test_etapa_a_preservada_seed_all_inclui_coverage(db):
     r = debts_service.seed_all(db); db.flush()
-    assert set(r.keys()) == {"debt_types", "municipalities", "coverage"}
+    # Etapa C/D acrescentou o seed de parâmetros; cobertura e catálogo preservados.
+    assert {"debt_types", "municipalities", "coverage"}.issubset(set(r.keys()))
     # Debt/Cost/PropertyDebt continuam existindo e utilizáveis.
     assert db.scalars(select(models.DebtType)).first() is not None
 
