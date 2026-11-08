@@ -4,6 +4,7 @@ import { PageContainer } from './components/PageContainer'
 import { PropertiesPage } from './pages/PropertiesPage'
 import { PropertyDetailPage } from './pages/PropertyDetailPage'
 import { AuctioneersPage } from './pages/AuctioneersPage'
+import { AdminPage } from './pages/AdminPage'
 import {
   DashboardHub, FinancialHub, JuridicalHub, RisksHub, VerdictsHub,
   MarketHub, OccupancyHub, ChecklistHub, DocumentsHub, HistoryHub,
@@ -76,6 +77,7 @@ const pageDescription: Record<string, string> = {
   '/veredito': 'Vereditos consolidados e seus indicadores de decisão.',
   '/historico': 'Linha do tempo global das ações e análises do Radar.',
   '/leiloeiros': 'Cadastro de leiloeiros, portais/acessos e documentos.',
+  '/administracao': 'Parametrização do produto: municípios, fontes, tipos de débito e parâmetros administráveis.',
 }
 
 function HubRouter({ path, onOpenProperty }: { path: string; onOpenProperty: (id: number) => void }) {
@@ -92,6 +94,7 @@ function HubRouter({ path, onOpenProperty }: { path: string; onOpenProperty: (id
     case '/veredito': return <VerdictsHub onOpenProperty={onOpenProperty} />
     case '/historico': return <HistoryHub onOpenProperty={onOpenProperty} />
     case '/leiloeiros': return <AuctioneersPage />
+    case '/administracao': return <AdminPage />
     default: return <DashboardHub onOpenProperty={onOpenProperty} />
   }
 }
