@@ -165,26 +165,36 @@
   Ver `docs/COBERTURA-MUNICIPAL-FONTES-ETAPA-B.md` e `docs/SPEC-ADAPTADORES-CONSULTA-MUNICIPAL.md`.
 
 ### FB-015 — Estimativa condominial + alertas de idade (Etapa C)
-- **Estágio:** ESPECIFICADA. **Problema:** sem condomínio acessível, falta estimativa confiável e
-  distinção idade×condomínio×financiamento. **Benefício:** cenários conservador/provável/otimista sem
-  afirmar passivo. **Módulos:** A6 (checklist), A9 (financeiro). **Complexidade:** M-G. **Prioridade:** P1.
-  **Impacto:** Aditivo (preserva 27 keys). **Decisão:** pendente.
+- **Estágio:** IMPLEMENTADA (Etapa C) e VALIDADA. **Problema:** sem condomínio acessível, faltava
+  estimativa confiável e distinção idade×condomínio×financiamento. **Benefício:** cenários
+  conservador/provável/otimista sem afirmar passivo. **Módulos:** A6 (checklist), A9 (financeiro).
+  **Complexidade:** M-G. **Prioridade:** P1. **Impacto:** Aditivo (preserva 27 keys).
+  **Entrega:** `estimates_service.py` + `CondominiumEstimate` (migration `0022`); 3 cenários sempre
+  ESTIMADO; período de inadimplência é parâmetro (nunca derivado de idade); alertas de idade
+  parametrizáveis não conclusivos sem evidência. Ver `CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.
 
 ### FB-016 — Módulo administrativo + catálogo de parâmetros (Etapa A/D)
 - **Estágio:** IMPLEMENTADA (fundação na Etapa A) e VALIDADA. **Problema:** parâmetros de negócio
   hardcoded (ver §3 do plano). **Benefício:** configurar médias/limites/regras sem código, com histórico
   e versionamento. **Módulos:** Transversal, E (frontend). **Complexidade:** G. **Prioridade:** P1.
   **Impacto:** Transversal (ADR) + Aditivo. **Entrega:** catálogo central `parameters` + resolução por
-  precedência + `parameter_history` imutável + 1ª UI admin (`/administracao`). **Dependência (ABERTA):**
-  auth/RBAC (FB-003 / Onda 11) — hoje a escrita usa `X-Admin-Token` **provisório**, não substitui RBAC;
-  a admin só deve ser exposta em produção após a Onda 11 (§17). Snapshot por análise: pendente (Etapa D).
+  precedência + `parameter_history` imutável + 1ª UI admin (`/administracao`). **Etapa D concluída:**
+  parâmetros **consumidos de fato** (`market.py` via `parameters.resolve`) + **snapshot por execução**
+  (`FinancialAnalysis.inputs.parametros`; análises passadas imutáveis) + autorização por papel
+  (`authz.py`: admin/operador, 503/401/403). **Dependência (ABERTA):** identidade/RBAC real
+  (FB-003 / Onda 11) — a escrita usa `X-Admin-Token` com papéis **provisórios**; a admin só deve ser
+  exposta em produção após a Onda 11 (§17).
 
 ### FB-017 — Orquestração/coletores + consolidação financeira (Etapas E/F)
-- **Estágio:** BACKLOG. **Problema:** consulta municipal automática inexistente. **Benefício:** apuração
-  assíncrona com status por consulta + exposição consolidada por natureza. **Módulos:** C2, A9.
-  **Complexidade:** GG. **Prioridade:** P2. **Impacto:** Estrutural + integrações. **Dependência:**
-  FB-013/014 + viabilidade/termos por município (BLOQUEADO até autorização). **Decisão:** pendente
-  (§21.2 — autorizar investigação de automação).
+- **Estágio:** PARCIALMENTE IMPLEMENTADA (E/F) e VALIDADA; coletores automáticos BLOQUEADOS.
+  **Entregue (E/F):** contrato `MunicipalDebtProvider` + `ManualAssistedProvider` + registry por
+  cobertura + `debt_query_service` (status por consulta, retry controlado, histórico `DebtQuery`) +
+  consolidação por natureza integrada ao dossiê (`DebtsSection`) sem dupla contagem; `build_finance`
+  inalterado. **Benefício:** apuração com status por consulta + exposição consolidada. **Módulos:**
+  C2, A9. **Complexidade:** GG. **Prioridade:** P2. **Impacto:** Estrutural + integrações.
+  **BLOQUEADO (dependência externa):** providers automáticos de portal reais dependem de
+  viabilidade/termos por município + autorização; consulta real/scraping não executados. **Decisão:**
+  pendente (§21.2 — autorizar investigação de automação por município).
 
 ## 5. Como manter este backlog consistente
 - Toda nova ideia → novo `FB-XXX` com o modelo (§3), estágio inicial BACKLOG.

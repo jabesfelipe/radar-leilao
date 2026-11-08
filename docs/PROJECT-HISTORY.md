@@ -2591,3 +2591,52 @@ Jurídica mantida (testes só em banco efêmero).
 **Débito técnico:** o token administrativo continua provisório e **não** substitui RBAC;
 coletores/consulta real/agentes/modalidades seguem fora de escopo. Documentação técnica
 completa em `docs/COBERTURA-MUNICIPAL-FONTES-ETAPA-B.md`.
+
+## Etapas C–F — Estimativa, parâmetros consumidos, consulta e integração
+
+Rodada acelerada que entregou as quatro etapas restantes da Central de Débitos, mais a
+camada de autorização. Aditiva e reversível; preserva Etapas A/B, `Debt`/`Cost`/
+`PropertyDebt`, motor financeiro, Central Jurídica e o histórico (sem backfill).
+
+**Etapa C — Condomínio/estimativa.** `estimates_service.py` + modelo
+`CondominiumEstimate` (migration `0022`): `compute_condominium_estimate` produz 3 cenários
+(conservador/provável/otimista) com memória de cálculo e grau de confiança, **sempre
+`ESTIMADO`/`ESTIMATIVA_OPERACIONAL`** (nunca passivo). Separação rigorosa de idade do
+imóvel, idade do condomínio, tempo de financiamento e período de inadimplência — este
+último é parâmetro explícito, nunca derivado da idade. `age_alerts` parametrizável que
+não conclui sem evidência de idade.
+
+**Etapa D — Parâmetros consumidos + snapshot.** `parameter_seeds.py` (seed idempotente de
+mercado/estimativa/alertas) integrado ao `seed_all`. `market.py` deixou de usar
+`MIN_SAMPLE`/`HIGH_DISPERSION_CV` hardcoded — o router resolve via `parameters.resolve`
+(defaults = valores históricos). `parameters.parameter_snapshot` grava os parâmetros
+resolvidos em `FinancialAnalysis.inputs.parametros`, tornando análises passadas imutáveis
+(preserva V1–V9). Precedência preservada; segredos/constantes técnicas/fiscais sem fonte
+ficaram de fora.
+
+**Etapa E — Consulta municipal.** Contrato `MunicipalDebtProvider` (`debt_providers.py`)
+com `DebtQueryContext`/`DebtQueryResult` e status padronizados; `ManualAssistedProvider`
+(fallback sempre válido, sem rede); registry com seleção por cobertura (não condicional de
+cidade). `debt_query_service.run_query` orquestra seleção + retry controlado (só
+transitório) + persistência da execução (`DebtQuery`) e do resultado normalizado
+(`PropertyDebt`), com evento/histórico e reflexo na frente PREFEITURA. **Nenhum coletor
+automático, scraping ou consulta real.**
+
+**Etapa F — Integração ao dossiê.** Seção **Débitos e despesas** (`DebtsSection.tsx` +
+`services/debts.ts`) no detalhe do imóvel: consolidação por natureza, exposição de passivo
+com ressalva, histórico de consultas e estimativa condominial. `build_finance` inalterado
+(sem dupla contagem; estimativa nunca entra como passivo confirmado). Endpoints
+`/debitos/consultar|consultas|estimar-condominio|estimativas-condominio` (contrato 115→119
+paths).
+
+**Segurança.** `authz.py`: permissões (`admin:write`/`admin:parameters`/`debt:query`),
+papéis (`admin`/`operador`), `require_permission` validado no backend (503/401/403) sobre o
+`X-Admin-Token`; papéis adicionais por `AUTHZ_ROLE_TOKENS`. Identidade de usuários
+(login/sessão/JWT) e RBAC completo permanecem dependência da **Onda 11** — documentado; o
+token não é segurança definitiva de produção.
+
+**Validação (banco descartável, pgvector efêmero):** backend **715 passed / 2 skipped**
+(+21 testes em `tests/test_etapas_cf.py`); migrations `upgrade head` (0022) →
+`downgrade 0021` → `re-upgrade` RC=0; frontend `tsc -b` OK + **146 passed / 24 arquivos**.
+Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica mantida. Documentação
+consolidada em `docs/CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.

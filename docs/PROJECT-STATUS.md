@@ -1,6 +1,32 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (20/09/2026 — Etapa B: Cobertura municipal e fontes de consulta):**
+**Status global (20/09/2026 — Etapas C–F: estimativa, parâmetros consumidos, consulta e integração):**
+entregues as Etapas C–F da Central de Débitos (aditivo, preservando A/B). **C** —
+estimativa condominial parametrizada (`estimates_service.py` + `CondominiumEstimate`):
+3 cenários, sempre `ESTIMADO` (nunca passivo), idade do imóvel ≠ condomínio ≠
+financiamento ≠ inadimplência (período de inadimplência é parâmetro, nunca derivado da
+idade) + alertas de idade parametrizáveis que respeitam a qualidade da informação. **D** —
+catálogo de parâmetros agora **consumido de fato** nos serviços: `market.py`
+(amostra mínima / CV de dispersão) resolve via `parameters.resolve`; snapshot por
+execução em `FinancialAnalysis.inputs.parametros` (`parameter_snapshot`) torna análises
+passadas imutáveis (preserva V1–V9); precedência MUNICIPIO_CATEGORIA→…→GLOBAL mantida.
+**E** — contrato `MunicipalDebtProvider` + `ManualAssistedProvider` (fallback sempre
+válido) + registry por cobertura + orquestração `debt_query_service` com retry
+controlado/timeout/log + persistência `DebtQuery` e `PropertyDebt`; **nenhum coletor
+automático/scraping/consulta real**. **F** — seção **Débitos e despesas** no dossiê
+(`DebtsSection`) com consolidação por natureza, histórico de consultas e estimativa;
+`build_finance` inalterado (sem dupla contagem); reflexo na due diligence/checklist.
+**Segurança** — camada de autorização por papel/permissão (`authz.py`,
+`require_permission`) sobre o `X-Admin-Token` (503/401/403), papéis `admin`/`operador`;
+identidade real (login/sessão/JWT) permanece **dependência da Onda 11** (token não é RBAC
+definitivo). Migration `0022_consulta_estimativa` (down_revision `0021`, reversível).
+Contrato OpenAPI **119 paths** (+4). Validação em banco descartável: **backend 715 passed
+/ 2 skipped**, migrations up/down(0021)/up RC=0, **frontend tsc OK + 146 passed / 24
+arquivos**. Preservação 633/V1–V9/`llm_runs`/27 `canonical_key`/Central Jurídica mantida.
+**Fora de escopo (dependência externa):** coletores automáticos de portais, identidade de
+usuários. Detalhes em `docs/CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.
+
+**Status global anterior (20/09/2026 — Etapa B: Cobertura municipal e fontes de consulta):**
 entregue a **matriz operacional de cobertura município × tipo de débito** (aditiva,
 preservando a Etapa A). Nova tabela `municipality_coverage` via migration
 `0021_cobertura_municipal` (down_revision `0020`, reversível, sem backfill): cobertura

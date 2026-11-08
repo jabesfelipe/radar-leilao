@@ -1,5 +1,14 @@
 # PRODUCT DASHBOARD — Radar Leilão
 
+> **Atualização (Central de Débitos — Etapas A–F concluídas):** a frente de custos/débitos/parâmetros
+> (épico H) avançou de forma significativa desde o HEAD `7f61667` deste painel: domínio normalizado +
+> catálogo de parâmetros administráveis e **consumidos** pelos serviços (com snapshot imutável por
+> execução), cobertura municipal, estimativa condominial em cenários (sempre ESTIMADO), consulta
+> manual-assistida com histórico, integração ao dossiê e autorização por papel. Pendências externas:
+> coletores automáticos (viabilidade+autorização por município) e identidade/RBAC real (Onda 11).
+> Validação: backend 715/2, frontend 146, migrations reversíveis, contrato 119 paths. Detalhes:
+> `CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.
+
 > **Painel executivo e status consolidado.** Baseado no **código efetivo** (HEAD `7f61667`,
 > `20/09/2026`), não na documentação. Fonte detalhada: `docs/FEATURE-INVENTORY.md`. Nenhuma
 > alteração de código/dados foi feita para produzir este painel.

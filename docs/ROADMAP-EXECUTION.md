@@ -22,11 +22,14 @@
 - **Atualização (Etapa A da Central de Débitos):** a migration `0020_central_debitos` foi executada
   para a fundação da Central (ver §4 abaixo).
 - **Atualização (Etapa B da Central de Débitos):** a migration `0021_cobertura_municipal` foi executada
-  para a cobertura município × tipo. Portanto a **Onda 2 (modalidade)** deverá usar a próxima livre,
-  **`0022`**.
+  para a cobertura município × tipo.
+- **Atualização (Etapas C–F da Central de Débitos):** a migration `0022_consulta_estimativa` foi
+  executada (consulta de débito + estimativa condominial). Portanto a **Onda 2 (modalidade)** deverá usar
+  a próxima livre, **`0023`**.
 - As ondas do Ciclo 2 permanecem as mesmas; a **Onda 0 (M0+CI)** e a **Onda 1 (Opportunity/Workflow)**
-  estão concluídas; as **Etapas A e B (Central de Débitos/Despesas + Parâmetros + Cobertura)** estão
-  concluídas; a **Onda 2 (modalidade)** está planejada (`PLAN-WAVE-2-MODALIDADES.md`).
+  estão concluídas; as **Etapas A–F da Central de Débitos** estão concluídas (coletores automáticos e
+  identidade/RBAC permanecem dependências externas); a **Onda 2 (modalidade)** está planejada
+  (`PLAN-WAVE-2-MODALIDADES.md`).
 
 ## 3. Legenda
 - **Prioridade:** P0 (crítico/caminho crítico) · P1 (alto valor) · P2 (evolução).
@@ -73,6 +76,22 @@
   **Refs:** `docs/COBERTURA-MUNICIPAL-FONTES-ETAPA-B.md`.
 - **NÃO implementado (deliberado):** coletores/adaptadores concretos, consulta real, `debt_query`,
   workers. **Dependência ABERTA:** auth/RBAC (Onda 11). **Fora de escopo:** Etapas C–F.
+
+### Etapas C–F — Estimativa, parâmetros consumidos, consulta e integração ✅ CONCLUÍDAS
+- **Prioridade:** P1/P2. **Valor:** apuração rica integrada ao dossiê + parametrização efetiva.
+  **Complexidade:** G/GG.
+- **Entrega:** (C) `estimates_service.py` + `CondominiumEstimate` (3 cenários ESTIMADO; idade ≠
+  inadimplência; alertas parametrizáveis); (D) parâmetros **consumidos** em `market.py` via
+  `parameters.resolve` + snapshot por execução (`FinancialAnalysis.inputs.parametros`, imutável);
+  (E) contrato `MunicipalDebtProvider` + `ManualAssistedProvider` + registry + `debt_query_service`
+  (retry/status/histórico `DebtQuery`); (F) seção Débitos no dossiê (`DebtsSection`) + consolidação sem
+  dupla contagem; segurança `authz.py` (papéis sobre o token). Migration `0022_consulta_estimativa`.
+- **Critério de aceite:** migrations reversíveis (up/down(0021)/up RC=0); backend 715/2; frontend tsc +
+  146; contrato 119 paths; Etapas A/B/633 intactos. **Status:** VALIDADO em banco descartável.
+  **Refs:** `docs/CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.
+- **Dependência ABERTA:** identidade/RBAC real (Onda 11); coletores automáticos de portais (viabilidade
+  + termos + autorização por município). **NÃO implementado (deliberado):** scraping/consulta real,
+  providers automáticos, workers.
 
 ### Onda 1b — Serviço + API + UI de Workflow/Oportunidade ⬅️ **CAMINHO CRÍTICO**
 - **Prioridade:** P0. **Valor:** materializa a Onda 1 (hoje o engine é código não-ligado).

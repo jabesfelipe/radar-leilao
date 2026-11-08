@@ -1,5 +1,12 @@
 # FEATURE INVENTORY — Radar Leilão
 
+> **Atualização (Central de Débitos — Etapas A–F concluídas e VALIDADAS):** desde o HEAD `7f61667`
+> desta auditoria, a Central de Débitos/Despesas evoluiu: fundação + parâmetros administráveis (A),
+> cobertura município×tipo (B), estimativa condominial (C), consumo real de parâmetros + snapshot por
+> execução (D), contrato/provider de consulta manual-assistida (E) e integração ao dossiê + autorização
+> por papel (F). Coletores automáticos de portais e identidade/RBAC real permanecem dependências
+> externas (Onda 11 / autorização por município). Detalhes: `CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.
+
 > **Auditoria de produto (somente leitura).** Inventário detalhado das funcionalidades, com
 > **status real verificado no código** (não na documentação). Fonte: varredura do repositório em
 > `20/09/2026` (HEAD `7f61667`). Nenhum código/migration/dado foi alterado para produzir este

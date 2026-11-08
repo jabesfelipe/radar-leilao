@@ -6,6 +6,14 @@
 **Baseline documental:** `52a3eb9cdb9fb478c7374275c83405c64b7d0a9f`  
 **Natureza:** visão-alvo do produto e plano mestre de evolução. Este documento não afirma que funcionalidades planejadas já estejam implementadas.
 
+> **Atualização (Central de Débitos — Etapas A–F concluídas):** a frente de Central de Débitos/Despesas
+> + parametrização administrável foi implementada e validada em banco descartável (migrations até
+> `0022`). Entregue: domínio normalizado, cobertura municipal, estimativa condominial, parâmetros
+> consumidos nos serviços com snapshot por execução, consulta manual-assistida e integração ao dossiê,
+> com autorização por papel sobre o token admin. **Permanecem como dependências externas:** coletores
+> automáticos de portais (viabilidade + termos + autorização por município) e identidade/RBAC real
+> (Onda 11). Ver `docs/CENTRAL-DEBITOS-DESPESAS-ETAPAS-C-F-RELATORIO.md`.
+
 ---
 
 ## 1. Visão do produto
