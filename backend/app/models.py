@@ -1086,6 +1086,32 @@ DEBT_RELIABILITIES = ("OFICIAL", "DOCUMENTAL", "INFORMADO", "ESTIMADO", "NAO_VER
 # Tipos de fonte de informação (cadastro; nenhuma consulta executada nesta etapa).
 DEBT_SOURCE_TYPES = ("API_OFICIAL", "SERVICO_OFICIAL", "PORTAL_PUBLICO", "CONSULTA_MANUAL", "DOCUMENTO", "OUTRA_FONTE")
 
+# --- Cobertura municipal (Etapa B) --------------------------------------------
+# Situação operacional de uma fonte/cobertura. "NAO_INVESTIGADA" é o estado honesto
+# inicial: ausência de investigação ≠ ausência de débito. Nunca declarar
+# disponibilidade sem evidência.
+DEBT_SOURCE_SITUATIONS = (
+    "NAO_INVESTIGADA", "EM_INVESTIGACAO", "DISPONIVEL", "INDISPONIVEL",
+    "DEPENDE_AUTENTICACAO", "BLOQUEADA",
+)
+
+# Método pelo qual a consulta é (ou será) obtida. Nenhuma automação nesta etapa;
+# o método apenas descreve a viabilidade cadastrada.
+DEBT_CONSULTATION_METHODS = (
+    "MANUAL", "PORTAL_PUBLICO", "SERVICO_OFICIAL", "API_OFICIAL", "DOCUMENTO", "INDEFINIDO",
+)
+
+# Nível de cobertura de um município × tipo de débito. Independente por combinação;
+# não é derivado de condicional fixa — é DADO, administrável.
+COVERAGE_LEVELS = (
+    "NAO_INVESTIGADA",       # ainda não analisada (default honesto)
+    "MANUAL",                # só consulta manual assistida (fallback sempre válido)
+    "PARCIAL",               # alguma via disponível, com limitações
+    "AUTOMATIZAVEL",         # portal/serviço potencialmente automatizável (não automatizado)
+    "INTEGRACAO_DISPONIVEL", # API/serviço oficial disponível (ainda não integrado nesta etapa)
+    "INDISPONIVEL",          # sem via conhecida
+)
+
 # Catálogo central de parâmetros.
 PARAMETER_DATA_TYPES = ("STRING", "INTEGER", "DECIMAL", "BOOLEAN", "JSON")
 PARAMETER_SCOPES = ("GLOBAL", "MUNICIPIO", "CATEGORIA", "MUNICIPIO_CATEGORIA")
@@ -1236,3 +1262,37 @@ class ParameterHistory(TimestampMixin, Base):
     actor: Mapped[str] = mapped_column(String(120), default="sistema")
     justification: Mapped[str | None] = mapped_column(Text)
     parameter: Mapped[Parameter] = relationship(back_populates="history")
+
+
+class MunicipalityCoverage(TimestampMixin, Base):
+    """Matriz de cobertura: o que cada MUNICÍPIO cobre para cada TIPO de débito.
+
+    Esta é a estrutura operacional da Etapa B. A cobertura é INDEPENDENTE por
+    município × tipo (Curitiba pode cobrir IPTU + dívida ativa; outro, só IPTU) e
+    vive como DADO — nunca em condicional fixa no código. Aditivo e reversível;
+    não toca ``Debt``/``Cost``/``PropertyDebt`` da Etapa A.
+
+    Nenhuma consulta externa é executada: esta tabela apenas declara disponibilidade
+    e viabilidade conhecidas, com situação, método, limitações e data da última
+    validação. ``level``/``situation``/``method`` seguem vocabulários canônicos
+    (COVERAGE_LEVELS/DEBT_SOURCE_SITUATIONS/DEBT_CONSULTATION_METHODS). A fonte
+    preferencial (``source_id``) é opcional e sempre do mesmo município."""
+    __tablename__ = "municipality_coverage"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    municipality_id: Mapped[int] = mapped_column(ForeignKey("municipalities.id"), nullable=False, index=True)
+    debt_type_code: Mapped[str] = mapped_column(String(60), nullable=False, index=True)  # code de DebtType
+    level: Mapped[str] = mapped_column(String(30), default="NAO_INVESTIGADA", index=True)  # COVERAGE_LEVELS
+    situation: Mapped[str] = mapped_column(String(30), default="NAO_INVESTIGADA")           # DEBT_SOURCE_SITUATIONS
+    method: Mapped[str] = mapped_column(String(30), default="INDEFINIDO")                    # DEBT_CONSULTATION_METHODS
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)                  # cobertura ligada/desligada
+    source_id: Mapped[int | None] = mapped_column(ForeignKey("debt_sources.id"))            # fonte preferencial (opcional)
+    identifier_required: Mapped[str | None] = mapped_column(String(160))                    # identificador exigido (ex.: Inscrição Imobiliária)
+    limitations: Mapped[str | None] = mapped_column(Text)
+    observations: Mapped[str | None] = mapped_column(Text)
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    municipality: Mapped["Municipality"] = relationship()
+    __table_args__ = (
+        # Uma linha por município × tipo de débito (sem duplicidade).
+        UniqueConstraint("municipality_id", "debt_type_code", name="uq_coverage_municipality_type"),
+        Index("ix_coverage_municipality_type", "municipality_id", "debt_type_code"),
+    )
