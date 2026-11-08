@@ -16,6 +16,7 @@ class RetrieverFilters:
     document_type: str | None = None
     document_version: int | None = None
     category: str | None = None
+    opportunity_id: int | None = None  # isolamento por oportunidade (via metadata do chunk)
 
 
 def clamp_limit(limit: int | None) -> int:
@@ -62,6 +63,12 @@ class HybridRetriever:
             where.append("v.version = :document_version"); params["document_version"] = filters.document_version
         if filters.category is not None:
             where.append("c.metadata_json ->> 'category' = :category"); params["category"] = filters.category
+        if filters.opportunity_id is not None:
+            # Isolamento por oportunidade: só chunks cujo metadata carrega o mesmo
+            # opportunity_id. Chunks sem o campo (legado/sem contexto de oportunidade)
+            # NÃO vazam para um escopo restrito — comportamento seguro por padrão.
+            where.append("c.metadata_json ->> 'opportunity_id' = :opportunity_id")
+            params["opportunity_id"] = str(filters.opportunity_id)
 
         where_sql = " AND ".join(where)
         sql = text(f"""

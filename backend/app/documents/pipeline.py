@@ -25,7 +25,7 @@ def safe_filename(filename: str) -> str:
 class DocumentPipeline:
     def __init__(self, db: Session): self.db = db
 
-    def ingest(self, document: models.Document, content: bytes, filename: str, *, dedup_reuse: bool = True) -> models.DocumentVersion:
+    def ingest(self, document: models.Document, content: bytes, filename: str, *, dedup_reuse: bool = True, opportunity_id: int | None = None) -> models.DocumentVersion:
         filename = safe_filename(filename)
         digest = dedup.content_digest(content)
 
@@ -63,6 +63,8 @@ class DocumentPipeline:
             chunk_count = 0
             for chunk in chunk_markdown(normalized, extraction):
                 metadata = {**extraction, **chunk.metadata, "property_id": document.property_id, "document_id": document.id, "document_version_id": version.id, "document_type": document.document_type, "source": document.source, "chunk_index": chunk.index}
+                if opportunity_id is not None:
+                    metadata["opportunity_id"] = opportunity_id
                 self.db.add(models.DocumentChunk(document_version_id=version.id, chunk_index=chunk.index, content=chunk.content, page=chunk.metadata.get("page"), section=chunk.metadata.get("section") or chunk.metadata.get("subsection"), metadata_json=metadata))
                 chunk_count += 1
             self.db.flush()
