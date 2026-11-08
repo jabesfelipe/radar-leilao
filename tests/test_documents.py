@@ -53,7 +53,7 @@ def test_pipeline_cria_primeira_e_segunda_versao_com_hash(monkeypatch, tmp_path)
     assert Path(first.original_path).exists()
     assert Path(second.original_path).exists()
     assert first.original_path != second.original_path
-    assert document.status == "PROCESSADO"
+    assert document.status == "CONCLUIDO"  # Fase 2: estado canonico (antes "PROCESSADO")
 
 def test_upload_com_tipo_source_evento_e_historico(monkeypatch, tmp_path):
     from backend.app.main import upload_document
