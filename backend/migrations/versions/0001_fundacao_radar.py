@@ -64,6 +64,13 @@ TABLES_ADDED_LATER = (
     "workflow_transitions",
     "opportunity_workflows",
     "opportunities",
+    # 0020_central_debitos (Etapa A) — filhas antes das pais (FKs)
+    "parameter_history",
+    "parameters",
+    "property_debts",
+    "debt_sources",
+    "debt_types",
+    "municipalities",
 )
 
 # Colunas adicionadas por migrations posteriores (removidas do schema base).

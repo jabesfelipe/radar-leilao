@@ -1059,3 +1059,180 @@ class WorkflowTransition(TimestampMixin, Base):
     __table_args__ = (
         Index("ix_workflow_transitions_opportunity_to_phase", "opportunity_id", "to_phase"),
     )
+
+
+# ===========================================================================
+# CENTRAL DE DÉBITOS/DESPESAS + PARÂMETROS ADMINISTRÁVEIS (Etapa A)
+# Base: docs/PLAN-CENTRAL-DEBITOS-DESPESAS-ADMIN.md. Tudo ADITIVO: preserva
+# Debt/Cost e os endpoints atuais. Catálogos administráveis (município/tipo/fonte)
+# e um catálogo CENTRAL de parâmetros (transversal, não só de débitos), com
+# resolução por precedência e histórico imutável. Sem coletores/scraping/consulta
+# externa nesta etapa (fontes são apenas cadastradas).
+# ===========================================================================
+
+# --- Vocabulários canônicos (constantes de código; estrutura, não valor de negócio) ---
+# Grupos de débito/despesa (natureza macro). Catálogo de TIPOS é administrável (debt_types).
+DEBT_GROUPS = ("MUNICIPAL", "CONDOMINIO", "CONCESSIONARIA", "AQUISICAO_REGULARIZACAO", "OUTRO")
+
+# Natureza do lançamento: separa o que é passivo do que é custo/estimativa (nunca somar entre si).
+DEBT_NATURES = ("DIVIDA_EXISTENTE", "OBRIGACAO_POTENCIAL", "CUSTO_AQUISICAO", "ESTIMATIVA_OPERACIONAL")
+
+# Situação do registro. ESTIMADO nunca é tratado como CONFIRMADO.
+DEBT_STATUSES = ("PENDENTE", "CONFIRMADO", "INFORMADO", "ESTIMADO", "QUITADO", "CANCELADO", "INDISPONIVEL", "EM_VALIDACAO")
+
+# Grau de confiabilidade da informação.
+DEBT_RELIABILITIES = ("OFICIAL", "DOCUMENTAL", "INFORMADO", "ESTIMADO", "NAO_VERIFICADO")
+
+# Tipos de fonte de informação (cadastro; nenhuma consulta executada nesta etapa).
+DEBT_SOURCE_TYPES = ("API_OFICIAL", "SERVICO_OFICIAL", "PORTAL_PUBLICO", "CONSULTA_MANUAL", "DOCUMENTO", "OUTRA_FONTE")
+
+# Catálogo central de parâmetros.
+PARAMETER_DATA_TYPES = ("STRING", "INTEGER", "DECIMAL", "BOOLEAN", "JSON")
+PARAMETER_SCOPES = ("GLOBAL", "MUNICIPIO", "CATEGORIA", "MUNICIPIO_CATEGORIA")
+PARAMETER_STATUSES = ("ATIVO", "INATIVO")
+
+
+class Municipality(TimestampMixin, Base):
+    """Município cadastrável com cobertura inicial ativa (Curitiba, SJP, Fazenda Rio
+    Grande, Assis). A cobertura NÃO vive em condicionais do backend — é dado. Novos
+    municípios entram pelo módulo administrativo."""
+    __tablename__ = "municipalities"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    state: Mapped[str] = mapped_column(String(2), index=True)
+    ibge_code: Mapped[str | None] = mapped_column(String(7), unique=True)   # confirmado quando disponível
+    coverage_active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), default="ATIVO")
+    observations: Mapped[str | None] = mapped_column(Text)
+    sources: Mapped[list["DebtSource"]] = relationship(back_populates="municipality", cascade="all, delete-orphan")
+    __table_args__ = (
+        UniqueConstraint("name", "state", name="uq_municipality_name_state"),
+    )
+
+
+class DebtType(TimestampMixin, Base):
+    """Catálogo ADMINISTRÁVEL de tipos de débito/despesa (código, grupo, natureza).
+    Evita enum rígido espalhado pelo código; novas categorias entram por cadastro.
+    ``canonical_cost_key`` mapeia para a chave do breakdown do motor financeiro
+    (finance.COST_KEYS) quando o tipo impacta o financeiro — sem dupla contagem."""
+    __tablename__ = "debt_types"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(60), unique=True, index=True)   # ex.: IPTU, COTA_CONDOMINIAL
+    label: Mapped[str] = mapped_column(String(160))
+    group: Mapped[str] = mapped_column(String(40), index=True)               # DEBT_GROUPS
+    default_nature: Mapped[str] = mapped_column(String(30), default="DIVIDA_EXISTENTE")  # DEBT_NATURES
+    canonical_cost_key: Mapped[str | None] = mapped_column(String(40))       # finance.COST_KEYS (opcional)
+    impacts_finance: Mapped[bool] = mapped_column(Boolean, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+
+
+class DebtSource(TimestampMixin, Base):
+    """Fonte de informação por município × tipo de débito. Nesta etapa é apenas
+    CADASTRO/administração (nenhuma consulta é executada). Guarda a classificação da
+    fonte, situação operacional e a data da última validação."""
+    __tablename__ = "debt_sources"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    municipality_id: Mapped[int] = mapped_column(ForeignKey("municipalities.id"), nullable=False, index=True)
+    debt_category: Mapped[str | None] = mapped_column(String(60), index=True)  # code de DebtType (opcional: fonte geral)
+    name: Mapped[str] = mapped_column(String(200))
+    authority: Mapped[str | None] = mapped_column(String(200))                 # órgão responsável
+    official_url: Mapped[str | None] = mapped_column(String(600))              # só quando conhecida/validada
+    source_type: Mapped[str] = mapped_column(String(30), default="CONSULTA_MANUAL")  # DEBT_SOURCE_TYPES
+    method: Mapped[str | None] = mapped_column(String(120))                    # método disponível (texto)
+    situation: Mapped[str] = mapped_column(String(30), default="NAO_INVESTIGADA")    # situação operacional
+    access_requirements: Mapped[str | None] = mapped_column(Text)              # auth/CAPTCHA/certificado (texto)
+    limitations: Mapped[str | None] = mapped_column(Text)
+    observations: Mapped[str | None] = mapped_column(Text)
+    last_validated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    municipality: Mapped[Municipality] = relationship(back_populates="sources")
+
+
+class PropertyDebt(TimestampMixin, Base):
+    """Débito/despesa NORMALIZADO de um imóvel/oportunidade (modelo rico da Central).
+
+    Aditivo: NÃO substitui ``Debt``/``Cost`` (que seguem intactos). Representa o
+    resultado estruturado de identificação/consulta/estimativa, separando SEMPRE
+    ``valor_original`` de ``valor_atualizado`` e marcando natureza/status/
+    confiabilidade. ``opportunity_id`` é NULLABLE (NULL = legado; Gate 1)."""
+    __tablename__ = "property_debts"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), nullable=False, index=True)
+    opportunity_id: Mapped[int | None] = mapped_column(ForeignKey("opportunities.id"), index=True)  # NULL = legado
+    municipality_id: Mapped[int | None] = mapped_column(ForeignKey("municipalities.id"), index=True)
+    debt_type_code: Mapped[str] = mapped_column(String(60), index=True)        # code de DebtType
+    subcategory: Mapped[str | None] = mapped_column(String(80))
+    nature: Mapped[str] = mapped_column(String(30), default="DIVIDA_EXISTENTE", index=True)  # DEBT_NATURES
+    creditor: Mapped[str | None] = mapped_column(String(200))
+    external_id: Mapped[str | None] = mapped_column(String(120))               # identificador do débito na fonte
+    competence: Mapped[str | None] = mapped_column(String(20))                 # competência (ex.: 2025/03)
+    fiscal_year: Mapped[int | None] = mapped_column(Integer)                   # exercício
+    due_date: Mapped[date | None] = mapped_column(Date)
+    original_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    interest: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    penalty: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    correction: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    updated_amount: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    reference_date: Mapped[date | None] = mapped_column(Date)                  # data-base do valor
+    status: Mapped[str] = mapped_column(String(30), default="PENDENTE", index=True)  # DEBT_STATUSES
+    reliability: Mapped[str] = mapped_column(String(30), default="NAO_VERIFICADO")   # DEBT_RELIABILITIES
+    origin: Mapped[str | None] = mapped_column(String(120))                    # origem da informação (texto)
+    source_id: Mapped[int | None] = mapped_column(ForeignKey("debt_sources.id"))
+    acquisition_method: Mapped[str | None] = mapped_column(String(120))        # método de obtenção
+    evidence_id: Mapped[int | None] = mapped_column(ForeignKey("evidences.id"))
+    queried_at: Mapped[datetime | None] = mapped_column(DateTime)              # data/hora da consulta (quando houver)
+    observations: Mapped[str | None] = mapped_column(Text)
+    __table_args__ = (
+        Index("ix_property_debts_property_status", "property_id", "status"),
+    )
+
+
+class Parameter(TimestampMixin, Base):
+    """Catálogo CENTRAL de parâmetros administráveis (transversal: financeiro, risco,
+    mercado, checklist, débitos, etc.). Resolução por precedência (serviço central).
+    Segredos NUNCA entram aqui (continuam em cofre/secrets_crypto). ``value``/
+    ``default_value`` são texto serializado conforme ``data_type`` (validado no serviço)."""
+    __tablename__ = "parameters"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(120), index=True)                  # ex.: condominio.margem_seguranca_pct
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str] = mapped_column(String(60), index=True)              # financeiro/mercado/estimativa/...
+    data_type: Mapped[str] = mapped_column(String(20), default="STRING")       # PARAMETER_DATA_TYPES
+    scope: Mapped[str] = mapped_column(String(30), default="GLOBAL", index=True)  # PARAMETER_SCOPES
+    municipality_id: Mapped[int | None] = mapped_column(ForeignKey("municipalities.id"), index=True)
+    debt_category: Mapped[str | None] = mapped_column(String(60), index=True)  # code de DebtType (opcional)
+    value: Mapped[str | None] = mapped_column(Text)                            # valor atual (serializado)
+    default_value: Mapped[str | None] = mapped_column(Text)                    # valor padrão (serializado)
+    unit: Mapped[str | None] = mapped_column(String(40))
+    allowed_values: Mapped[list | None] = mapped_column(JSON)                  # whitelist opcional
+    min_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    max_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(20), default="ATIVO", index=True)  # PARAMETER_STATUSES
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    updated_by: Mapped[str] = mapped_column(String(120), default="sistema")
+    history: Mapped[list["ParameterHistory"]] = relationship(back_populates="parameter", cascade="all, delete-orphan", order_by="ParameterHistory.id")
+    __table_args__ = (
+        # Unicidade por chave + escopo (um valor por combinação de abrangência).
+        UniqueConstraint("key", "scope", "municipality_id", "debt_category", name="uq_parameter_scope"),
+        Index("ix_parameters_key_scope", "key", "scope"),
+    )
+
+
+class ParameterHistory(TimestampMixin, Base):
+    """Trilha IMUTÁVEL (append-only) de alterações de um parâmetro, para auditoria e
+    para identificar a versão vigente em uma análise. Nunca sobrescreve versões."""
+    __tablename__ = "parameter_history"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    parameter_id: Mapped[int] = mapped_column(ForeignKey("parameters.id"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(120), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    previous_value: Mapped[str | None] = mapped_column(Text)
+    new_value: Mapped[str | None] = mapped_column(Text)
+    action: Mapped[str] = mapped_column(String(20), default="UPDATE")          # CREATE/UPDATE/ACTIVATE/DEACTIVATE
+    actor: Mapped[str] = mapped_column(String(120), default="sistema")
+    justification: Mapped[str | None] = mapped_column(Text)
+    parameter: Mapped[Parameter] = relationship(back_populates="history")
