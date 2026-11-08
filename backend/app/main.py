@@ -41,12 +41,32 @@ from .routers.deps import property_or_404  # noqa: E402  (fonte única; reusado 
 from .routers.market import get_market  # noqa: E402,F401  (compat: testes importam get_market de main)
 from .routers import admin as admin_router  # noqa: E402
 from .routers import debts as debts_router  # noqa: E402
+from .routers import auth as auth_router  # noqa: E402
 app.include_router(health_router.router)
 app.include_router(hubs_router.router)
 app.include_router(legal_central_router.router)
 app.include_router(market_router.router)
 app.include_router(admin_router.router)
 app.include_router(debts_router.router)
+app.include_router(auth_router.router)
+
+
+@app.on_event("startup")
+def _bootstrap_admin_on_startup() -> None:
+    """Cria o 1º administrador SOMENTE se o ambiente fornecer e-mail+senha de bootstrap
+    e ainda não houver usuários (idempotente). Sem env => nenhum usuário/senha padrão.
+    Falha silenciosa (log) para nunca impedir a subida do app em dev/teste."""
+    from .database import SessionLocal
+    from . import auth as _auth
+    try:
+        db = SessionLocal()
+        try:
+            if _auth.ensure_bootstrap_admin(db):
+                db.commit()
+        finally:
+            db.close()
+    except Exception as exc:  # pragma: no cover - resiliência de startup
+        log.warning("bootstrap admin ignorado: %s", type(exc).__name__)
 
 class AnalyzeRequest(BaseModel):
     domains: list[str] | None = None

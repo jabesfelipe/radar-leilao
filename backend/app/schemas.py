@@ -1050,3 +1050,42 @@ class CondominiumEstimateRequest(BaseModel):
     justification: str | None = None
     evidence_id: int | None = None
     persist: bool = True
+
+
+# --- Autenticação / usuários (Onda 11) ---
+class LoginRequest(BaseModel):
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=1)
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class UserOut(BaseModel):
+    id: int; email: str; name: str; role: str; active: bool
+    last_login_at: datetime | None = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MeOut(BaseModel):
+    user: UserOut
+    permissions: list[str]
+
+
+class UserCreate(BaseModel):
+    email: str = Field(min_length=3)
+    name: str = ""
+    password: str = Field(min_length=8)
+    role: Literal["ADMIN", "ANALISTA", "OPERADOR", "CONSULTA"] = "CONSULTA"
+    active: bool = True
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    role: Literal["ADMIN", "ANALISTA", "OPERADOR", "CONSULTA"] | None = None
+    active: bool | None = None
+    password: str | None = Field(default=None, min_length=8)
