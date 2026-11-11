@@ -31,37 +31,74 @@ Agende via cron (ex.: diário 03:00) gravando em disco **separado** do banco:
 0 3 * * * cd /opt/radar-leilao && RETENTION_DAYS=14 scripts/prod/pg-backup.sh /mnt/backups
 ```
 
-## 3. Backup dos documentos
-
-- **Local (volume):** snapshot do volume `backend_storage` (ex.: `docker run --rm -v
-  radar-prod_backend_storage:/s -v /mnt/backups:/b alpine tar czf /b/storage-STAMP.tgz -C /s .`).
-- **S3/MinIO:** use versionamento/replicação do bucket (recomendado em produção).
-- Consistência banco×documentos: faça o backup do banco e do storage na mesma janela;
-  como a ingestão é append-only e idempotente, pequenas defasagens são recuperáveis
-  (reprocessamento não duplica).
-
-## 4. Restauração
-
-**Nunca** restaure sobre o banco vivo sem backup atual. Para ensaiar/validar:
+## 3. Backup dos documentos (VPS)
 
 ```bash
-scripts/prod/pg-restore-verify.sh backups/radar-radar_leilao-<STAMP>.dump radar_restore_check
+scripts/prod/storage-backup.sh /opt/radar-backups
 ```
-- Restaura SEMPRE num banco **descartável** (recusa `radar_leilao`/`postgres`/`template*`).
-- Valida estrutura (nº de tabelas), `alembic_version` e contagens básicas.
-- Dropa o banco de verificação ao final (`DROP_AFTER=true`).
+- Lê o volume `radar-prod_backend_storage` em modo **somente leitura**.
+- Gera `storage-<STAMP>.tar.gz` (sem `tmp/`) + `storage-<STAMP>.sha256` (hash de cada
+  arquivo, preservando estrutura e nomes) e verifica o `.tar.gz`.
+- Consistência banco×documentos: rode `pg-backup.sh` e `storage-backup.sh` na mesma janela
+  (o `deploy.sh update` já faz os dois). Ingestão é append-only, então uma defasagem curta
+  só significa um arquivo novo sem metadado (ou vice-versa), detectável na validação (§4.3).
 
-Restauração real (janela de manutenção): recrie o banco destino, restaure o dump com
-`pg_restore` e aponte a aplicação. Documente no runbook de incidente.
+## 4. Restauração (sempre em destino isolado primeiro)
 
-## 5. Evidência de teste (2026-11)
+### 4.1 Banco
+```bash
+scripts/prod/pg-restore-verify.sh /opt/radar-backups/radar-radar_leilao-<STAMP>.dump radar_restore_check
+```
+Restaura num banco **descartável** (recusa `radar_leilao`/`postgres`/`template*`), valida
+tabelas, `alembic_version` e contagens; `DROP_AFTER=false` mantém para inspeção.
 
-Ciclo testado em bancos throwaway (nunca `radar_leilao`):
-- Backup `-Fc` gerado e **verificado** (`pg_restore -l`).
-- Restaurado em `radar_bkp_check`: estrutura + `alembic_version=0023_usuarios` +
-  contagens conferidas; banco de verificação dropado ao fim.
+### 4.2 Documentos
+```bash
+scripts/prod/storage-restore.sh /opt/radar-backups/storage-<STAMP>.tar.gz radar_restore_check_storage
+```
+- Recusa volumes em uso (`radar-prod_backend_storage`, `radar-leilao_backend_storage`) e
+  qualquer volume **não vazio** — nunca sobrescreve.
+- Pede confirmação digitada (`RESTAURAR`).
+- Confere o hash de **cada** arquivo contra o manifesto (`sha256sum -c`).
 
-## 6. Preservação
+### 4.3 Validar metadados × arquivos
+Com banco e volume restaurados, confira que todo `document_versions.original_path` tem
+arquivo correspondente:
+```bash
+scripts/prod/verify-restore-paths.sh radar_restore_check radar_restore_check_storage
+# saída: paths=<n> faltando=<m>   (rc=1 se faltar algum arquivo)
+```
+
+### 4.4 Restauração real (desastre)
+Em janela de manutenção, com backup atual do estado corrente:
+1. `docker compose ... stop backend worker`
+2. Restaure o dump num banco novo (`pg_restore -d <novo>`), valide (§4.1).
+3. Restaure documentos num volume novo (§4.2), valide (§4.3).
+4. Aponte o compose para o banco/volume novos (ou renomeie em manutenção) e suba.
+Nunca use `down -v` nem restaure sobre o banco/volume em uso sem cópia.
+
+## 5. Cópia fora da VPS (obrigatório)
+
+Backup na mesma VPS não protege contra perda da VPS. Do seu computador:
+```bash
+rsync -avz radar@IP_DA_VPS:/opt/radar-backups/ ./radar-backups/
+```
+Ou um storage externo (Backblaze B2, outro servidor) via `rclone` — não contratado nesta fase.
+
+## 6. Evidência de teste (2026-11)
+
+Simulação local do compose de produção (projeto `radar-prod`, volumes isolados do dev):
+- `pg-backup.sh`: dump custom de 272 KB, verificado com `pg_restore -l`.
+- `pg-restore-verify.sh` em `radar_restore_check`: 69 tabelas, `alembic=0023_usuarios`,
+  documentos/chunks/usuários com as mesmas contagens da origem.
+- `storage-backup.sh`: 3 arquivos (original + normalizado + metadata), manifesto SHA-256.
+- `storage-restore.sh` em volume novo: hashes de todos os arquivos conferidos; recusou o
+  volume em uso (`rc=2`) e um volume não vazio (`rc=2`).
+- `verify-restore-paths.sh`: todo caminho registrado no banco restaurado existe no volume
+  restaurado.
+Nada disso tocou `radar_leilao` (dev) — conferido por contagem antes/depois.
+
+## 7. Preservação
 
 O backup é a rede de segurança dos invariantes históricos (imóvel 633, V1–V9, 45
 `llm_runs`, 27 `canonical_key`, Central Jurídica). Sempre faça backup ANTES de qualquer

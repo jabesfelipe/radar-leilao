@@ -1,6 +1,28 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (2026-11 — Production-ready: RAG endurecido + infra de hospedagem):**
+**Status global (2026-11 — Pronto para VPS Contabo / homologação):** o compose de
+produção foi **executado e validado localmente** de ponta a ponta (projeto `radar-prod`,
+volumes isolados do dev). Correções de hospedagem: `.dockerignore` (antes o build copiava
+`node_modules`, dados e `.env` para as imagens), frontend compilado sem `localhost`
+(`VITE_API_URL` vazio → `/api` no mesmo host), **gate de schema** no entrypoint de produção
+(backend/worker recusam subir com banco ≠ head), healthchecks do nginx (IPv4), tuning do
+PostgreSQL e limites de memória para 4 GB, worker passando pelo mesmo gate. **Acesso
+restrito:** proxy único exposto com **portão por chave** (cookie) — necessário porque rotas
+legadas de leitura do backend ainda não exigem JWT —, rate limit no login e `/docs` oculto;
+Tailscale documentado como alternativa sem porta pública. **Documentos:** download
+autenticado `GET /api/documentos/versoes/{id}/arquivo` pela abstração de storage, com guard
+de raiz; temporários em `storage/tmp` + limpeza controlada. **Backup/restore de
+documentos** com manifesto SHA-256, restore em volume isolado com recusa de sobrescrita, e
+validação metadados×arquivos — testados. **CI/CD:** CI com downgrade/upgrade de migrations,
+validação do compose e build das imagens; publicação GHCR e deploy SSH **manuais** (Environment
+`production`). Contrato **144 rotas**. Regressão em banco descartável (dropado), na imagem de
+produção: migrations up/down/up OK, **backend 786 passed / 2 skipped** (2 asserções obsoletas de
+`test_chunk_embedding.py` atualizadas para os estados canônicos `INDEXADO`/`CONCLUIDO`, como já
+feito em `test_documents.py`); **frontend tsc OK + 153 passed**. Docs: `INFRASTRUCTURE-CONTABO`, `DOCKER-DEPLOYMENT`,
+`STORAGE-LOCAL`, `HOMOLOGATION-GUIDE`, `GITHUB-ACTIONS-DEPLOY`, `CONTABO-CHECKLIST`,
+`BACKUP-RESTORE`. Preservação do dev conferida (633, 45 `llm_runs` 30/15, 27 `canonical_key`).
+
+**Status global anterior (2026-11 — Production-ready: RAG endurecido + infra de hospedagem):**
 sobre a Onda 2 publicada, o ciclo endureceu o RAG e preparou a hospedagem externa, tudo
 **aditivo e sem migration nova** (próxima livre segue `0024`), preservando os invariantes
 (imóvel 633, V1–V9, 45 `llm_runs`, 27 `canonical_key`, Central Jurídica). **RAG:** dedup
