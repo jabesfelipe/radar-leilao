@@ -26,9 +26,10 @@ scripts/prod/pg-backup.sh backups
   `backups/archive/` — **nunca excluídos**.
 - Log em `backups/backup.log`.
 
-Agende via cron (ex.: diário 03:00) gravando em disco **separado** do banco:
+Agende via cron (ex.: diário 03:00); a linha completa está em
+`docs/INFRASTRUCTURE-CONTABO.md §9`:
 ```
-0 3 * * * cd /opt/radar-leilao && RETENTION_DAYS=14 scripts/prod/pg-backup.sh /mnt/backups
+0 3 * * * cd /opt/radar-leilao && RETENTION_DAYS=14 scripts/prod/pg-backup.sh /opt/radar-backups >> /opt/radar-backups/cron.log 2>&1
 ```
 
 ## 3. Backup dos documentos (VPS)
@@ -77,13 +78,37 @@ Em janela de manutenção, com backup atual do estado corrente:
 4. Aponte o compose para o banco/volume novos (ou renomeie em manutenção) e suba.
 Nunca use `down -v` nem restaure sobre o banco/volume em uso sem cópia.
 
-## 5. Cópia fora da VPS (obrigatório)
+## 5. Cópia fora da VPS (obrigatório, automatizável)
 
-Backup na mesma VPS não protege contra perda da VPS. Do seu computador:
+Backup na mesma VPS não protege contra perda da VPS. Os arquivos são gerados com permissão
+`600` (dono `radar`): contêm dados dos imóveis e hashes de senha — trate-os como sigilosos.
+
+### 5.1 Opção recomendada: PULL a partir de outra máquina (VPS não tem credencial do destino)
+Se a VPS for comprometida, o invasor não consegue apagar as cópias externas.
+Em um Linux/WSL/macOS que fique ligado (usa a tailnet; com IP público troque o host):
 ```bash
-rsync -avz radar@IP_DA_VPS:/opt/radar-backups/ ./radar-backups/
+# uma vez: chave SSH dedicada, autorizada no ~radar/.ssh/authorized_keys da VPS
+ssh-keygen -t ed25519 -f ~/.ssh/radar_backup -N ''
+ssh-copy-id -i ~/.ssh/radar_backup.pub radar@radar-vps
+# crontab -e  (04:00, depois dos backups das 03:00/03:20)
+0 4 * * * rsync -a --partial -e "ssh -i $HOME/.ssh/radar_backup" radar@radar-vps:/opt/radar-backups/ $HOME/radar-backups/ >> $HOME/radar-backups-pull.log 2>&1
 ```
-Ou um storage externo (Backblaze B2, outro servidor) via `rclone` — não contratado nesta fase.
+Sem `--delete`: o lado externo só acumula. No Windows, rode o mesmo comando no WSL pelo
+Agendador de Tarefas (`wsl -e bash -lc "rsync ..."`).
+
+### 5.2 Opção PUSH (quando não houver máquina sempre ligada)
+`rclone` com remoto **criptografado** (`rclone config` → remoto `b2:` ou outro + remoto
+`crypt` sobre ele, ex.: `radar-crypt:`). Na VPS, cron do `radar`:
+```bash
+40 3 * * * rclone copy /opt/radar-backups radar-crypt:radar-backups --exclude 'cron.log' >> /opt/radar-backups/rclone.log 2>&1
+```
+Use `copy` (nunca `sync`, que apagaria no destino). Credenciais do rclone ficam em
+`~radar/.config/rclone/rclone.conf` (`chmod 600`). Provedor/conta: decisão do usuário (não
+contratado nesta fase).
+
+### 5.3 Conferência periódica
+Mensalmente: copie o dump mais recente para uma máquina com Docker e rode §4.1–§4.3
+(restore isolado + `verify-restore-paths.sh`). Backup sem restore ensaiado não conta.
 
 ## 6. Evidência de teste (2026-11)
 

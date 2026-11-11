@@ -37,14 +37,18 @@ O `.env.prod` **permanece só na VPS**; nenhuma secret da aplicação vai para o
 
 Actions → **Deploy (manual)** → Run workflow → `ref` (tag recomendada, ex.: `v0.1.0`) →
 aprovar no environment. O job:
-1. valida as secrets; 2. conecta por SSH; 3. faz checkout do `ref`;
+1. valida as secrets e o formato do `ref` (só `A-Z a-z 0-9 . _ / -`: o valor vai para um
+   comando remoto, então qualquer outro caractere é recusado); 2. conecta por SSH; 3. faz checkout do `ref`;
 4. roda `scripts/prod/deploy.sh update` (backup banco+docs → build → migrate → up → smoke).
 
 ## 4. Rollback
 
 Run workflow com `ref` = tag/commit anterior. O mesmo fluxo faz backup antes. Se a versão
-anterior exigir schema mais antigo, faça `alembic downgrade` conforme
-`docs/DOCKER-DEPLOYMENT.md §6` (manual, com backup).
+que está saindo aplicou migration nova, o rollback **falha** (o código antigo não conhece a
+revisão do banco e o gate de schema não deixa o backend subir): faça antes, na VPS e com o
+código ainda novo, o `alembic downgrade` de `docs/DOCKER-DEPLOYMENT.md §6`.
+A chave do host é obtida por `ssh-keyscan` (confiança no primeiro uso); para fixá-la,
+troque por um secret `VPS_KNOWN_HOSTS` com a saída de `ssh-keyscan` conferida.
 
 ## 5. Boas práticas
 

@@ -7,7 +7,8 @@ abrir uma plataforma pública. Nada do RBAC foi removido.
 
 | Camada | O que faz | Onde |
 |---|---|---|
-| Firewall (UFW) | só 22 e 80 (ou só 22 com Tailscale) | VPS |
+| Rede privada (Tailscale, padrão) | proxy publicado só em `127.0.0.1`; acesso remoto só pela tailnet (WireGuard) com HTTPS | VPS + `tailscale serve` |
+| Firewall (UFW) | só 22 (modo B) ou 22 e 80 (modo A). **Não protege portas publicadas pelo Docker** | VPS |
 | Banco não exposto | PostgreSQL sem porta no host | `docker-compose.prod.yml` |
 | **Portão do proxy** | sem cookie `radar_gate` válido ⇒ **403 em tudo** (frontend, API, downloads) | `docker/nginx/templates/default.conf.template` |
 | Login JWT + RBAC | ADMIN / ANALISTA / OPERADOR / CONSULTA | backend (Onda 11) |
@@ -22,48 +23,81 @@ Expor o backend por IP sem barreira deixaria esses dados acessíveis. O portão 
 na entrada, sem alterar regras de negócio. Fechar as rotas legadas com JWT é pendência
 **IMPORTANTE** antes de qualquer acesso público (ver relatório).
 
-## 2. Modo A — IP público com portão (padrão do compose)
+## 2. O que trafega e como proteger (sem domínio)
+
+| Dado | Como trafega | Sem HTTPS (modo A) |
+|---|---|---|
+| Senha do login | corpo do `POST /api/auth/login` | texto claro |
+| JWT | header `Authorization: Bearer` em toda chamada `/api` (guardado em `localStorage`) | texto claro |
+| Cookie do portão `radar_gate` | todo request | texto claro (sem `Secure`) |
+| Documentos (upload/download) | corpo das requisições | texto claro |
+
+Quem capturar o cookie do portão ganha acesso às rotas legadas **sem JWT** (ver
+`docs/SECURITY-EXPOSURE-AUDIT.md`). Por isso o **modo seguro de homologação sem domínio é o
+modo B**: o tráfego vai cifrado pelo WireGuard da tailnet e, com `tailscale serve --https`,
+também por TLS com certificado válido `*.ts.net` — sem comprar domínio e sem porta pública.
+
+## 3. Modo B — Tailscale (PADRÃO, sem porta pública)
+
+Pré-requisitos (conta Tailscale gratuita; não executado nesta missão): no painel
+<https://login.tailscale.com/admin/dns> habilite **MagicDNS** e **HTTPS Certificates**.
+
+```bash
+# Na VPS
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up --hostname=radar-vps        # abre um link para autorizar a máquina
+tailscale status                               # confirma o nome radar-vps.<tailnet>.ts.net
+```
+`.env.prod` (já é o padrão do `.env.prod.example` e do compose):
+```
+PROXY_BIND=127.0.0.1      # Docker publica o proxy SÓ no loopback
+PROXY_PORT=8080
+CORS_ALLOW_ORIGINS=https://radar-vps.<tailnet>.ts.net
+```
+Depois do `deploy.sh first`, exponha o proxy **só na tailnet**, com HTTPS:
+```bash
+sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
+tailscale serve status
+```
+Restrição da porta (como garantir que nada público aceita conexão):
+- O proxy escuta em `127.0.0.1:8080`: inalcançável de fora, independentemente do UFW.
+- `tailscale serve` escuta só no IP da tailnet (100.x), nunca no IP público.
+- **Nunca** use `tailscale funnel` (publicaria na internet).
+- UFW sem regra para 80/443. Confira de fora: `curl -m 5 http://IP_PUBLICO/` deve falhar
+  (timeout/recusado) e na VPS `sudo ss -tlnp` não pode mostrar `0.0.0.0:80`/`0.0.0.0:8080`.
+- Atenção: se alguém mudar `PROXY_BIND` para `0.0.0.0`, o Docker publica a porta por
+  iptables próprias e o UFW **não bloqueia**. O `deploy.sh` recusa `0.0.0.0` sem
+  `ALLOW_PUBLIC_HTTP=1`.
+
+Dispositivos: instale o app Tailscale (Android/iOS/Windows/macOS), entre na mesma conta e
+abra **uma vez** `https://radar-vps.<tailnet>.ts.net/acesso?k=<GATE_KEY>`; depois use
+`https://radar-vps.<tailnet>.ts.net`. O portão continua ativo como 2ª barreira.
+
+Observações: o nome `radar-vps.<tailnet>.ts.net` aparece em logs públicos de Certificate
+Transparency (só o nome; o serviço continua inalcançável fora da tailnet). Opcionalmente
+restrinja quem da tailnet acessa a VPS com ACLs do Tailscale.
+
+## 3.1 Modo A — IP público com portão (somente teste curto, dados não sensíveis)
 
 `.env.prod`:
 ```
 PROXY_BIND=0.0.0.0
 PROXY_PORT=80
-GATE_KEY=<openssl rand -hex 24>
+ALLOW_PUBLIC_HTTP=1
+CORS_ALLOW_ORIGINS=http://IP_DA_VPS
 ```
-Em cada dispositivo, **uma vez**: `http://IP_DA_VPS/acesso?k=<GATE_KEY>` → cookie de 30 dias
-(HttpOnly). Depois: `http://IP_DA_VPS` e login.
++ `sudo ufw allow 80/tcp`. Em cada dispositivo, **uma vez**:
+`http://IP_DA_VPS/acesso?k=<GATE_KEY>` → cookie de 30 dias (HttpOnly). Senha, JWT, cookie e
+documentos trafegam **em texto claro**; qualquer rede no caminho (Wi-Fi público, operadora)
+pode capturá-los. Não use com dados reais.
 
-Revogar acesso de todos: troque `GATE_KEY` e `docker compose ... up -d proxy`.
+## 3.2 Revogar acesso / higiene da chave
 
-Limitação: sem HTTPS, o tráfego (inclusive senha e cookie) vai em texto claro. Aceitável
-apenas para validação curta com dados não sensíveis; para uso contínuo use o Modo B ou
-adicione domínio + TLS (§4).
-
-## 3. Modo B — Tailscale (recomendado, sem porta pública)
-
-Tailscale cria uma rede privada criptografada entre seus dispositivos e a VPS (plano
-gratuito pessoal). Passos (exigem conta Tailscale — não feito nesta missão):
-
-```bash
-# Na VPS
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up            # abre um link para autorizar a máquina
-tailscale ip -4              # ex.: 100.x.y.z
-```
-`.env.prod`:
-```
-PROXY_BIND=127.0.0.1      # proxy só local
-PROXY_PORT=8080
-CORS_ALLOW_ORIGINS=http://radar-vps   # nome MagicDNS da VPS
-```
-Exponha o proxy só na tailnet:
-```bash
-sudo tailscale serve --bg --http=80 http://127.0.0.1:8080
-sudo ufw delete allow 80/tcp     # fecha a porta pública
-```
-No celular/notebook: instale o app Tailscale, entre na mesma conta e abra
-`http://radar-vps` (o portão continua ativo: use `/acesso?k=...` uma vez).
-Opcional: `tailscale serve --https=443 ...` fornece HTTPS com certificado da própria tailnet.
+- Trocar `GATE_KEY` no `.env.prod` e `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d proxy`
+  invalida todos os cookies.
+- O proxy **não registra** `/acesso` em log (a URL contém a chave). O histórico do navegador
+  guarda a URL: após o 1º acesso, apague-a do histórico em dispositivos compartilhados.
+- Envie o link `/acesso?k=...` só por canal privado.
 
 ## 4. Domínio + HTTPS (pós-homologação)
 

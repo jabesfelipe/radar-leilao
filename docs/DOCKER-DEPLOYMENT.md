@@ -7,7 +7,7 @@ Arquivo: `docker-compose.prod.yml` (projeto `radar-prod`). Variáveis: `.env.pro
 
 | Serviço | Imagem | Porta pública | Limite RAM | Papel |
 |---|---|---|---|---|
-| proxy | nginx:1.27-alpine | **80** (único) | 64 MB | portão de acesso + roteamento `/api` e `/` |
+| proxy | nginx:1.27-alpine | **127.0.0.1:8080** (único; remoto via `tailscale serve`) | 64 MB | portão de acesso + roteamento `/api` e `/` |
 | frontend | radar-leilao-frontend-prod | — | 64 MB | React compilado servido por nginx |
 | backend | radar-leilao-backend-prod | — | 1000 MB | FastAPI (uvicorn, 1 worker), usuário não-root |
 | worker | radar-leilao-backend-prod | — | 700 MB | embeddings pendentes (polling do banco) |
@@ -26,20 +26,24 @@ O frontend é compilado com `VITE_API_URL` **vazio**: todas as chamadas vão par
 ```bash
 scripts/prod/deploy.sh first
 ```
-Equivalente manual:
-```bash
-$DC build
-$DC up -d postgres
-$DC --profile migrate run --rm migrate      # 0001 -> head
-$DC up -d
-```
+Ordem: valida `.env.prod` → build → `up --wait postgres` → **exige banco vazio** (sem
+`alembic_version` e sem tabelas; caso contrário aborta com rc=2 e manda usar `update`) →
+`migrate` (0001 → head) → `up -d` + restart do proxy → smoke (`/health` 200 com cookie e
+`/api/imoveis` 403 sem cookie).
 
 ## 3. Atualização de instalação existente
 
 ```bash
 git fetch && git checkout <tag ou commit>
-scripts/prod/deploy.sh update     # backup banco+docs -> build -> migrate -> up -> smoke
+scripts/prod/deploy.sh update
 ```
+Ordem: valida `.env.prod` → build → `up --wait postgres` → **exige instalação existente**
+(sem `alembic_version` aborta com rc=2) → backup de banco **e** documentos (qualquer
+falha aborta antes de migrar) → `migrate` → `up -d` + restart do proxy → smoke.
+
+Validação do `.env.prod` (ambos os modos): `POSTGRES_PASSWORD`, `JWT_SECRET_KEY` (≥ 32) e
+`GATE_KEY` (≥ 48 hex) preenchidos; `PROXY_BIND=0.0.0.0` só com `ALLOW_PUBLIC_HTTP=1`. O
+smoke não grava a chave em disco nem a passa na linha de comando.
 
 ## 4. Gate de schema (proteção)
 
@@ -68,10 +72,14 @@ o banco nasce vazio e passa por `0001 -> head` pelo serviço `migrate`.
 
 ## 6. Rollback
 
-- **Código:** `git checkout <tag anterior> && scripts/prod/deploy.sh update`.
-- **Schema:** as migrations são reversíveis; um passo:
-  `$DC run --rm --entrypoint sh migrate -c "cd /app/backend && alembic downgrade -1"`
-  (faça backup antes e confira o código compatível).
+- **Sem migration nova no update:** `git checkout <tag anterior> && scripts/prod/deploy.sh update`.
+- **Com migration nova no update:** o código antigo não conhece a revisão nova do banco
+  (`migrate` falha e o gate de schema impede o backend de subir). Ordem correta:
+  1. Ainda com o código **novo**: `$DC run --rm --entrypoint sh migrate -c "cd /app/backend && alembic downgrade <revisão-anterior>"`
+     (a revisão anterior aparece em `alembic current` no log do backup/deploy);
+  2. `git checkout <tag anterior> && scripts/prod/deploy.sh update`.
+  Se o downgrade não for seguro (dados novos), restaure o backup gerado pelo update (§Dados).
+  O modo `rollback` do workflow de deploy segue a mesma regra.
 - **Dados:** restaure o dump em banco isolado, valide e só então troque (`docs/BACKUP-RESTORE.md`).
 
 ## 7. Operação

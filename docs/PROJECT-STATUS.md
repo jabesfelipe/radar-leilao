@@ -1,6 +1,20 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
-**Status global (2026-11 — Pronto para VPS Contabo / homologação):** o compose de
+**Status global (2026-11 — Revisão de prontidão para exposição remota):** auditoria
+completa de autenticação (`docs/SECURITY-EXPOSURE-AUDIT.md`): **184 rotas, 148 sem JWT**
+(112 em `main.py`, incluindo escrita, upload e agentes LLM) — mitigadas pelo portão do proxy
++ rede privada; fechamento definitivo fica para a próxima missão. Modo padrão de acesso
+passa a ser **Tailscale + HTTPS `*.ts.net`** (proxy publicado só em `127.0.0.1:8080`; o
+Docker ignora o UFW em portas publicadas). Correções: nginx **não subia** com `GATE_KEY` de
+48 hex (`map_hash_bucket_size`); `/acesso?k=` fora dos logs; `deploy.sh` com validação do
+`.env.prod`, `first` exige banco vazio e `update` exige instalação existente (recusas
+rc=2), smoke sem gravar a chave em disco/argv e restart do proxy; backups com permissão
+`600`; `deploy.yml` valida o `ref` (injeção no comando SSH); CI testa `nginx -t` com chave
+real. Validado na simulação local: 45 caminhos/variações sem cookie ⇒ 403, só o proxy em
+`127.0.0.1`, nenhum segredo em imagens/logs/repo, `deploy.sh update` ⇒ `DEPLOY_OK`.
+Preservação do dev conferida (633, 45 `llm_runs`, 27 `canonical_key`, `0023_usuarios`).
+
+**Status global anterior (2026-11 — Pronto para VPS Contabo / homologação):** o compose de
 produção foi **executado e validado localmente** de ponta a ponta (projeto `radar-prod`,
 volumes isolados do dev). Correções de hospedagem: `.dockerignore` (antes o build copiava
 `node_modules`, dados e `.env` para as imagens), frontend compilado sem `localhost`
