@@ -1,13 +1,18 @@
-# Docker Compose de HOMOLOGAÇÃO/PRODUÇÃO ENXUTA (VPS única: 2 vCPU / 4 GB).
+# Docker Compose de HOMOLOGAÇÃO/PRODUÇÃO ENXUTA (VPS única: Contabo Cloud VPS 6 =
+# 6 vCPU / ~11 GiB RAM / 193 GB / swap 4 GB). Os tetos de memória abaixo foram dimensionados
+# para essa máquina (ver docs/DOCKER-DEPLOYMENT.md §8) e continuam funcionando em 8 GB.
+#
+# IMAGENS: na VPS o deploy automático (GitHub Actions, por tag) exporta BACKEND_IMAGE e
+# FRONTEND_IMAGE apontando para o GHCR (ghcr.io/<repo>/backend:vX.Y.Z) e NADA é construído
+# lá. Sem essas variáveis (uso local/simulação) o compose constrói as imagens do código.
 #
 # IMPORTANTE: `name:` fixa o projeto como "radar-prod" para que os volumes sejam
 # radar-prod_* e NUNCA colidam com os volumes do ambiente de desenvolvimento
 # (radar-leilao_*), que guardam o histórico (imóvel 633 etc.).
 #
-# Uso (ver docs/DOCKER-DEPLOYMENT.md):
-#   cp .env.prod.example .env.prod   # preencher
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build
-#   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile migrate run --rm migrate
+# Uso (ver docs/DOCKER-DEPLOYMENT.md): NÃO chame `docker compose` direto na VPS; use
+#   scripts/prod/compose.sh <args>   (carrega .env.prod + .release.env = imagens da versão atual)
+# e faça deploys pelo GitHub Actions (tag vX.Y.Z) ou por scripts/prod/deploy.sh.
 name: radar-prod
 
 x-logging: &default-logging
@@ -42,22 +47,23 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-radar_leilao}
       POSTGRES_USER: ${POSTGRES_USER:-radar}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env.prod}
-    # Ajuste para 4 GB de RAM (banco com ~1.2 GB de teto). Sem `ports`: não exposto.
+    # Ajuste para ~11 GiB de RAM na máquina (teto do container: 2 GB; ~25-40% em
+    # shared_buffers). Banco pequeno (MVP ~150 MB de dados): folga, não consumo. Sem `ports`.
     command:
       - postgres
       - -c
-      - shared_buffers=384MB
+      - shared_buffers=768MB
       - -c
-      - effective_cache_size=1GB
+      - effective_cache_size=3GB
       - -c
-      - work_mem=8MB
+      - work_mem=16MB
       - -c
-      - maintenance_work_mem=128MB
+      - maintenance_work_mem=256MB
       - -c
       - max_connections=40
       - -c
       - log_min_duration_statement=2000
-    mem_limit: 1200m
+    mem_limit: 2g
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-pgvector.sql:ro
@@ -73,7 +79,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.prod
-    image: radar-leilao-backend-prod:latest
+    image: ${BACKEND_IMAGE:-radar-leilao-backend-prod:latest}
     profiles: ["migrate"]
     depends_on:
       postgres:
@@ -88,7 +94,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.prod
-    image: radar-leilao-backend-prod:latest
+    image: ${BACKEND_IMAGE:-radar-leilao-backend-prod:latest}
     container_name: radar-prod-backend
     restart: unless-stopped
     logging: *default-logging
@@ -97,7 +103,7 @@ services:
         condition: service_healthy
     environment:
       <<: *backend-env
-      UVICORN_WORKERS: ${UVICORN_WORKERS:-1}
+      UVICORN_WORKERS: ${UVICORN_WORKERS:-2}
       RUN_MIGRATIONS_ON_START: ${RUN_MIGRATIONS_ON_START:-false}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?defina JWT_SECRET_KEY no .env.prod}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
@@ -109,7 +115,7 @@ services:
       STORAGE_S3_SECRET_KEY: ${STORAGE_S3_SECRET_KEY:-}
       AUTH_BOOTSTRAP_ADMIN_EMAIL: ${AUTH_BOOTSTRAP_ADMIN_EMAIL:-}
       AUTH_BOOTSTRAP_ADMIN_PASSWORD: ${AUTH_BOOTSTRAP_ADMIN_PASSWORD:-}
-    mem_limit: 1000m
+    mem_limit: 2g
     volumes:
       - backend_storage:/app/backend/storage
     healthcheck:
@@ -126,7 +132,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile.prod
-    image: radar-leilao-backend-prod:latest
+    image: ${BACKEND_IMAGE:-radar-leilao-backend-prod:latest}
     container_name: radar-prod-worker
     restart: unless-stopped
     logging: *default-logging
@@ -138,7 +144,7 @@ services:
       WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-30}
       WORKER_BATCH_LIMIT: ${WORKER_BATCH_LIMIT:-5}
       RUN_MIGRATIONS_ON_START: "false"
-    mem_limit: 700m
+    mem_limit: 1g
     volumes:
       - backend_storage:/app/backend/storage
     command: ["python", "-m", "app.worker_main"]
@@ -152,7 +158,7 @@ services:
         # VAZIO de propósito: os serviços do frontend já usam caminhos /api/...
         # relativos ao mesmo host (atrás do proxy). Nunca localhost.
         VITE_API_URL: ""
-    image: radar-leilao-frontend-prod:latest
+    image: ${FRONTEND_IMAGE:-radar-leilao-frontend-prod:latest}
     container_name: radar-prod-frontend
     restart: unless-stopped
     logging: *default-logging

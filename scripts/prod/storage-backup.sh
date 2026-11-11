@@ -7,7 +7,7 @@
 # Variáveis: STORAGE_VOLUME (default radar-prod_backend_storage)
 set -euo pipefail
 umask 077   # documentos de imóveis: só o dono lê
-VOL="${STORAGE_VOLUME:-radar-prod_backend_storage}"
+VOL="${STORAGE_VOLUME:-${COMPOSE_PROJECT_NAME:-radar-prod}_backend_storage}"
 DEST="${1:-${BACKUP_DEST:-backups}}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$DEST"

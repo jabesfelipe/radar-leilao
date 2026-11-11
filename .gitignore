@@ -2,6 +2,11 @@
 __pycache__/
 *.pyc
 .env
+# Configuração de produção/VPS: NUNCA versionar (só os *.example).
+.env.prod
+.env.*.local
+# Marcadores de release gerados na VPS por scripts/prod/deploy.sh
+.release.env*
 node_modules/
 dist/
 frontend/.vite/
