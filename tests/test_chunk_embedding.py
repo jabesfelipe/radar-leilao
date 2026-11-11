@@ -19,6 +19,7 @@ import pytest
 from backend.app import models
 from backend.app.config import settings
 from backend.app.documents import embedding as embedding_module
+from backend.app.documents import states
 from backend.app.documents.embedding import embed_pending_chunks
 from backend.app.documents.pipeline import DocumentPipeline
 from backend.app.rag.retriever import HybridRetriever
@@ -208,7 +209,8 @@ def test_pipeline_gera_embedding_para_chunks_novos(monkeypatch, tmp_path):
     db.prop.documents.append(document)
     version = DocumentPipeline(db).ingest(document, b"conteudo registral " * 20, "matricula.txt")
 
-    assert version.status == "PROCESSADO"
+    # Estado canônico (Fase 2): houve vetor persistido => INDEXADO (antes "PROCESSADO").
+    assert version.status == states.INDEXADO
     assert chamado["version_id"] == version.id  # embedding disparado para a versão criada
     chunks = [item for item in db.added if isinstance(item, models.DocumentChunk)]
     assert chunks and all(chunk.document_version_id == version.id for chunk in chunks)
@@ -231,8 +233,9 @@ def test_pipeline_nao_quebra_quando_embedding_falha(monkeypatch, tmp_path):
 
     # Falha do embedding NÃO deve quebrar a ingestão.
     version = DocumentPipeline(db).ingest(document, b"conteudo do edital " * 20, "edital.txt")
-    assert version.status == "PROCESSADO"
-    assert document.status == "PROCESSADO"
+    # Estado canônico (Fase 2): sem vetor => CONCLUIDO por texto (antes "PROCESSADO").
+    assert version.status == states.CONCLUIDO
+    assert document.status == states.CONCLUIDO
 
 
 def test_chunk_metadata_pagina_e_version_preservados_apos_embedding(monkeypatch, tmp_path):
