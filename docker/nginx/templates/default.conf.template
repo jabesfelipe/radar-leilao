@@ -9,6 +9,10 @@
 upstream radar_backend  { server backend:8000; }
 upstream radar_frontend { server frontend:8080; }
 
+# Chaves longas (openssl rand -hex 24 = 48+ caracteres) não cabem no bucket padrão (64)
+# => nginx recusa subir ("could not build map_hash"). 256 cobre chaves de até ~200 chars.
+map_hash_bucket_size 256;
+
 map $cookie_radar_gate $gate_ok {
     default 0;
     "${GATE_KEY}" 1;
@@ -31,7 +35,16 @@ server {
     location = /_proxy_health { access_log off; default_type text/plain; return 200 "ok\n"; }
 
     # Entrega do cookie de acesso.
+    # - access_log off: a URL contém a chave (?k=) e NÃO pode ir para os logs.
+    # - add_header aqui anula os do server => repetimos os headers de segurança.
+    # - Sem limit_req aqui: o `return` do if roda antes da fase de limite. Força bruta é
+    #   inviável com a chave exigida pelo deploy.sh (>= 48 hex = 192 bits).
     location = /acesso {
+        access_log off;
+        error_log /dev/null;   # o error_log também registra a linha da requisição (com ?k=)
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Cache-Control "no-store" always;
         if ($arg_k != "${GATE_KEY}") { return 403; }
         add_header Set-Cookie "radar_gate=${GATE_KEY}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" always;
         return 302 /;

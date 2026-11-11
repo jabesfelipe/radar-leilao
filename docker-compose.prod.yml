@@ -173,8 +173,10 @@ services:
       GATE_KEY: ${GATE_KEY:?defina GATE_KEY (>=24 caracteres) no .env.prod}
     mem_limit: 64m
     ports:
-      # PROXY_BIND=127.0.0.1 + Tailscale/túnel, ou 0.0.0.0 para IP público (com GATE_KEY).
-      - "${PROXY_BIND:-0.0.0.0}:${PROXY_PORT:-80}:80"
+      # Padrão SEGURO: 127.0.0.1 (só local; acesso remoto via `tailscale serve`).
+      # ATENÇÃO: porta publicada pelo Docker em 0.0.0.0 IGNORA o UFW (regras próprias de
+      # iptables). Use 0.0.0.0 apenas conscientemente (modo A, HTTP em texto claro).
+      - "${PROXY_BIND:-127.0.0.1}:${PROXY_PORT:-8080}:80"
     volumes:
       - ./docker/nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro
     healthcheck:
