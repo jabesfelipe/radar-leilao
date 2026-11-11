@@ -1,0 +1,78 @@
+# Proxy de homologação (HTTP, acesso por IP). Template do nginx oficial:
+# ${GATE_KEY} é substituído por envsubst no start (apenas variáveis definidas).
+#
+# Portão de acesso: sem o cookie `radar_gate` correto => 403 em TUDO (frontend, API,
+# documentos). O cookie é obtido uma vez visitando  http://IP/acesso?k=<GATE_KEY>.
+# Isso NÃO substitui o login JWT/RBAC da aplicação; é uma barreira adicional porque
+# endpoints legados do backend ainda são abertos. Para HTTPS veja docs/INFRASTRUCTURE-CONTABO.md.
+
+upstream radar_backend  { server backend:8000; }
+upstream radar_frontend { server frontend:8080; }
+
+map $cookie_radar_gate $gate_ok {
+    default 0;
+    "${GATE_KEY}" 1;
+}
+
+limit_req_zone $binary_remote_addr zone=login_zone:1m rate=10r/m;
+
+server {
+    listen 80 default_server;
+    server_name _;
+    server_tokens off;
+
+    client_max_body_size 50m;
+
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # Health do próprio proxy (sem portão; não expõe nada).
+    location = /_proxy_health { access_log off; default_type text/plain; return 200 "ok\n"; }
+
+    # Entrega do cookie de acesso.
+    location = /acesso {
+        if ($arg_k != "${GATE_KEY}") { return 403; }
+        add_header Set-Cookie "radar_gate=${GATE_KEY}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000" always;
+        return 302 /;
+    }
+
+    # Tentativas de login limitadas (anti força-bruta).
+    location = /api/auth/login {
+        if ($gate_ok = 0) { return 403; }
+        limit_req zone=login_zone burst=5 nodelay;
+        proxy_pass http://radar_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # API: uploads grandes e processamento => timeouts generosos.
+    location /api/ {
+        if ($gate_ok = 0) { return 403; }
+        proxy_pass http://radar_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        proxy_request_buffering on;
+    }
+
+    location = /health {
+        if ($gate_ok = 0) { return 403; }
+        proxy_pass http://radar_backend/health;
+    }
+
+    # Documentação interativa da API NÃO é exposta.
+    location ~ ^/(docs|redoc|openapi\.json) { return 404; }
+
+    location / {
+        if ($gate_ok = 0) { return 403; }
+        proxy_pass http://radar_frontend;
+        proxy_set_header Host $host;
+    }
+}

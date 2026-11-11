@@ -36,9 +36,29 @@ if [ "${RUN_MIGRATIONS_ON_START:-false}" = "true" ]; then
   echo "[backend] RUN_MIGRATIONS_ON_START=true -> aplicando migrations..."
   alembic upgrade head
 else
-  echo "[backend] Migrations NÃO aplicadas no start (procedimento controlado). Verificando versão atual..."
-  alembic current || true
+  echo "[backend] Migrations NÃO aplicadas no start (procedimento controlado)."
 fi
+
+# GATE DE SCHEMA: recusa subir se a versão do banco != head do código. Não "corrige"
+# nada: apenas informa e sai com erro (docker reinicia e o operador vê o motivo).
+python - <<'PY'
+import os, sys
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from alembic.runtime.migration import MigrationContext
+from sqlalchemy import create_engine
+
+cfg = Config("alembic.ini")
+heads = set(ScriptDirectory.from_config(cfg).get_heads())
+url = os.environ["DATABASE_URL"]
+with create_engine(url).connect() as conn:
+    current = set(MigrationContext.configure(conn).get_current_heads())
+if current != heads:
+    print(f"[backend] ERRO: schema incompatível. banco={sorted(current) or '(vazio)'} código={sorted(heads)}", file=sys.stderr)
+    print("[backend] Execute a migração controlada: docker compose ... --profile migrate run --rm migrate", file=sys.stderr)
+    sys.exit(3)
+print(f"[backend] Schema OK (head={sorted(heads)}).")
+PY
 
 echo "[backend] Iniciando API (produção)..."
 exec "$@"

@@ -1,0 +1,26 @@
+# Contexto de build mínimo: nada de dados, segredos, dependências locais ou artefatos.
+.git
+.github
+**/.env
+**/.env.*
+!.env.example
+!.env.prod.example
+**/__pycache__
+**/*.pyc
+.pytest_cache
+**/node_modules
+frontend/dist
+frontend/.vite
+# Dados de runtime / documentos / backups / logs (NUNCA dentro da imagem)
+storage
+backend/storage
+backend/uploads
+backups
+_simbkp
+logs
+**/*.dump
+**/*.tar.gz
+# Scratch local
+_*
+docs
+infra/certs
