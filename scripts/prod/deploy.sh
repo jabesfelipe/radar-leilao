@@ -45,6 +45,10 @@ fi
 [ -n "$(envval ADMIN_API_TOKEN)" ] && echo "AVISO: ADMIN_API_TOKEN definido; não é repassado ao backend pelo compose." >&2
 [ "$fail" -eq 0 ] || exit 1
 [ "$(stat -c %a "$ENVF" 2>/dev/null || echo 600)" = "600" ] || echo "AVISO: rode chmod 600 $ENVF" >&2
+if [ "$BIND" = "0.0.0.0" ]; then
+  echo "AVISO: modo IP PÚBLICO por HTTP (ALLOW_PUBLIC_HTTP=1) na porta $PORT — ambiente TEMPORÁRIO de testes."
+  echo "       Senha, token, cookie do portão e documentos trafegam sem criptografia."
+fi
 
 echo "== [1/6] Build das imagens"
 $DC build
@@ -53,8 +57,15 @@ echo "== [2/6] Subindo apenas o PostgreSQL"
 $DC up -d --wait postgres
 PGUSER="$(envval POSTGRES_USER)"; PGUSER="${PGUSER:-radar}"
 PGDB="$(envval POSTGRES_DB)"; PGDB="${PGDB:-radar_leilao}"
-REV="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$PGDB" -tAc \
-  "select case when to_regclass('public.alembic_version') is null then '' else (select coalesce(max(version_num),'') from alembic_version) end" | tr -d '[:space:]')"
+# Duas consultas: o PostgreSQL valida a tabela de uma subconsulta mesmo num ramo de CASE
+# não executado, então ler alembic_version num banco vazio daria erro.
+HAS_ALEMBIC="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$PGDB" -tAc \
+  "select to_regclass('public.alembic_version') is not null" | tr -d '[:space:]')"
+REV=""
+if [ "$HAS_ALEMBIC" = "t" ]; then
+  REV="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$PGDB" -tAc \
+    "select coalesce(max(version_num),'') from alembic_version" | tr -d '[:space:]')"
+fi
 TABLES="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$PGDB" -tAc \
   "select count(*) from information_schema.tables where table_schema='public'" | tr -d '[:space:]')"
 
@@ -95,10 +106,24 @@ for _ in $(seq 1 24); do
   sleep 5
 done
 nogate="$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/imoveis" || true)"
-if [ "$ok" = "1" ] && [ "$nogate" = "403" ]; then
-  echo "health=200 sem_cookie=$nogate"; echo "DEPLOY_OK"
+ext="n/a"
+if [ "$BIND" = "0.0.0.0" ]; then
+  # Modo IP público: confirma que o proxy responde também pela interface externa.
+  PUBIP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  if [ -n "$PUBIP" ]; then
+    ext="$(curl -s -o /dev/null -w '%{http_code}' "http://${PUBIP}:${PORT}/_proxy_health" || true)"
+  fi
+fi
+if [ "$ok" = "1" ] && [ "$nogate" = "403" ] && { [ "$ext" = "n/a" ] || [ "$ext" = "200" ]; }; then
+  echo "health=200 sem_cookie=$nogate interface_externa=$ext"; echo "DEPLOY_OK"
+  if [ "$BIND" = "0.0.0.0" ]; then
+    SUF=""; [ "$PORT" = "80" ] || SUF=":$PORT"
+    echo "AMBIENTE TEMPORÁRIO DE TESTES (HTTP sem TLS; não use dados sensíveis)."
+    echo "1º acesso em cada dispositivo: http://${PUBIP:-IP_DA_VPS}${SUF}/acesso?k=<GATE_KEY do $ENVF>"
+    echo "Depois: http://${PUBIP:-IP_DA_VPS}${SUF}"
+  fi
 else
-  echo "SMOKE_FALHOU (health ok=$ok, sem_cookie=$nogate). Veja: $DC logs --tail=100 backend proxy" >&2
+  echo "SMOKE_FALHOU (health ok=$ok, sem_cookie=$nogate, interface_externa=$ext). Veja: $DC logs --tail=100 backend proxy" >&2
   echo "Rollback: docs/DOCKER-DEPLOYMENT.md §Rollback (código anterior + restore do backup recém-gerado)." >&2
   exit 1
 fi
