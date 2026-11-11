@@ -14,6 +14,7 @@
 # Variáveis (ou .env): POSTGRES_USER, POSTGRES_DB, PG_CONTAINER, RETENTION_DAYS.
 # Recomenda-se guardar DEST_DIR em disco/volume SEPARADO do banco.
 set -euo pipefail
+umask 077   # dump contém hashes de senha e dados: só o dono lê
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 

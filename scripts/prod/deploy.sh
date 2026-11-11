@@ -1,47 +1,104 @@
 #!/usr/bin/env bash
 # Deploy controlado do Radar Leilão na VPS (executar DENTRO do diretório do projeto).
 #
-#   scripts/prod/deploy.sh first    # 1º deploy: banco vazio
-#   scripts/prod/deploy.sh update   # atualização de instalação existente
+#   scripts/prod/deploy.sh first    # 1º deploy: EXIGE banco vazio (sem alembic_version)
+#   scripts/prod/deploy.sh update   # atualização: EXIGE instalação existente + backup OK
 #
-# Fluxo "update": backup (banco+documentos) -> build -> migrate -> up -> smoke.
-# Fluxo "first" : build -> sobe postgres -> migrate -> up -> smoke.
-# Se o smoke falhar, imprime como voltar (ver docs/DOCKER-DEPLOYMENT.md §Rollback).
-# Nada aqui usa down -v, DROP, TRUNCATE.
+# first : valida .env -> build -> sobe postgres -> confirma banco VAZIO -> migrate -> up -> smoke
+# update: valida .env -> build -> sobe postgres -> confirma instalação EXISTENTE ->
+#         backup banco+documentos (aborta se falhar) -> migrate -> up -> smoke
+# Os modos se recusam mutuamente: `first` em instalação existente aborta (evita pular o
+# backup); `update` em banco vazio aborta (evita "atualizar" o nada sem perceber).
+# Nada aqui usa down -v, DROP, TRUNCATE ou remove volumes.
 set -euo pipefail
 MODE="${1:-}"
 [ "$MODE" = "first" ] || [ "$MODE" = "update" ] || { echo "Uso: $0 first|update" >&2; exit 1; }
 ENVF="${ENV_FILE:-.env.prod}"
 [ -f "$ENVF" ] || { echo "Arquivo $ENVF nao encontrado (copie de .env.prod.example)" >&2; exit 1; }
 DC="docker compose -f docker-compose.prod.yml --env-file $ENVF"
+PG_CONTAINER="radar-prod-postgres"
 
-echo "== [1/5] Build das imagens"
+# Lê UMA chave do .env sem executar o arquivo (valor pode conter '=').
+envval() { grep -E "^$1=" "$ENVF" | tail -n1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true; }
+
+echo "== [0/6] Validando $ENVF"
+fail=0
+for k in POSTGRES_PASSWORD JWT_SECRET_KEY GATE_KEY; do
+  [ -n "$(envval "$k")" ] || { echo "ERRO: $k vazio em $ENVF" >&2; fail=1; }
+done
+GATE="$(envval GATE_KEY)"
+if ! printf '%s' "$GATE" | grep -Eq '^[0-9a-f]{48,}$'; then
+  echo "ERRO: GATE_KEY deve ter >= 48 caracteres hexadecimais (openssl rand -hex 24)" >&2; fail=1
+fi
+JWT="$(envval JWT_SECRET_KEY)"
+if [ -n "$JWT" ] && [ "${#JWT}" -lt 32 ]; then
+  echo "ERRO: JWT_SECRET_KEY curto (< 32). Use openssl rand -base64 48" >&2; fail=1
+fi
+unset JWT
+BIND="$(envval PROXY_BIND)"; BIND="${BIND:-127.0.0.1}"
+PORT="$(envval PROXY_PORT)"; PORT="${PORT:-8080}"
+if [ "$BIND" = "0.0.0.0" ] && [ "$(envval ALLOW_PUBLIC_HTTP)" != "1" ]; then
+  echo "ERRO: PROXY_BIND=0.0.0.0 expõe HTTP sem TLS na internet (o Docker ignora o UFW)." >&2
+  echo "      Use o modo Tailscale (PROXY_BIND=127.0.0.1) ou confirme com ALLOW_PUBLIC_HTTP=1." >&2
+  fail=1
+fi
+[ -n "$(envval ADMIN_API_TOKEN)" ] && echo "AVISO: ADMIN_API_TOKEN definido; não é repassado ao backend pelo compose." >&2
+[ "$fail" -eq 0 ] || exit 1
+[ "$(stat -c %a "$ENVF" 2>/dev/null || echo 600)" = "600" ] || echo "AVISO: rode chmod 600 $ENVF" >&2
+
+echo "== [1/6] Build das imagens"
 $DC build
 
-if [ "$MODE" = "update" ]; then
-  echo "== [2/5] Backup obrigatorio (banco + documentos)"
-  scripts/prod/pg-backup.sh "${BACKUP_DEST:-backups}"
-  scripts/prod/storage-backup.sh "${BACKUP_DEST:-backups}"
+echo "== [2/6] Subindo apenas o PostgreSQL"
+$DC up -d --wait postgres
+PGUSER="$(envval POSTGRES_USER)"; PGUSER="${PGUSER:-radar}"
+PGDB="$(envval POSTGRES_DB)"; PGDB="${PGDB:-radar_leilao}"
+REV="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$PGDB" -tAc \
+  "select case when to_regclass('public.alembic_version') is null then '' else (select coalesce(max(version_num),'') from alembic_version) end" | tr -d '[:space:]')"
+TABLES="$(docker exec "$PG_CONTAINER" psql -U "$PGUSER" -d "$PGDB" -tAc \
+  "select count(*) from information_schema.tables where table_schema='public'" | tr -d '[:space:]')"
+
+if [ "$MODE" = "first" ]; then
+  if [ -n "$REV" ] || [ "${TABLES:-0}" -gt 0 ]; then
+    echo "ERRO: banco NÃO está vazio (alembic='${REV:-nenhum}', tabelas=$TABLES)." >&2
+    echo "      Isto é uma instalação existente: use '$0 update' (faz backup antes)." >&2
+    exit 2
+  fi
+  echo "== [3/6] Primeiro deploy: banco vazio confirmado (nada a salvar)"
 else
-  echo "== [2/5] Primeiro deploy: sem backup (banco vazio). Subindo apenas o postgres"
-  $DC up -d postgres
+  if [ -z "$REV" ]; then
+    echo "ERRO: nenhuma instalação encontrada (sem alembic_version). Use '$0 first'." >&2
+    exit 2
+  fi
+  echo "== [3/6] Atualização: schema atual=$REV. Backup obrigatório (banco + documentos)"
+  DEST="$(envval BACKUP_DEST)"; DEST="${DEST:-backups}"
+  POSTGRES_USER="$PGUSER" POSTGRES_DB="$PGDB" scripts/prod/pg-backup.sh "$DEST"
+  scripts/prod/storage-backup.sh "$DEST"
 fi
 
-echo "== [3/5] Migracao controlada"
+echo "== [4/6] Migração controlada"
 $DC --profile migrate run --rm migrate
 
-echo "== [4/5] Subindo servicos"
+echo "== [5/6] Subindo serviços"
 $DC up -d
+# O template do nginx é um arquivo montado: mudança nele (ou na GATE_KEY já aplicada) não
+# recria o container. Reiniciar refaz o envsubst e recarrega a config.
+$DC restart proxy
 
-echo "== [5/5] Smoke"
-sleep 10
-PROXY_PORT_VAL="$(grep -E '^PROXY_PORT=' "$ENVF" | cut -d= -f2 || true)"
-GATE="$(grep -E '^GATE_KEY=' "$ENVF" | cut -d= -f2 || true)"
-URL="http://localhost:${PROXY_PORT_VAL:-80}"
-if curl -fsS -c /tmp/radar_gate.jar -o /dev/null "$URL/acesso?k=$GATE" -L && curl -fsS -b /tmp/radar_gate.jar "$URL/health"; then
-  echo; echo "DEPLOY_OK"
+echo "== [6/6] Smoke (via proxy, com o cookie do portão; sem gravar a chave em disco/argv)"
+HOST="$BIND"; [ "$HOST" = "0.0.0.0" ] && HOST="127.0.0.1"
+URL="http://${HOST}:${PORT}"
+ok=0
+for _ in $(seq 1 24); do
+  code="$(printf 'header = "Cookie: radar_gate=%s"\n' "$GATE" | curl -s -o /dev/null -w '%{http_code}' -K - "$URL/health" || true)"
+  [ "$code" = "200" ] && { ok=1; break; }
+  sleep 5
+done
+nogate="$(curl -s -o /dev/null -w '%{http_code}' "$URL/api/imoveis" || true)"
+if [ "$ok" = "1" ] && [ "$nogate" = "403" ]; then
+  echo "health=200 sem_cookie=$nogate"; echo "DEPLOY_OK"
 else
-  echo "SMOKE_FALHOU. Veja: $DC logs --tail=100 backend proxy" >&2
-  echo "Rollback: git checkout <tag/commit anterior> && $0 update  (restore: docs/BACKUP-RESTORE.md)" >&2
+  echo "SMOKE_FALHOU (health ok=$ok, sem_cookie=$nogate). Veja: $DC logs --tail=100 backend proxy" >&2
+  echo "Rollback: docs/DOCKER-DEPLOYMENT.md §Rollback (código anterior + restore do backup recém-gerado)." >&2
   exit 1
 fi

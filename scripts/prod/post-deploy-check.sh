@@ -3,9 +3,9 @@
 # Somente leitura: não altera dados. Confere saúde dos serviços e invariantes.
 #
 # Uso: scripts/prod/post-deploy-check.sh [BASE_URL]
-#   BASE_URL default: http://localhost (ajuste p/ https://seu-dominio quando houver TLS).
+#   BASE_URL default: http://127.0.0.1:8080 (proxy local; modo Tailscale).
 set -euo pipefail
-BASE_URL="${1:-http://localhost}"
+BASE_URL="${1:-http://127.0.0.1:8080}"
 PGC="${PG_CONTAINER:-radar-prod-postgres}"
 PGUSER="${POSTGRES_USER:-radar}"
 PGDB="${POSTGRES_DB:-radar_leilao}"
@@ -14,10 +14,14 @@ fail=0
 check() { if eval "$2" >/dev/null 2>&1; then echo "[OK]  $1"; else echo "[XX]  $1"; fail=1; fi; }
 
 echo "== Containers =="
-docker compose -f docker-compose.prod.yml ps 2>/dev/null || true
+docker compose -f docker-compose.prod.yml --env-file "${ENV_FILE:-.env.prod}" ps 2>/dev/null || true
 
 echo "== Health =="
-check "backend /health" "curl -fsS ${BASE_URL}/health"
+# O proxy exige o cookie do portão em /health; conferimos o backend por dentro do container
+# e o proxy pelo endpoint próprio (sem portão, não expõe dados).
+check "backend /health (no container)" "docker exec radar-prod-backend curl -fsS http://localhost:8000/health"
+check "proxy /_proxy_health" "curl -fsS ${BASE_URL}/_proxy_health"
+check "portao ativo (sem cookie => 403)" "[ \"\$(curl -s -o /dev/null -w '%{http_code}' ${BASE_URL}/api/imoveis)\" = 403 ]"
 check "frontend /healthz (via proxy nao aplicavel; checar container)" "docker inspect -f '{{.State.Health.Status}}' radar-prod-frontend 2>/dev/null | grep -qi healthy || true"
 
 echo "== Banco / Alembic =="
