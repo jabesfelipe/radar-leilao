@@ -1,5 +1,27 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
+**Status global (2026-11 — Deploy automático por tag + infra Contabo atualizada):** um único
+pipeline `.github/workflows/release.yml` dispara **somente** em tag `vX.Y.Z`: valida a tag (e
+que o commit está na `main`) → reutiliza o CI (`ci.yml`, agora com `workflow_call` e
+actionlint) → publica `backend`/`frontend:vX.Y.Z` no GHCR → SSH na VPS (usuário `radar`,
+chave restrita, host key fixável) → `scripts/prod/release.sh` (pull com token efêmero pela
+stdin, sem credencial em disco) → `deploy.sh auto` (first × update pelo estado do banco;
+backup obrigatório antes de migrar; aborta se backup falhar ou se o banco sumir após um
+deploy) → smoke com conferência da versão em execução → resumo no GitHub. Sem aprovação
+manual; `concurrency` sem cancelamento. Removidos `deploy.yml` (manual + Environment) e
+`publish-images.yml` (publicava sem CI). Novos: `compose.sh`, `validate-tag.sh`,
+`release.sh`, `rollback.sh` (só de imagem; recusa se o schema mudou), `bootstrap-vps.sh`.
+Compose usa imagens do GHCR na VPS e foi redimensionado para a Contabo Cloud VPS 6 (6 vCPU /
+~11 GiB): postgres 2 GB (`shared_buffers` 768 MB), backend 2 GB com 2 workers, worker 1 GB;
+OCR desligado e LLM sem chave mantidos. `.gitignore` passou a cobrir `.env.prod` e
+`.release.env*`. Validação local: actionlint OK; política dos workflows em teste (21);
+backend **807 passed / 2 skipped**; frontend tsc + **153 passed**; simulação de first,
+update com backup, falha de backup (para antes de migrar), tags inválidas, rollback
+permitido e recusado, banco vazio com marker (aborta); bootstrap testado num Ubuntu 24.04
+descartável. **Não executado ainda no GitHub nem na Contabo** (faltam bootstrap e secrets).
+Dev preservado (633, 45 `llm_runs` 30/15, 27 `canonical_key`, V1–V9, 8 regras jurídicas,
+150 arquivos).
+
 **Status global (2026-11 — Homologação temporária na Contabo por IP público/HTTP):** decisão
 de produto: priorizar validação funcional; endurecimento global (JWT em todas as rotas,
 RBAC) fica para fase posterior. `.env.prod.example` passa a vir no **modo A**

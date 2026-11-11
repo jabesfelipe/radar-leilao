@@ -1,8 +1,14 @@
-# Radar Leilão — Guia de Implantação (VPS Linux)
+# Radar Leilão — Guia de Implantação (VPS Linux) — REFERÊNCIA PARA HTTPS/DOMÍNIO
+
+> **Não é o fluxo atual.** A VPS Contabo é implantada **automaticamente por tag** (GitHub
+> Actions → GHCR → SSH): `docs/GITHUB-ACTIONS-DEPLOY.md` e `docs/CONTABO-CHECKLIST.md`.
+> Na VPS, comandos de compose são sempre via `scripts/prod/compose.sh` e nada é construído lá.
+> Este documento fica como referência para a fase futura com **domínio + TLS** (§4) e para
+> ambientes fora da Contabo; os passos de build/migrate manuais abaixo (§5–§6) **não** devem
+> ser usados na VPS gerenciada por tags.
 
 Este guia permite subir o Radar Leilão numa VPS Linux limpa (Ubuntu 22.04+/Debian 12+)
-usando Docker Compose de produção. **Não** cobre deploy automatizado em nuvem gerenciada;
-é o caminho VPS + proxy reverso + HTTPS, adequado ao MVP.
+usando Docker Compose de produção. É o caminho VPS + proxy reverso + HTTPS.
 
 > Regra de ouro: o PostgreSQL **não** é exposto à internet; o único ponto público é o
 > proxy (80/443). Segredos vêm do `.env.prod` (nunca versionado).

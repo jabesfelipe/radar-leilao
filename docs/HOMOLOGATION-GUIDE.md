@@ -3,11 +3,15 @@
 Objetivo: permitir que poucas pessoas validem o produto pelo celular e computador **sem**
 abrir uma plataforma pública. Nada do RBAC foi removido.
 
+> Como a versão chega à VPS: **deploy automático por tag** (`git push origin vX.Y.Z`),
+> `docs/GITHUB-ACTIONS-DEPLOY.md`. Cada tag homologada fica identificável na VPS
+> (`grep RADAR_RELEASE_TAG /opt/radar-leilao/.release.env`) e no resumo do run no GitHub.
+
 ## 1. Camadas de proteção
 
 | Camada | O que faz | Onde |
 |---|---|---|
-| Rede privada (Tailscale, padrão) | proxy publicado só em `127.0.0.1`; acesso remoto só pela tailnet (WireGuard) com HTTPS | VPS + `tailscale serve` |
+| Rede privada (Tailscale, opcional) | proxy publicado só em `127.0.0.1`; acesso remoto só pela tailnet (WireGuard) com HTTPS | VPS + `tailscale serve` |
 | Firewall (UFW) | só 22 (modo B) ou 22 e 80 (modo A). **Não protege portas publicadas pelo Docker** | VPS |
 | Banco não exposto | PostgreSQL sem porta no host | `docker-compose.prod.yml` |
 | **Portão do proxy** | sem cookie `radar_gate` válido ⇒ **403 em tudo** (frontend, API, downloads) | `docker/nginx/templates/default.conf.template` |
@@ -60,7 +64,7 @@ ALLOW_PUBLIC_HTTP=0
 PROXY_PORT=8080
 CORS_ALLOW_ORIGINS=https://radar-vps.<tailnet>.ts.net
 ```
-Depois do `deploy.sh first`, exponha o proxy **só na tailnet**, com HTTPS:
+Depois do primeiro deploy (primeira tag), exponha o proxy **só na tailnet**, com HTTPS:
 ```bash
 sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
 tailscale serve status
@@ -99,7 +103,7 @@ pode capturá-los. Não use com dados reais.
 
 ## 3.2 Revogar acesso / higiene da chave
 
-- Trocar `GATE_KEY` no `.env.prod` e `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d proxy`
+- Trocar `GATE_KEY` no `.env.prod` e `scripts/prod/compose.sh up -d --no-build proxy`
   invalida todos os cookies.
 - O proxy **não registra** `/acesso` em log (a URL contém a chave). O histórico do navegador
   guarda a URL: após o 1º acesso, apague-a do histórico em dispositivos compartilhados.

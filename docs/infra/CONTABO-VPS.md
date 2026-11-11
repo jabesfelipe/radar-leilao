@@ -156,57 +156,37 @@ free -h
 
 ## 6. Estado atual conhecido
 
-Com base na saída do terminal compartilhada em 11/11/2026:
+Validado após a reinicialização (informado em 11/11/2026):
 
 | Item | Estado |
 |---|---|
 | Acesso SSH | Validado |
 | Ubuntu 24.04.5 LTS | Instalado |
-| Docker Engine | Instalado |
-| Docker Compose plugin | Instalado |
-| Docker habilitado na inicialização | Sim |
+| Kernel ativo | `6.8.0-149-generic` (atualização aplicada; reboot realizado) |
+| Docker Engine 29.9.3 / Compose 5.7.1 | Instalados; serviço ativo e habilitado na inicialização |
 | Container de teste `hello-world` | Executado com sucesso |
-| Swap de 4 GiB | Criada e ativada |
-| Repositório Radar Leilão | Ainda não implantado nesta VPS |
-| Containers da aplicação | Ainda não implantados nesta VPS |
-| PostgreSQL da aplicação | Ainda não implantado nesta VPS |
+| Swap de 4 GiB | Ativa e persistente no `/etc/fstab` |
+| Bootstrap do deploy (`scripts/prod/bootstrap-vps.sh`) | **Pendente** |
+| Secrets do GitHub Actions | **Pendentes** |
+| Repositório / containers / PostgreSQL da aplicação | Ainda não implantados (o 1º deploy será a 1ª tag) |
 
-## 7. Atualização de kernel pendente
+## 7. Atualização de kernel — concluída
 
-Durante a instalação do Docker, o sistema informou:
+Durante a instalação do Docker o sistema indicou `Pending kernel upgrade` (de
+`6.8.0-147-generic` para `6.8.0-149-generic`). A reinicialização foi realizada e o kernel
+ativo é **`6.8.0-149-generic`**; Docker e swap voltaram sozinhos após o reboot.
 
-- Kernel em execução: `6.8.0-147-generic`.
-- Kernel esperado após atualização: `6.8.0-149-generic`.
-- Mensagem: `Pending kernel upgrade` / `System restart required`.
-
-A reinicialização **não foi executada** no procedimento registrado.
-
-Antes do deploy da aplicação, planejar uma reinicialização controlada e validar o kernel ativo:
-
-```bash
-apt list --upgradable
-uname -r
-```
-
-Se as atualizações continuarem pendentes, revisar os pacotes e aplicar a atualização em uma janela controlada. Após a atualização:
-
-```bash
-reboot
-```
-
-Depois de reconectar por SSH:
+Verificação de rotina após qualquer reboot futuro:
 
 ```bash
 uname -r
 systemctl status docker --no-pager
-docker --version
-docker compose version
 free -h
-df -h /
 swapon --show
+cd /opt/radar-leilao && scripts/prod/compose.sh ps     # depois do 1º deploy
 ```
 
-Não reiniciar durante uma implantação ou processamento importante. Até a validação pós-reboot, considerar a atualização de kernel como pendência.
+Não reiniciar durante um deploy (acompanhe a aba Actions) ou processamento importante.
 
 ## 8. Arquitetura inicial planejada
 
@@ -271,18 +251,19 @@ docker system df
 
 ## 11. Próximas etapas
 
-- [ ] Planejar e concluir a atualização pendente do kernel/reboot.
-- [ ] Validar Docker e swap após reinicialização.
-- [ ] Preparar acesso SSH operacional sem depender do uso cotidiano de root.
-- [ ] Revisar firewall e portas necessárias para a homologação.
-- [ ] Clonar o repositório `radar-leilao` na VPS.
-- [ ] Configurar o arquivo de ambiente de produção/homologação sem versionar segredos.
-- [ ] Seguir o roteiro `scripts/prod/deploy.sh` e a documentação de homologação do projeto.
-- [ ] Executar smoke tests e validar persistência.
-- [ ] Testar acesso pelo celular e por outro computador.
-- [ ] Medir consumo e latência durante os testes funcionais.
+- [x] Concluir a atualização do kernel/reboot (`6.8.0-149-generic`).
+- [x] Validar Docker e swap após reinicialização.
+- [ ] Bootstrap único: `scripts/prod/bootstrap-vps.sh` (usuário de deploy `radar`, chave restrita,
+      `/opt/radar-leilao`, `/opt/radar-backups`, `.env.prod` com segredos gerados na VPS, UFW SSH+80).
+- [ ] Cadastrar as secrets do GitHub Actions (`docs/GITHUB-ACTIONS-DEPLOY.md §3.2`).
+- [ ] Publicar a primeira tag (`v1.0.0`): primeiro deploy automático.
+- [ ] Testar acesso pelo celular e por outro computador; validar persistência após reboot.
+- [ ] Configurar backups agendados e cópia externa.
+- [ ] Medir consumo (`docker stats`) e latência a partir do Brasil durante os testes.
+
+Roteiro completo: `docs/CONTABO-CHECKLIST.md`.
 
 ---
 
-**Última atualização:** 11/11/2026  
-**Escopo:** somente contratação, diagnóstico e preparação inicial da VPS Contabo. O deploy do Radar Leilão ainda é uma etapa posterior.
+**Última atualização:** 11/11/2026 (kernel/reboot validados; deploy automático por tag preparado)  
+**Escopo:** contratação, diagnóstico e preparação da VPS Contabo. O deploy da aplicação é feito pelo GitHub Actions a partir da primeira tag.

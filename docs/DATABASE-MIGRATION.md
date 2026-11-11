@@ -11,7 +11,7 @@ nunca um efeito colateral do start do backend.
 
 ```bash
 # Listar a cadeia e a head do código:
-docker compose -f docker-compose.prod.yml --env-file .env.prod --profile migrate \
+scripts/prod/compose.sh --profile migrate \
   run --rm migrate sh -c "cd /app/backend && alembic history && alembic heads"
 ```
 
@@ -27,7 +27,7 @@ head do código antes de agir.
 2. **Verificar o backup** (o próprio script valida via `pg_restore -l`; confira o log).
 3. **Versão atual** do banco:
    ```bash
-   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile migrate \
+   scripts/prod/compose.sh --profile migrate \
      run --rm migrate sh -c "cd /app/backend && alembic current"
    ```
 4. **Cadeia de migrations** conferida (passo 1) — sem ramos divergentes (um único head).
@@ -39,9 +39,10 @@ head do código antes de agir.
    # (DROP_AFTER=false para inspecionar; depois aplique alembic upgrade head apontando a esse banco)
    ```
 7. **Plano de rollback** definido ANTES (ver §3).
-8. **Aplicar** no ambiente real:
+8. **Aplicar** no ambiente real — na VPS isso é feito pelo **deploy por tag** (backup →
+   migrate → up; `docs/GITHUB-ACTIONS-DEPLOY.md`). Manual só em emergência:
    ```bash
-   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile migrate run --rm migrate
+   scripts/prod/compose.sh --profile migrate run --rm migrate
    ```
 9. **Comparar dados críticos** antes/depois (preservação):
    ```sql
@@ -58,7 +59,7 @@ reversíveis e aditivas). Dois caminhos:
 
 - **Downgrade Alembic** (preferido para 1 passo):
   ```bash
-  docker compose -f docker-compose.prod.yml --env-file .env.prod --profile migrate \
+  scripts/prod/compose.sh --profile migrate \
     run --rm migrate sh -c "cd /app/backend && alembic downgrade -1"
   ```
 - **Restore do backup** (quando o downgrade não é seguro / houve perda):

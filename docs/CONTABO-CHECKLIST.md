@@ -1,143 +1,98 @@
-# Radar Leilão — Checklist de implantação na Contabo (homologação TEMPORÁRIA por IP público)
+# Radar Leilão — Checklist Contabo (deploy automático por tag)
 
-> **Ambiente temporário de testes.** Acesso por `http://IP_DA_VPS` (HTTP, sem TLS). Senha,
-> token, cookie do portão e documentos trafegam sem criptografia, e várias rotas da API
-> não exigem JWT (ver `SECURITY-EXPOSURE-AUDIT.md`). **Não use dados sensíveis reais** e não
-> trate isto como produção. Barreiras mantidas: portão por chave (`GATE_KEY`) + login.
-> Alternativa privada (Tailscale + HTTPS): `HOMOLOGATION-GUIDE.md §3`.
+> **Ambiente temporário de testes** pelo IP público, por HTTP (sem TLS) e com rotas da API
+> sem JWT (`SECURITY-EXPOSURE-AUDIT.md`). **Não use dados sensíveis reais.** Barreiras mantidas:
+> portão por chave (`GATE_KEY`) + login.
 
-Marque na ordem. Explicações: `INFRASTRUCTURE-CONTABO.md`, `DOCKER-DEPLOYMENT.md`,
-`BACKUP-RESTORE.md`. Todos os comandos abaixo foram conferidos contra os scripts do repositório.
+Ordem única. Detalhes do pipeline: `GITHUB-ACTIONS-DEPLOY.md`. Dados da máquina:
+`infra/CONTABO-VPS.md`.
 
-## 0. Antes de contratar
-- [ ] Plano: mínimo 2 vCPU / 4 GB / 60 GB NVMe (OCR desligado); 8 GB se OCR/PDFs grandes.
-- [ ] Imagem **Ubuntu 24.04 LTS**. Anote o **IP público** da VPS.
+## 0. VPS — já concluído (validado em 11/11/2026)
+- [x] Contabo Cloud VPS 6: 6 vCPU AMD EPYC, ~11 GiB RAM, 193 GB, Ubuntu 24.04.5 LTS.
+- [x] Kernel `6.8.0-149-generic` ativo após reboot.
+- [x] Docker Engine 29.9.3 + Compose 5.7.1, serviço habilitado; `hello-world` OK.
+- [x] Swap 4 GB ativa e persistente no `/etc/fstab`.
 
-## 1. Preparar a VPS (como root)
+## 1. Chave do deploy (no SEU computador)
 ```bash
-ssh root@IP_DA_VPS
-apt-get update && apt-get -y upgrade
-timedatectl set-timezone America/Sao_Paulo
-adduser radar && usermod -aG sudo radar
-fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-echo '/swapfile none swap sw 0 0' >> /etc/fstab
-sysctl vm.swappiness=10 && echo 'vm.swappiness=10' > /etc/sysctl.d/99-radar.conf
-free -h
-```
-SSH por chave (do seu computador; depois na VPS):
-```bash
-ssh-keygen -t ed25519 -C radar-vps && ssh-copy-id radar@IP_DA_VPS && ssh radar@IP_DA_VPS 'echo chave-ok'
-# na VPS, só depois do "chave-ok":
-printf 'PasswordAuthentication no\nPermitRootLogin no\n' | sudo tee /etc/ssh/sshd_config.d/99-radar.conf
-sudo sshd -t && sudo systemctl restart ssh
-```
-Firewall:
-```bash
-sudo ufw default deny incoming && sudo ufw default allow outgoing
-sudo ufw allow OpenSSH && sudo ufw allow 80/tcp && sudo ufw enable && sudo ufw status verbose
-```
-(O Docker publica a porta 80 por regras próprias de iptables; a regra do UFW documenta a
-intenção. 5432 e 8000 nunca são publicadas.)
-
-## 2. Instalar Docker
-```bash
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker radar
-exit                      # entre de novo:  ssh radar@IP_DA_VPS
-docker version && docker compose version
+ssh-keygen -t ed25519 -f radar_deploy -N "" -C "radar-deploy"
+cat radar_deploy.pub          # vai para a VPS (pública)
+# radar_deploy (privada) vai SÓ para a secret VPS_SSH_KEY do GitHub
 ```
 
-## 3. Clonar o repositório
+## 2. Bootstrap único (na VPS, como root)
 ```bash
-sudo mkdir -p /opt/radar-leilao /opt/radar-backups
-sudo chown radar: /opt/radar-leilao /opt/radar-backups && chmod 700 /opt/radar-backups
-git clone https://github.com/jabesfelipe/radar-leilao.git /opt/radar-leilao
-cd /opt/radar-leilao
-chmod +x scripts/prod/*.sh
+git clone https://github.com/jabesfelipe/radar-leilao.git /root/radar-boot && cd /root/radar-boot
+bash scripts/prod/bootstrap-vps.sh --deploy-pubkey "ssh-ed25519 AAAA... radar-deploy" --configure-ufw
 ```
+- [ ] Terminou com `BOOTSTRAP_OK`.
+- [ ] **Guardei** a `GATE_KEY`, a senha do admin e o link `/acesso?k=...` impressos (aparecem uma vez).
+- [ ] Anotei a impressão digital da host key mostrada no final.
+- [ ] `rm -rf /root/radar-boot`
+- [ ] Do seu computador: `ssh -i radar_deploy radar@IP_DA_VPS 'docker ps'` funciona.
 
-## 4. Configurar `.env.prod`
+O que foi criado: usuário `radar` (sem senha, grupo docker, chave `restrict`),
+`/opt/radar-leilao` (clone), `/opt/radar-backups` (700), `/opt/radar-leilao/.env.prod` (600,
+segredos aleatórios, modo IP público na porta 80, OCR desligado, LLM sem chave).
+
+## 3. GitHub (uma vez)
+Settings → Secrets and variables → Actions → **Secrets**:
+- [ ] `VPS_HOST` = IP público
+- [ ] `VPS_USER` = `radar`
+- [ ] `VPS_SSH_KEY` = conteúdo de `radar_deploy` (privada)
+- [ ] `VPS_APP_DIR` = `/opt/radar-leilao`
+- [ ] `VPS_KNOWN_HOSTS` = saída de `ssh-keyscan -t ed25519 IP_DA_VPS` (confira com a impressão digital do passo 2)
+- [ ] (`VPS_PORT` só se não for 22)
+
+**Variables**:
+- [ ] `VPS_PUBLIC_URL` = `http://IP_DA_VPS` (smoke externo)
+
+Settings → Rules → Rulesets:
+- [ ] Tag ruleset `v*`: criação/atualização/exclusão só por administradores.
+
+Settings → Actions → General:
+- [ ] Workflow permissions: o padrão (read) basta; o workflow pede `packages: write` só no job de publicação.
+
+## 4. Primeiro deploy = primeira tag
 ```bash
-cp .env.prod.example .env.prod && chmod 600 .env.prod
-openssl rand -base64 24    # -> POSTGRES_PASSWORD
-openssl rand -base64 48    # -> JWT_SECRET_KEY
-openssl rand -hex 24       # -> GATE_KEY  (guarde: é a "chave de entrada" dos dispositivos)
-nano .env.prod
+git checkout main && git pull
+git tag v1.0.0
+git push origin v1.0.0
 ```
-Preencha:
-- `POSTGRES_PASSWORD=`, `JWT_SECRET_KEY=`, `GATE_KEY=` (valores gerados acima)
-- `CORS_ALLOW_ORIGINS=http://IP_DA_VPS`
-- `AUTH_BOOTSTRAP_ADMIN_EMAIL=` e `AUTH_BOOTSTRAP_ADMIN_PASSWORD=` (senha forte)
+- [ ] Actions → **Release** `v1.0.0`: validate-tag → CI → publish → deploy verdes.
+- [ ] Summary: modo `first`, `health=200 sem_cookie=403 interface_externa=200 versao=v1.0.0(ok)`.
+- [ ] Se o pull falhar com *denied*: Packages → `radar-leilao/backend` e `/frontend` →
+      Package settings → dar acesso de leitura ao repositório; *Re-run failed jobs*.
 
-## 5. Acesso temporário pelo IP público
-Já vem assim no `.env.prod.example` — só confira:
-```
-PROXY_BIND=0.0.0.0
-PROXY_PORT=80
-ALLOW_PUBLIC_HTTP=1
-```
-Mantenha também: `RUN_MIGRATIONS_ON_START=false`, `STORAGE_BACKEND=local`, `OCR_ENABLED=false`,
-`BACKUP_DEST=/opt/radar-backups`. `OPENAI_API_KEY` vazio = sem chamadas pagas (RAG por
-busca textual; agentes registram `SEM_CHAVE`).
+## 5. Validar no navegador (celular e computador)
+- [ ] `http://IP_DA_VPS/acesso?k=<GATE_KEY>` uma vez por dispositivo → abre o login.
+- [ ] Login com o admin do bootstrap; trocar/remover a senha de bootstrap:
+      na VPS, apague o valor de `AUTH_BOOTSTRAP_ADMIN_PASSWORD` no `.env.prod`
+      e `cd /opt/radar-leilao && scripts/prod/compose.sh up -d --no-build backend`.
+- [ ] Cadastrar imóvel de teste, enviar PDF/TXT, rodar análise (sem chave: `SEM_CHAVE`),
+      abrir financeiro/jurídico/due diligence.
+- [ ] `sudo reboot` → tudo volta (restart: unless-stopped); dados e documentos continuam.
 
-## 6 + 7. Migrations e serviços (um comando)
+## 6. Backups (cron do usuário `radar`)
 ```bash
-scripts/prod/deploy.sh first
-```
-Faz, em ordem: valida o `.env.prod` → build das imagens → sobe só o PostgreSQL → confirma
-banco **vazio** → `migrate` (0001 → head) → sobe backend, worker, frontend e proxy →
-smoke. Saída esperada no final:
-```
-health=200 sem_cookie=403 interface_externa=200
-DEPLOY_OK
-AMBIENTE TEMPORÁRIO DE TESTES (HTTP sem TLS; não use dados sensíveis).
-1º acesso em cada dispositivo: http://IP_DA_VPS/acesso?k=<GATE_KEY do .env.prod>
-Depois: http://IP_DA_VPS
-```
-- [ ] `docker compose -f docker-compose.prod.yml --env-file .env.prod ps` → backend, postgres, frontend e proxy *healthy*; worker *running*.
-- [ ] `scripts/prod/post-deploy-check.sh http://IP_DA_VPS` → `SMOKE_OK`.
-
-## 8. Validar no navegador (celular e computador)
-- [ ] Abrir **uma vez por dispositivo** `http://IP_DA_VPS/acesso?k=<GATE_KEY>` → vai para o login
-      (cookie de 30 dias). Sem isso, tudo responde 403.
-- [ ] Login com o admin de bootstrap.
-- [ ] Depois do 1º login: apagar `AUTH_BOOTSTRAP_ADMIN_PASSWORD` do `.env.prod` e rodar
-      `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d backend`.
-- [ ] Criar usuários de teste (tela de usuários / `POST /api/auth/usuarios`, só ADMIN).
-
-## 9. Validar upload, download, análises e persistência
-- [ ] Cadastrar um imóvel de teste; enviar um PDF e um TXT na aba de documentos.
-- [ ] Rodar a análise do imóvel (sem chave LLM: análise determinística + agentes `SEM_CHAVE`).
-- [ ] Abrir financeiro, jurídico e due diligence do imóvel.
-- [ ] Download (não há botão no frontend; pela API com o token):
-```bash
-# no seu computador; TOKEN = access_token do login, ID = id da versão (aba documentos/API)
-curl -b "radar_gate=<GATE_KEY>" -H "Authorization: Bearer TOKEN" -o arquivo.pdf "http://IP_DA_VPS/api/documentos/versoes/ID/arquivo"
-```
-- [ ] Persistência: `sudo reboot` → tudo volta sozinho; imóvel, documentos e download continuam.
-
-## 10. Backups (cron do usuário radar)
-```bash
+sudo -iu radar
 crontab -e
 0 3 * * * cd /opt/radar-leilao && RETENTION_DAYS=14 scripts/prod/pg-backup.sh /opt/radar-backups >> /opt/radar-backups/cron.log 2>&1
 20 3 * * * cd /opt/radar-leilao && scripts/prod/storage-backup.sh /opt/radar-backups >> /opt/radar-backups/cron.log 2>&1
 30 4 * * * cd /opt/radar-leilao && APPLY=true DAYS=1 scripts/prod/cleanup-temp.sh >> /opt/radar-backups/cron.log 2>&1
 ```
-- [ ] Rodar `scripts/prod/pg-backup.sh /opt/radar-backups` e `scripts/prod/storage-backup.sh /opt/radar-backups` uma vez à mão.
-- [ ] Cópia fora da VPS (`BACKUP-RESTORE.md §5`), ex. do seu computador:
-      `rsync -a radar@IP_DA_VPS:/opt/radar-backups/ ./radar-backups/`
+- [ ] Cópia fora da VPS (`BACKUP-RESTORE.md §5`).
+Além do cron, **todo deploy de atualização faz backup antes de migrar**.
 
-## 11. Atualizar a aplicação
+## 7. Próximas versões
 ```bash
-cd /opt/radar-leilao
-git pull                   # ou: git fetch --tags && git checkout <tag>
-scripts/prod/deploy.sh update
+git tag v1.0.1 && git push origin v1.0.1
 ```
-Exige instalação existente; faz backup de banco + documentos antes de migrar (aborta se o
-backup falhar); migra; sobe; smoke. Rollback: `DOCKER-DEPLOYMENT.md §6`.
+Automático: CI → GHCR → backup → migrations → up → smoke. Rollback e recuperação:
+`GITHUB-ACTIONS-DEPLOY.md §5–§6`.
 
 ## Não fazer
-- Não usar `docker compose down -v` (apaga os volumes de dados). Para parar: `docker compose -f docker-compose.prod.yml --env-file .env.prod stop` (ou `down` sem `-v`).
-- Não rodar `deploy.sh first` numa instalação existente (ele recusa).
-- Não publicar 5432/8000; não compartilhar o link `/acesso?k=...` publicamente.
-- Não carregar dados sensíveis reais enquanto o acesso for HTTP público.
+- `docker compose down -v`, `docker volume rm`, `DROP`/`TRUNCATE`.
+- `docker compose ...` direto na VPS (use `scripts/prod/compose.sh`).
+- Reaproveitar/mover uma tag já publicada (tags são imutáveis; crie a próxima).
+- Carregar dados sensíveis enquanto o acesso for HTTP público.

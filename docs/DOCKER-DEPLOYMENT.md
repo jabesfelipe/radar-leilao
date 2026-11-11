@@ -1,18 +1,27 @@
 # Radar Leilão — Deploy com Docker Compose (VPS única)
 
-Arquivo: `docker-compose.prod.yml` (projeto `radar-prod`). Variáveis: `.env.prod`
-(modelo em `.env.prod.example`). Atalho: `DC="docker compose -f docker-compose.prod.yml --env-file .env.prod"`.
+> **Fluxo oficial: deploy automático por tag** (`git push origin vX.Y.Z`) —
+> `docs/GITHUB-ACTIONS-DEPLOY.md`. Este documento descreve o que roda **dentro da VPS** e os
+> procedimentos manuais (operação, migrations, rollback). Não há deploy manual "paralelo".
 
-## 1. Serviços
+Arquivo: `docker-compose.prod.yml` (projeto `radar-prod`). Variáveis: `.env.prod` (só na VPS,
+gerado pelo `scripts/prod/bootstrap-vps.sh`) + `.release.env` (imagens da versão implantada,
+gerado pelo deploy). **Na VPS use sempre** `DC=scripts/prod/compose.sh` (carrega os dois
+arquivos), nunca `docker compose` direto — senão o compose tentaria as imagens locais `:latest`.
 
-| Serviço | Imagem | Porta pública | Limite RAM | Papel |
+## 1. Serviços (Contabo Cloud VPS 6: 6 vCPU / ~11 GiB)
+
+| Serviço | Imagem (na VPS) | Porta pública | Limite RAM | Papel |
 |---|---|---|---|---|
-| proxy | nginx:1.27-alpine | **127.0.0.1:8080** (único; remoto via `tailscale serve`) | 64 MB | portão de acesso + roteamento `/api` e `/` |
-| frontend | radar-leilao-frontend-prod | — | 64 MB | React compilado servido por nginx |
-| backend | radar-leilao-backend-prod | — | 1000 MB | FastAPI (uvicorn, 1 worker), usuário não-root |
-| worker | radar-leilao-backend-prod | — | 700 MB | embeddings pendentes (polling do banco) |
-| postgres | pgvector/pgvector:pg16 | — | 1200 MB | banco + pgvector (tunado p/ 4 GB) |
-| migrate | radar-leilao-backend-prod | — | — | one-shot (`--profile migrate`) |
+| proxy | nginx:1.27-alpine | **80** (modo IP público) ou 127.0.0.1:8080 (Tailscale) | 64 MB | portão de acesso + roteamento `/api` e `/` |
+| frontend | `ghcr.io/jabesfelipe/radar-leilao/frontend:vX.Y.Z` | — | 64 MB | React compilado servido por nginx |
+| backend | `ghcr.io/jabesfelipe/radar-leilao/backend:vX.Y.Z` | — | 2 GB | FastAPI (uvicorn, 2 workers), usuário não-root |
+| worker | mesma imagem do backend | — | 1 GB | embeddings pendentes (polling do banco) |
+| postgres | pgvector/pgvector:pg16 | — | 2 GB | banco + pgvector (`shared_buffers` 768 MB) |
+| migrate | mesma imagem do backend | — | — | one-shot (`--profile migrate`) |
+
+Sem `BACKEND_IMAGE`/`FRONTEND_IMAGE` (simulação local) o compose constrói do código
+(`radar-leilao-*-prod:latest`). Na VPS isso é **recusado** quando já existe `.release.env`.
 
 Volumes persistentes: `radar-prod_postgres_data` (banco) e `radar-prod_backend_storage`
 (documentos em `documents/`, temporários em `tmp/`). O nome de projeto fixo `radar-prod`
@@ -21,29 +30,38 @@ garante que **nunca** colidam com os volumes de desenvolvimento (`radar-leilao_*
 O frontend é compilado com `VITE_API_URL` **vazio**: todas as chamadas vão para
 `/api/...` no mesmo host do proxy. Não há dependência de `localhost`.
 
-## 2. Primeiro deploy (banco vazio)
+## 2. Cadeia de scripts executada pelo deploy por tag
 
-```bash
-scripts/prod/deploy.sh first
 ```
-Ordem: valida `.env.prod` → build → `up --wait postgres` → **exige banco vazio** (sem
-`alembic_version` e sem tabelas; caso contrário aborta com rc=2 e manda usar `update`) →
-`migrate` (0001 → head) → `up -d` + restart do proxy → smoke (`/health` 200 com cookie e
-`/api/imoveis` 403 sem cookie).
-
-## 3. Atualização de instalação existente
-
-```bash
-git fetch && git checkout <tag ou commit>
-scripts/prod/deploy.sh update
+GitHub Actions (release.yml, job deploy)
+  └─ ssh radar@VPS: git checkout refs/tags/vX.Y.Z (confere o SHA)
+       └─ scripts/prod/release.sh vX.Y.Z ghcr.io/jabesfelipe/radar-leilao
+            ├─ valida a tag; login GHCR em DOCKER_CONFIG temporário (token pela stdin); pull
+            └─ scripts/prod/deploy.sh auto   (RADAR_IMAGE_TAG/RADAR_IMAGE_REPO definidos)
+                 [0/6] valida .env.prod + imagens
+                 [1/6] confere as imagens da tag no Docker local (sem build)
+                 [2/6] sobe só o PostgreSQL e lê o estado do banco
+                 [3/6] first: banco vazio confirmado | update: backup banco + documentos (falha => aborta)
+                 [4/6] migrate (alembic upgrade head)
+                 [5/6] grava .release.env (+ .release.env.prev) e sobe os serviços (--no-build)
+                 [6/6] smoke: /health 200 c/ cookie, 403 sem cookie, interface externa, versão em execução
 ```
-Ordem: valida `.env.prod` → build → `up --wait postgres` → **exige instalação existente**
-(sem `alembic_version` aborta com rc=2) → backup de banco **e** documentos (qualquer
-falha aborta antes de migrar) → `migrate` → `up -d` + restart do proxy → smoke.
 
-Validação do `.env.prod` (ambos os modos): `POSTGRES_PASSWORD`, `JWT_SECRET_KEY` (≥ 32) e
-`GATE_KEY` (≥ 48 hex) preenchidos; `PROXY_BIND=0.0.0.0` só com `ALLOW_PUBLIC_HTTP=1`. O
-smoke não grava a chave em disco nem a passa na linha de comando.
+Regras de `auto`, `first` e `update`: tabela em `docs/GITHUB-ACTIONS-DEPLOY.md §2`.
+`first` e `update` explícitos continuam disponíveis e se recusam mutuamente (rc=2).
+
+Validação do `.env.prod`: `POSTGRES_PASSWORD`, `JWT_SECRET_KEY` (≥ 32) e `GATE_KEY`
+(≥ 48 hex) preenchidos; `PROXY_BIND=0.0.0.0` só com `ALLOW_PUBLIC_HTTP=1`. O smoke não grava a
+chave em disco nem a passa na linha de comando.
+
+## 3. Reexecutar um deploy na própria VPS (emergência, sem GitHub)
+
+As imagens da tag já estão no Docker local depois de um deploy. Para refazer a mesma versão:
+```bash
+cd /opt/radar-leilao
+RELEASE_OFFLINE=1 scripts/prod/release.sh vX.Y.Z ghcr.io/jabesfelipe/radar-leilao
+```
+`RELEASE_OFFLINE=1` pula o login/pull (sem credencial). O caminho normal é sempre a tag.
 
 ## 4. Gate de schema (proteção)
 
@@ -53,7 +71,8 @@ worker **não iniciam** e registram:
 ```
 [backend] ERRO: schema incompatível. banco=[...] código=[...]
 ```
-Solução: rode a migração controlada (§3). Não edite `alembic_version` à mão.
+Solução: publique a versão por tag (o deploy roda o `migrate`) ou siga §5. Não edite
+`alembic_version` à mão.
 
 ## 5. Migrations — procedimento seguro
 
@@ -63,7 +82,9 @@ Solução: rode a migração controlada (§3). Não edite `alembic_version` à m
    `$DC run --rm --entrypoint sh migrate -c "cd /app/backend && alembic current && alembic heads"`)
 3. Ensaio opcional em banco isolado: `scripts/prod/pg-restore-verify.sh <dump> radar_migr_rehearsal`
 4. Aplicar: `$DC --profile migrate run --rm migrate`
-5. Subir: `$DC up -d` (o gate confirma o schema)
+5. Subir: `$DC up -d --no-build` (o gate confirma o schema)
+
+Rotina normal: nada disso é manual — o deploy por tag faz backup → migrate → up.
 
 Sobre a divergência histórica "banco em 0017 x código em 0023": no ambiente de
 desenvolvimento a verificação direta (`SELECT version_num FROM alembic_version`) mostrou
@@ -72,14 +93,20 @@ o banco nasce vazio e passa por `0001 -> head` pelo serviço `migrate`.
 
 ## 6. Rollback
 
-- **Sem migration nova no update:** `git checkout <tag anterior> && scripts/prod/deploy.sh update`.
-- **Com migration nova no update:** o código antigo não conhece a revisão nova do banco
-  (`migrate` falha e o gate de schema impede o backend de subir). Ordem correta:
-  1. Ainda com o código **novo**: `$DC run --rm --entrypoint sh migrate -c "cd /app/backend && alembic downgrade <revisão-anterior>"`
-     (a revisão anterior aparece em `alembic current` no log do backup/deploy);
-  2. `git checkout <tag anterior> && scripts/prod/deploy.sh update`.
-  Se o downgrade não for seguro (dados novos), restaure o backup gerado pelo update (§Dados).
-  O modo `rollback` do workflow de deploy segue a mesma regra.
+Rollback de **código/imagem** e de **dados** são operações diferentes.
+
+- **Imagem (sem migration nova):** `scripts/prod/rollback.sh` — volta para `.release.env.prev`
+  sem build e sem tocar no banco. Confere antes que as heads do Alembic da versão anterior são
+  iguais à revisão do banco; se não forem, recusa (rc=3) sem mudar nada.
+- **Com migration nova:** o código antigo não conhece a revisão nova (o gate de schema impede
+  o backend de subir). Ordem correta, manual e conferida:
+  1. Ainda com a versão **nova** em execução, revise a migration e, se for reversível sem perda,
+     `$DC run --rm --entrypoint sh migrate -c "cd /app/backend && alembic downgrade <revisão-anterior>"`
+     (a revisão anterior aparece no passo `[3/6]` do log do deploy: `schema atual=...`);
+  2. `scripts/prod/rollback.sh`.
+  Se o downgrade não for seguro (dados novos, colunas removidas), restaure o backup gerado pelo
+  deploy (§Dados) — nunca automático.
+- **Alternativa preferida para bugs:** corrigir à frente com nova tag (`vX.Y.Z+1`).
 - **Dados:** restaure o dump em banco isolado, valide e só então troque (`docs/BACKUP-RESTORE.md`).
 
 ## 7. Operação
@@ -92,34 +119,31 @@ docker stats --no-stream        # consumo de CPU/RAM
 ```
 Proibido como rotina: `down -v`, remover volumes, `DROP`/`TRUNCATE`.
 
-## 8. Memória (4 GB × 8 GB)
+## 8. Memória (Contabo Cloud VPS 6: ~11 GiB RAM + 4 GB swap)
 
-Tetos definidos no compose: postgres 1,2 GB + backend 1,0 GB + worker 0,7 GB + nginx 0,13 GB
-≈ **3,0 GB** + SO/Docker (~0,5 GB).
+Tetos no compose: postgres 2 GB + backend 2 GB + worker 1 GB + nginx 0,13 GB ≈ **5,1 GB**,
+deixando ~5,5 GB para SO, Docker, cache de disco do kernel (que o PostgreSQL usa via
+`effective_cache_size=3GB`) e o `migrate`/backup que rodam ao lado no deploy.
 
-Consumo **medido** na simulação local do compose de produção (`docker stats`, após login,
-upload de PDF, consultas e restart; sem carga concorrente):
+Por que não "aumentar tudo": os dados do MVP são pequenos (~150 MB) e o consumo **medido** em
+repouso é baixo; tetos existem para conter **picos** (extração de PDF grande; OCR) sem derrubar
+o banco. Em repouso, medido na simulação local (`docker stats`):
 
-| Container | RAM medida | Teto |
-|---|---:|---:|
-| proxy | 11 MB | 64 MB |
-| frontend | 11 MB | 64 MB |
-| worker | 61 MB | 700 MB |
-| backend | 86 MB | 1000 MB |
-| postgres | 61 MB | 1200 MB |
-| **total** | **~230 MB** | ~3,0 GB |
+| Container | RAM medida (repouso) | Teto anterior (4 GB) | Teto atual (11 GiB) |
+|---|---:|---:|---:|
+| proxy | 11 MB | 64 MB | 64 MB |
+| frontend | 11 MB | 64 MB | 64 MB |
+| worker | 61 MB | 700 MB | 1 GB |
+| backend | 86 MB | 1000 MB (1 worker) | 2 GB (2 workers uvicorn) |
+| postgres | 61 MB | 1200 MB (`shared_buffers` 384 MB) | 2 GB (`shared_buffers` 768 MB) |
 
-Em repouso o sistema usa menos de 10% de 4 GB. O que consome memória é o **pico**:
-extração de PDFs grandes (MarkItDown/pdfminer) e principalmente OCR. Os tetos garantem que
-um pico mate o backend (que reinicia sozinho) e não o banco.
-
-- **4 GB atende** a homologação com 1–3 usuários, PDFs comuns e **OCR desligado**, com swap
-  de 2 GB como reserva. O processamento roda no request de upload; um PDF grande consome
-  memória no backend, que tem teto próprio (o kernel mata o backend, não o banco).
-- **OCR** (Tesseract + pdf2image) rasteriza página a página e pode passar de 1 GB em PDFs
-  escaneados longos. Se a homologação depender de OCR frequente, **comece com 8 GB**
-  (e suba `mem_limit` do backend para 2 GB).
-- Recomendação objetiva: **4 GB para validar o fluxo; 8 GB se OCR/PDFs grandes forem rotina.**
+- **2 workers uvicorn**: 6 vCPU permitem atender requisições enquanto um upload pesado é
+  processado. Cada worker carrega a aplicação (~80–150 MB); o teto de 2 GB cobre os dois + pico
+  de um PDF grande.
+- **OCR continua desligado** (`OCR_ENABLED=false`). Se for ligado, observe `docker stats` num PDF
+  escaneado longo antes de subir o teto do backend (3 GB é seguro nesta máquina).
+- **LLM sem chave** (`OPENAI_API_KEY` vazio): nenhuma chamada paga; agentes registram `SEM_CHAVE`.
+- Em VPS menor (4 GB) volte para `UVICORN_WORKERS=1` e os tetos da coluna "anterior".
 
 ## 9. Limpeza de temporários
 

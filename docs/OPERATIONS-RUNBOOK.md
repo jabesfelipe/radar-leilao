@@ -1,7 +1,7 @@
 # Radar Leilão — Runbook de Operações
 
 Procedimentos de operação e resposta a incidentes. Comandos assumem o compose de
-produção (`docker compose -f docker-compose.prod.yml --env-file .env.prod ...`).
+produção (`scripts/prod/compose.sh ...`).
 
 ## 1. Saúde e diagnóstico
 

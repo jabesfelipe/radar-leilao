@@ -41,7 +41,7 @@ scripts/prod/storage-backup.sh /opt/radar-backups
 - Gera `storage-<STAMP>.tar.gz` (sem `tmp/`) + `storage-<STAMP>.sha256` (hash de cada
   arquivo, preservando estrutura e nomes) e verifica o `.tar.gz`.
 - Consistência banco×documentos: rode `pg-backup.sh` e `storage-backup.sh` na mesma janela
-  (o `deploy.sh update` já faz os dois). Ingestão é append-only, então uma defasagem curta
+  (todo deploy de atualização por tag já faz os dois antes de migrar). Ingestão é append-only, então uma defasagem curta
   só significa um arquivo novo sem metadado (ou vice-versa), detectável na validação (§4.3).
 
 ## 4. Restauração (sempre em destino isolado primeiro)
