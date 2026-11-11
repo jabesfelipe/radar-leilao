@@ -1,0 +1,234 @@
+name: Release
+
+# Pipeline ÚNICO de entrega do Radar Leilão. A TAG é a autorização do deploy:
+#
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+#   TAG -> validar -> CI (testes, migrations, compose, proxy) -> build + push GHCR
+#       -> SSH na VPS (Contabo) -> pull das imagens -> backup (update) -> migrations
+#       -> up -> smoke (inclui conferência da versão em execução) -> resumo
+#
+# Dispara SOMENTE em push de tag vX.Y.Z. Push em branch (main) roda apenas o CI.
+# Sem aprovação manual (nenhum Environment com reviewers). Se qualquer etapa falhar, as
+# seguintes não rodam. Ver docs/GITHUB-ACTIONS-DEPLOY.md.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tag:
+    name: Validar tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+      image_repo: ${{ steps.v.outputs.image_repo }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag vMAJOR.MINOR.PATCH apontando para commit já presente na main
+        id: v
+        run: |
+          [ "$GITHUB_REF_TYPE" = "tag" ] || { echo "::error::não é uma tag"; exit 1; }
+          VERSION="$(bash scripts/prod/validate-tag.sh "$GITHUB_REF_NAME")" \
+            || { echo "::error::tag '$GITHUB_REF_NAME' inválida; use vMAJOR.MINOR.PATCH (ex.: v1.0.0)"; exit 1; }
+          SHA="$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::o commit da tag $VERSION não está na main; faça merge antes de criar a tag"
+            exit 1
+          fi
+          {
+            echo "version=$VERSION"
+            echo "sha=$SHA"
+            echo "image_repo=ghcr.io/${GITHUB_REPOSITORY,,}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release $VERSION ($SHA) autorizada para build e deploy."
+
+  ci:
+    name: CI
+    needs: validate-tag
+    uses: ./.github/workflows/ci.yml
+    with:
+      skip_image_build: true
+
+  publish:
+    name: Build e push no GHCR
+    needs: [validate-tag, ci]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend_digest: ${{ steps.backend.outputs.digest }}
+      frontend_digest: ${{ steps.frontend.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push backend
+        id: backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: backend/Dockerfile.prod
+          push: true
+          provenance: false
+          tags: ${{ needs.validate-tag.outputs.image_repo }}/backend:${{ needs.validate-tag.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.validate-tag.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.validate-tag.outputs.version }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+      - name: Build & push frontend
+        id: frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: frontend/Dockerfile.prod
+          build-args: VITE_API_URL=
+          push: true
+          provenance: false
+          tags: ${{ needs.validate-tag.outputs.image_repo }}/frontend:${{ needs.validate-tag.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ needs.validate-tag.outputs.sha }}
+            org.opencontainers.image.version=${{ needs.validate-tag.outputs.version }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
+
+  deploy:
+    name: Deploy na VPS (Contabo)
+    needs: [validate-tag, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Um deploy por vez e nunca cancela um em andamento (o seguinte espera na fila).
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VERSION: ${{ needs.validate-tag.outputs.version }}
+      SHA: ${{ needs.validate-tag.outputs.sha }}
+      IMAGE_REPO: ${{ needs.validate-tag.outputs.image_repo }}
+    steps:
+      - name: Validar secrets de acesso à VPS
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USER_: ${{ secrets.VPS_USER }}
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+          DIR: ${{ secrets.VPS_APP_DIR }}
+          PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          missing=0
+          for v in HOST USER_ KEY DIR; do
+            if [ -z "${!v}" ]; then echo "::error::secret ausente: VPS_${v%_}"; missing=1; fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          # Estes valores entram em um comando remoto: formato estrito (sem injeção).
+          printf '%s' "$DIR"  | grep -Eq '^/[A-Za-z0-9._/-]{1,100}$' || { echo "::error::VPS_APP_DIR inválido"; exit 1; }
+          printf '%s' "$USER_" | grep -Eq '^[a-z_][a-z0-9_-]{0,31}$' || { echo "::error::VPS_USER inválido"; exit 1; }
+          printf '%s' "${PORT:-22}" | grep -Eq '^[0-9]{1,5}$' || { echo "::error::VPS_PORT inválido"; exit 1; }
+
+      - name: Configurar SSH (chave do deploy + host key)
+        env:
+          KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+          PORT: ${{ secrets.VPS_PORT }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "$KNOWN_HOSTS" ]; then
+            printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            echo "::warning::VPS_KNOWN_HOSTS não definida: confiando na host key vista agora (ssh-keyscan). Recomenda-se fixá-la."
+            ssh-keyscan -T 15 -p "${PORT:-22}" "$HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+          [ -s ~/.ssh/known_hosts ] || { echo "::error::não consegui obter a host key da VPS (VPS_HOST/VPS_PORT/firewall?)"; exit 1; }
+
+      - name: Atualizar a VPS para ${{ needs.validate-tag.outputs.version }}
+        id: remote
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USER_: ${{ secrets.VPS_USER }}
+          PORT: ${{ secrets.VPS_PORT }}
+          DIR: ${{ secrets.VPS_APP_DIR }}
+          # Credencial de leitura do GHCR: o GITHUB_TOKEN deste job (expira ao final) ou,
+          # opcionalmente, um PAT read:packages em GHCR_USER/GHCR_TOKEN.
+          PULL_USER: ${{ secrets.GHCR_USER || github.actor }}
+          PULL_TOKEN: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          # Credencial pela STDIN do ssh (não aparece em argv/env remotos). Saída filtrada
+          # para a VPS não conseguir injetar comandos de workflow (::...).
+          printf '%s\n%s\n' "$PULL_USER" "$PULL_TOKEN" | ssh -i ~/.ssh/deploy_key -p "${PORT:-22}" \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 "$USER_@$HOST" \
+            "set -euo pipefail; cd '$DIR'; git fetch --tags --force origin; git checkout --force --detach 'refs/tags/$VERSION'; test \"\$(git rev-parse HEAD)\" = '$SHA'; exec bash scripts/prod/release.sh '$VERSION' '$IMAGE_REPO'" \
+            2>&1 | sed -u 's/^::/ ::/' | tee deploy.log
+
+      - name: Smoke externo (a partir do runner)
+        if: ${{ success() && vars.VPS_PUBLIC_URL != '' }}
+        env:
+          URL: ${{ vars.VPS_PUBLIC_URL }}
+        run: |
+          printf '%s' "$URL" | grep -Eq '^https?://[A-Za-z0-9.:_-]+$' || { echo "::error::vars.VPS_PUBLIC_URL inválida"; exit 1; }
+          ok=0
+          for _ in $(seq 1 12); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL/_proxy_health")" = 200 ] && { ok=1; break; }
+            sleep 5
+          done
+          [ "$ok" = 1 ] || { echo "::error::proxy não respondeu em $URL/_proxy_health"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$URL/api/imoveis")"
+          [ "$code" = 403 ] || { echo "::error::portão de acesso não está ativo (esperado 403, veio $code)"; exit 1; }
+          echo "smoke externo OK: $URL (proxy 200, portão 403)"
+
+      - name: Resumo do deploy
+        if: always()
+        env:
+          RESULT: ${{ job.status }}
+          BACKEND_DIGEST: ${{ needs.publish.outputs.backend_digest }}
+          FRONTEND_DIGEST: ${{ needs.publish.outputs.frontend_digest }}
+        run: |
+          {
+            echo "## Deploy ${VERSION} — ${RESULT}"
+            echo ""
+            echo "| Item | Valor |"
+            echo "|---|---|"
+            echo "| Tag | \`${VERSION}\` |"
+            echo "| Commit | \`${SHA}\` |"
+            echo "| Backend | \`${IMAGE_REPO}/backend:${VERSION}\` \`${BACKEND_DIGEST}\` |"
+            echo "| Frontend | \`${IMAGE_REPO}/frontend:${VERSION}\` \`${FRONTEND_DIGEST}\` |"
+            if [ -f deploy.log ]; then
+              echo "| Modo | $(grep -oE 'modo=[a-z]+' deploy.log | tail -1 | cut -d= -f2) |"
+              echo "| Última etapa | $(grep -E '^== ' deploy.log | tail -1) |"
+            fi
+            echo ""
+            if [ "$RESULT" = "success" ]; then
+              echo "Smoke: \`$(grep -E 'health=200' deploy.log | tail -1)\`"
+            else
+              echo "### Falha"
+              if [ -f deploy.log ]; then
+                echo '```'
+                grep -E 'ERRO|SMOKE_FALHOU|Error|error' deploy.log | tail -8
+                echo '```'
+              else
+                echo "O deploy não chegou a executar na VPS (secrets, SSH ou host key). Veja os passos acima."
+              fi
+              echo "Recuperação: docs/GITHUB-ACTIONS-DEPLOY.md §8."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

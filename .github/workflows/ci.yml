@@ -1,11 +1,13 @@
 name: CI
 
 # Integração contínua do Radar Leilão.
-# - backend: PostgreSQL+pgvector descartável, migrations 0001->head, pytest (inclui
-#   contrato OpenAPI e testes de storage/download/worker).
+# - backend: PostgreSQL+pgvector descartável, migrations 0001->head (+ downgrade -1/upgrade),
+#   pytest (inclui contrato OpenAPI, storage/download/worker e a política dos workflows).
 # - frontend: tsc + vitest.
-# - docker: valida o compose de produção (config) e faz BUILD das imagens de produção
-#   (sem publicar). A publicação no GHCR acontece somente no workflow de deploy manual.
+# - docker: valida o compose de produção, o nginx do proxy e a sintaxe dos scripts; constrói
+#   as imagens de produção (sem publicar).
+# Roda em push/PR na main e é REUTILIZADO pelo pipeline de release (release.yml), que o
+# chama antes de publicar/implantar uma tag. Este workflow nunca publica nem implanta.
 # Sem secrets reais; LLM/integrações externas desligadas.
 
 on:
@@ -13,9 +15,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+    inputs:
+      skip_image_build:
+        description: "Pula o build de teste das imagens (o release já as constrói e publica)."
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -86,15 +95,17 @@ jobs:
         run: npm test
 
   docker:
-    name: Docker (compose config + build prod)
+    name: Docker (compose + proxy + scripts + build prod)
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     steps:
       - uses: actions/checkout@v4
-      - name: Validate production compose
+      - name: Validate production compose (build mode and published-image mode)
         run: |
           printf 'POSTGRES_PASSWORD=ci\nJWT_SECRET_KEY=ci\nGATE_KEY=ci-gate-key-0123456789abcd\n' > /tmp/ci.env
           docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env config > /dev/null
+          BACKEND_IMAGE=registry.example/o/r/backend:v1.0.0 FRONTEND_IMAGE=registry.example/o/r/frontend:v1.0.0 \
+            docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env config | grep -E 'image: registry.example/o/r/(backend|frontend):v1.0.0' | sort -u
       - name: Validate proxy config with a real-size GATE_KEY (48 hex) and script syntax
         run: |
           for f in scripts/prod/*.sh docker/*.sh; do bash -n "$f"; done
@@ -102,7 +113,10 @@ jobs:
             --add-host backend:127.0.0.1 --add-host frontend:127.0.0.1 \
             -v "$PWD/docker/nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
             nginx:1.27-alpine /docker-entrypoint.sh nginx -t
+      - name: Lint workflows (actionlint)
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
       - name: Build production images (no push)
+        if: ${{ inputs.skip_image_build != true }}
         run: |
           docker build -f backend/Dockerfile.prod -t radar-backend-prod:ci .
           docker build -f frontend/Dockerfile.prod -t radar-frontend-prod:ci .
