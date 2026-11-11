@@ -1,20 +1,23 @@
 # Radar Leilão — Infraestrutura na VPS Contabo (homologação)
 
-Guia passo a passo para quem nunca configurou uma VPS. Tudo roda numa única VPS com
-Docker Compose. Não há serviços pagos adicionais. **Siga a ordem**: cada passo depende do
-anterior (ex.: o firewall vem antes do Docker; o nome Tailscale vem antes do `.env.prod`;
-as migrations rodam antes de backend/worker, que recusam subir com schema incompatível).
+> **Fase atual: homologação TEMPORÁRIA pelo IP público, por HTTP** (prioridade: validar o
+> produto). Sem TLS e com rotas da API sem JWT, este ambiente **não** é adequado a dados
+> sensíveis nem a produção. O roteiro curto e validado está em `docs/CONTABO-CHECKLIST.md`;
+> este guia detalha cada passo. O modo privado (Tailscale + HTTPS) continua disponível como
+> opção (§6 e `HOMOLOGATION-GUIDE.md §3`).
+
+Tudo roda numa única VPS com Docker Compose. **Siga a ordem**: cada passo depende do
+anterior (o firewall vem antes do Docker; as migrations rodam antes de backend/worker, que
+recusam subir com schema incompatível).
 
 ```
- celular / notebook ──(app Tailscale, WireGuard + HTTPS *.ts.net)──► tailscale serve :443
-                                                                        │ (só na tailnet)
-                                                                        ▼
-                                              127.0.0.1:8080 ► proxy (nginx, portão de acesso)
-                                                                ├─► frontend (nginx, React)
-                                                                └─► backend (FastAPI) ─► PostgreSQL + pgvector
-                                                                          worker ──┘   (rede interna, sem porta)
-                                              documentos: volume radar-prod_backend_storage
- Internet ──► IP público: só a porta 22 (SSH por chave). Nada da aplicação.
+ celular / notebook ──internet──► http://IP_DA_VPS:80 ► proxy (nginx, portão de acesso)
+                                                         ├─► frontend (nginx, React)
+                                                         └─► backend (FastAPI) ─► PostgreSQL + pgvector
+                                                                   worker ──┘   (rede interna, sem porta)
+                                    volumes: radar-prod_postgres_data (banco)
+                                             radar-prod_backend_storage (documentos)
+ Portas públicas: 22 (SSH por chave) e 80 (proxy). 5432/8000 nunca publicadas.
 ```
 
 ## 1. Plano recomendado
@@ -73,12 +76,12 @@ sudo ufw allow OpenSSH
 sudo ufw enable
 sudo ufw status verbose
 ```
-Modo B (Tailscale, padrão): **não** abra 80/443. Modo A (IP público, só teste curto):
-`sudo ufw allow 80/tcp`.
+Modo IP público (fase atual): `sudo ufw allow 80/tcp`. Modo Tailscale: não abra 80/443.
 
-> **Docker ignora o UFW para portas publicadas** (insere regras próprias no iptables). Por
-> isso a proteção real é o compose publicar o proxy **só em `127.0.0.1`** (`PROXY_BIND`).
-> PostgreSQL (5432) e backend (8000) não publicam porta nenhuma.
+> **Docker ignora o UFW para portas publicadas** (insere regras próprias no iptables): com
+> `PROXY_BIND=0.0.0.0` a porta 80 fica acessível mesmo sem a regra do UFW; com
+> `PROXY_BIND=127.0.0.1` fica inacessível de fora mesmo com a regra. PostgreSQL (5432) e
+> backend (8000) não publicam porta nenhuma.
 
 ## 5. Docker
 
@@ -90,9 +93,10 @@ docker version && docker compose version
 ```
 Rotação de logs já está configurada no compose (10 MB × 5 por container).
 
-## 6. Tailscale (rede privada)
+## 6. (Opcional) Tailscale — rede privada
 
-Pré-requisito no painel Tailscale: **MagicDNS** e **HTTPS Certificates** habilitados.
+**Pule esta seção no modo IP público.** Pré-requisito no painel Tailscale: **MagicDNS** e
+**HTTPS Certificates** habilitados.
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --hostname=radar-vps
@@ -115,10 +119,12 @@ openssl rand -hex 24      # -> GATE_KEY (48 hex)
 nano .env.prod
 ```
 Preencha: `POSTGRES_PASSWORD`, `JWT_SECRET_KEY`, `GATE_KEY`,
-`CORS_ALLOW_ORIGINS=https://radar-vps.<tailnet>.ts.net`, `AUTH_BOOTSTRAP_ADMIN_EMAIL`,
-`AUTH_BOOTSTRAP_ADMIN_PASSWORD` (senha forte). Mantenha `PROXY_BIND=127.0.0.1`,
-`PROXY_PORT=8080`, `RUN_MIGRATIONS_ON_START=false`, `OCR_ENABLED=false`,
-`BACKUP_DEST=/opt/radar-backups`.
+`CORS_ALLOW_ORIGINS=http://IP_DA_VPS`, `AUTH_BOOTSTRAP_ADMIN_EMAIL`,
+`AUTH_BOOTSTRAP_ADMIN_PASSWORD` (senha forte). O exemplo já vem no modo IP público
+(`PROXY_BIND=0.0.0.0`, `PROXY_PORT=80`, `ALLOW_PUBLIC_HTTP=1`). Mantenha
+`RUN_MIGRATIONS_ON_START=false`, `OCR_ENABLED=false`, `BACKUP_DEST=/opt/radar-backups`.
+(Modo Tailscale: `PROXY_BIND=127.0.0.1`, `PROXY_PORT=8080`, `ALLOW_PUBLIC_HTTP=0`,
+`CORS_ALLOW_ORIGINS=https://radar-vps.<tailnet>.ts.net`.)
 
 ## 8. Primeiro deploy (migrations antes dos serviços)
 
@@ -136,15 +142,15 @@ Atualizações futuras: `git pull` (ou checkout da nova tag) e `scripts/prod/dep
 (exige instalação existente e faz backup de banco + documentos antes de migrar; aborta se o
 backup falhar). Detalhes: `docs/DOCKER-DEPLOYMENT.md`.
 
-## 9. Publicar na tailnet e primeiro acesso
+## 9. Primeiro acesso
 
-```bash
-sudo tailscale serve --bg --https=443 http://127.0.0.1:8080
-tailscale serve status
-```
-1. No celular/computador com o app Tailscale conectado, abra **uma vez por dispositivo**:
-   `https://radar-vps.<tailnet>.ts.net/acesso?k=<GATE_KEY>` (cookie de 30 dias).
-2. Abra `https://radar-vps.<tailnet>.ts.net` e faça login com o administrador.
+Modo IP público (fase atual):
+1. Em cada dispositivo, **uma vez**: `http://IP_DA_VPS/acesso?k=<GATE_KEY>` (cookie de 30 dias;
+   sem ele tudo responde 403).
+2. Abra `http://IP_DA_VPS` e faça login com o administrador.
+
+Modo Tailscale (opcional): `sudo tailscale serve --bg --https=443 http://127.0.0.1:8080` e use
+`https://radar-vps.<tailnet>.ts.net/acesso?k=<GATE_KEY>` / `https://radar-vps.<tailnet>.ts.net`.
 3. Remova a senha de bootstrap: apague `AUTH_BOOTSTRAP_ADMIN_PASSWORD` do `.env.prod` e
    rode `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d backend`.
 4. Crie os usuários de homologação (papel CONSULTA/ANALISTA).

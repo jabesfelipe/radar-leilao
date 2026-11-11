@@ -37,7 +37,12 @@ Quem capturar o cookie do portão ganha acesso às rotas legadas **sem JWT** (ve
 modo B**: o tráfego vai cifrado pelo WireGuard da tailnet e, com `tailscale serve --https`,
 também por TLS com certificado válido `*.ts.net` — sem comprar domínio e sem porta pública.
 
-## 3. Modo B — Tailscale (PADRÃO, sem porta pública)
+> **Decisão da fase atual (business first):** homologação pelo **modo A (IP público, HTTP)**,
+> temporária, para testar intensivamente o produto. O `.env.prod.example` já vem nesse modo.
+> O modo B fica como opção para quando houver dados reais/sensíveis. Endurecimento global
+> (JWT em todas as rotas, RBAC) é uma fase posterior.
+
+## 3. Modo B — Tailscale (opcional, sem porta pública)
 
 Pré-requisitos (conta Tailscale gratuita; não executado nesta missão): no painel
 <https://login.tailscale.com/admin/dns> habilite **MagicDNS** e **HTTPS Certificates**.
@@ -48,9 +53,10 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up --hostname=radar-vps        # abre um link para autorizar a máquina
 tailscale status                               # confirma o nome radar-vps.<tailnet>.ts.net
 ```
-`.env.prod` (já é o padrão do `.env.prod.example` e do compose):
+`.env.prod` (é o padrão do compose quando `PROXY_BIND` não é definido):
 ```
 PROXY_BIND=127.0.0.1      # Docker publica o proxy SÓ no loopback
+ALLOW_PUBLIC_HTTP=0
 PROXY_PORT=8080
 CORS_ALLOW_ORIGINS=https://radar-vps.<tailnet>.ts.net
 ```
@@ -77,7 +83,7 @@ Observações: o nome `radar-vps.<tailnet>.ts.net` aparece em logs públicos de 
 Transparency (só o nome; o serviço continua inalcançável fora da tailnet). Opcionalmente
 restrinja quem da tailnet acessa a VPS com ACLs do Tailscale.
 
-## 3.1 Modo A — IP público com portão (somente teste curto, dados não sensíveis)
+## 3.1 Modo A — IP público com portão (FASE ATUAL: homologação temporária, dados não sensíveis)
 
 `.env.prod`:
 ```

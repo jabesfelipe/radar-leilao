@@ -1,5 +1,20 @@
 # RADAR LEILÃO — STATUS DO PROJETO
 
+**Status global (2026-11 — Homologação temporária na Contabo por IP público/HTTP):** decisão
+de produto: priorizar validação funcional; endurecimento global (JWT em todas as rotas,
+RBAC) fica para fase posterior. `.env.prod.example` passa a vir no **modo A**
+(`PROXY_BIND=0.0.0.0`, `PROXY_PORT=80`, `ALLOW_PUBLIC_HTTP=1`); portão por chave e login
+mantidos; Tailscale/HTTPS segue como opção. `deploy.sh` ganhou aviso explícito de ambiente
+temporário, URL de acesso no final e teste pela interface externa; corrigido bug do `first`
+em banco vazio (consulta a `alembic_version` inexistente abortava o primeiro deploy).
+`docs/CONTABO-CHECKLIST.md` reescrito como roteiro sequencial. Validado ponta a ponta com os
+scripts reais (projeto isolado, volumes novos): `first` (23 migrations) → acesso pelo IP →
+login → cadastro → upload TXT+PDF (dedup) → download idêntico → RAG → análise sem chave
+(`SEM_CHAVE`, sem chamada paga) → `down` sem `-v` + reinício do daemon Docker sem perda →
+`update` com backup → `post-deploy-check` OK. Dev preservado (633, 45 `llm_runs`, 27
+`canonical_key`, V1–V9, Central Jurídica). Pendência de produto: o frontend não tem botão de
+download de documentos (só a API).
+
 **Status global (2026-11 — Revisão de prontidão para exposição remota):** auditoria
 completa de autenticação (`docs/SECURITY-EXPOSURE-AUDIT.md`): **184 rotas, 148 sem JWT**
 (112 em `main.py`, incluindo escrita, upload e agentes LLM) — mitigadas pelo portão do proxy
