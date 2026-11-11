@@ -10061,6 +10061,73 @@
     "summary": "Documents Hub"
    }
   },
+  "/api/documentos/versoes/{version_id}/arquivo": {
+   "get": {
+    "description": "Baixa o arquivo ORIGINAL (padrão) ou o texto NORMALIZADO (variante=normalizado).",
+    "operationId": "download_version_file_api_documentos_versoes__version_id__arquivo_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "version_id",
+      "required": true,
+      "schema": {
+       "title": "Version Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "query",
+      "name": "variante",
+      "required": false,
+      "schema": {
+       "default": "original",
+       "title": "Variante",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Authorization"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Download Version File",
+    "tags": [
+     "documentos"
+    ]
+   }
+  },
   "/api/documentos/{document_id}/versoes": {
    "post": {
     "operationId": "add_document_version_api_documentos__document_id__versoes_post",

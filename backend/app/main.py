@@ -45,6 +45,7 @@ from .routers import auth as auth_router  # noqa: E402
 from .routers import opportunities as opportunities_router  # noqa: E402
 from .routers import dashboard as dashboard_router  # noqa: E402
 from .routers import monitoring as monitoring_router  # noqa: E402
+from .routers import document_files as document_files_router  # noqa: E402
 app.include_router(health_router.router)
 app.include_router(hubs_router.router)
 app.include_router(legal_central_router.router)
@@ -55,6 +56,7 @@ app.include_router(auth_router.router)
 app.include_router(opportunities_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(monitoring_router.router)
+app.include_router(document_files_router.router)
 
 
 @app.on_event("startup")
