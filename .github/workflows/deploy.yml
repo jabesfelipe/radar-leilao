@@ -42,10 +42,15 @@ jobs:
           USER_: ${{ secrets.VPS_USER }}
           KEY: ${{ secrets.VPS_SSH_KEY }}
           DIR: ${{ secrets.VPS_APP_DIR }}
+          REF: ${{ inputs.ref }}
         run: |
           for v in HOST USER_ KEY DIR; do
             if [ -z "${!v}" ]; then echo "Secret ausente: $v"; exit 1; fi
           done
+          # O ref vai para um comando remoto: só caracteres de tag/branch/SHA (evita injeção).
+          if ! printf '%s' "$REF" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$'; then
+            echo "ref inválido: use tag, branch ou SHA (A-Z a-z 0-9 . _ / -)"; exit 1
+          fi
 
       - name: Configurar SSH
         env:

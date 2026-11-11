@@ -95,6 +95,13 @@ jobs:
         run: |
           printf 'POSTGRES_PASSWORD=ci\nJWT_SECRET_KEY=ci\nGATE_KEY=ci-gate-key-0123456789abcd\n' > /tmp/ci.env
           docker compose -f docker-compose.prod.yml --env-file /tmp/ci.env config > /dev/null
+      - name: Validate proxy config with a real-size GATE_KEY (48 hex) and script syntax
+        run: |
+          for f in scripts/prod/*.sh docker/*.sh; do bash -n "$f"; done
+          docker run --rm -e GATE_KEY="$(openssl rand -hex 24)" \
+            --add-host backend:127.0.0.1 --add-host frontend:127.0.0.1 \
+            -v "$PWD/docker/nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro" \
+            nginx:1.27-alpine /docker-entrypoint.sh nginx -t
       - name: Build production images (no push)
         run: |
           docker build -f backend/Dockerfile.prod -t radar-backend-prod:ci .
