@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, Integer, JSON, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .config import settings
 from .database import Base
@@ -390,6 +390,11 @@ class Analysis(TimestampMixin, Base):
     token_usage: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     property: Mapped[Property] = relationship(back_populates="analyses")
     llm_runs: Mapped[list["LLMRun"]] = relationship(back_populates="analysis")
+    # Integridade do histórico: uma única análise por (imóvel, oportunidade, versão);
+    # NULL (legado) conta como 0. Defesa em profundidade contra duas requisições
+    # simultâneas calcularem a mesma versão (a serialização principal é o advisory lock
+    # de ``/analisar``). Espelha a migration 0024.
+    __table_args__ = (Index("uq_analysis_property_opp_version", "property_id", text("(COALESCE(opportunity_id, 0))"), "version", unique=True),)
 
 
 class Verdict(TimestampMixin, Base):

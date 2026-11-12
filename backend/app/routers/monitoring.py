@@ -17,7 +17,7 @@ from .. import models
 from ..auth import get_current_user
 from ..authz import require_permission, PERM_ADMIN_WRITE, PERM_ANALYSIS_WRITE
 from ..config import settings
-from ..database import SessionLocal, get_db
+from ..database import SessionLocal, engine, get_db
 from ..documents.embedding_backfill import coverage_report
 from ..documents.storage_governance import diagnose as storage_diagnose
 from ..documents import worker as doc_worker
@@ -27,11 +27,24 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 
 def _run_reprocess_scan(limit: int) -> None:
     """Executa uma varredura do worker numa sessão própria (BackgroundTask)."""
-    db = SessionLocal()
-    try:
-        doc_worker.run_once(db, limit=limit)
-    finally:
-        db.close()
+    # Uma varredura manual por vez (entre processos): lock de SESSÃO numa conexão
+    # dedicada, mantida aberta durante toda a varredura (run_once faz commits e a sessão
+    # ORM devolveria a conexão ao pool, o que soltaria/vazaria um lock de sessão).
+    # O claim por linha (SKIP LOCKED) já evita processar a mesma versão que o worker
+    # esteja tratando.
+    key = "hashtextextended('rag-reprocess', 0)"
+    with engine.connect() as lock_conn:
+        if not lock_conn.execute(text(f"SELECT pg_try_advisory_lock({key})")).scalar():
+            return
+        try:
+            db = SessionLocal()
+            try:
+                doc_worker.run_once(db, limit=limit)
+            finally:
+                db.close()
+        finally:
+            lock_conn.execute(text(f"SELECT pg_advisory_unlock({key})"))
+            lock_conn.commit()
 
 
 @router.get("/readiness")

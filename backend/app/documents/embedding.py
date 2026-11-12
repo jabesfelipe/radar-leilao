@@ -16,7 +16,7 @@ from __future__ import annotations
 from sqlalchemy.orm import Session
 
 from .. import models
-from ..ai.gateway import build_gateway, sanitize_error
+from ..ai.gateway import build_gateway, classify_provider_error, sanitize_error
 from ..config import settings
 from ..logging_config import get_logger
 
@@ -30,7 +30,7 @@ def embed_pending_chunks(db: Session, version_id: int) -> dict[str, int | bool]:
     embeddings foram solicitados/executados/persistidos e se houve falha. Nunca
     levanta exceção: qualquer erro é capturado para não quebrar a ingestão.
     """
-    telemetry: dict[str, int | bool] = {
+    telemetry: dict[str, int | bool | str] = {
         "embeddings_pendentes": 0,
         "embeddings_solicitados": 0,
         "embeddings_executados": 0,
@@ -62,9 +62,13 @@ def embed_pending_chunks(db: Session, version_id: int) -> dict[str, int | bool]:
         vectors = build_gateway().embed([chunk.content for chunk in chunks])
     except Exception as exc:  # falha do provider não pode quebrar a ingestão
         telemetry["embeddings_falhos"] = len(chunks)
+        # Registra a causa (sanitizada) na telemetria para o chamador persistir em
+        # ``extraction_metadata`` — antes o erro só aparecia no log.
+        telemetry["erro_categoria"] = classify_provider_error(exc)
+        telemetry["erro"] = sanitize_error(str(exc))[:400]
         log.warning(
-            "embedding de chunks falhou: version_id=%s chunks=%d erro=%s",
-            version_id, len(chunks), sanitize_error(str(exc)),
+            "embedding de chunks falhou: version_id=%s chunks=%d categoria=%s erro=%s",
+            version_id, len(chunks), telemetry["erro_categoria"], sanitize_error(str(exc)),
         )
         return telemetry
 
