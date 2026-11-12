@@ -43,7 +43,10 @@ body { margin: 0; min-width: 320px; }
 button { font: inherit; }
 .app-shell { display: flex; min-height: 100vh; background: var(--color-background); }
 .sidebar { width: 258px; flex-shrink: 0; display: flex; flex-direction: column; padding: 28px 14px 18px; color: #9aa6ad; background: var(--color-sidebar); }
-.brand-row { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 0 12px 37px; color: #fff; }
+.brand-row { display: flex; flex-shrink: 0; align-items: center; gap: 10px; min-height: 42px; padding: 0 12px 37px; color: #fff; }
+/* Desktop: o bloco rolável só ocupa o resto da coluna (mesmo layout de antes; o rodapé
+   continua no fim via margin-top:auto). A rolagem interna é ativada no mobile (≤ 680px). */
+.sidebar-scroll { display: flex; flex: 1 1 auto; flex-direction: column; }
 .brand-mark { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; color: #101820; background: var(--color-accent); font-weight: 900; }
 .brand-row strong { display: block; font-size: 14px; letter-spacing: 2px; }
 .brand-row span { display: block; margin-top: 2px; color: #6f7c84; font-size: 10px; letter-spacing: 3px; }
@@ -98,10 +101,17 @@ button { font: inherit; }
   .welcome-card { grid-column: 1 / -1; min-height: 160px; }
 }
 @media (max-width: 680px) {
-  .sidebar { position: fixed; z-index: 10; top: 0; bottom: 0; left: 0; width: 272px; transform: translateX(-100%); transition: transform .2s ease; }
+  /* Painel com a altura VISÍVEL da viewport e rolagem só no bloco interno.
+     - 100vh (fallback) e 100dvh (Safari ≥ 15.4, Chrome ≥ 108): dvh acompanha a barra de
+       endereço do Safari iOS; com vh puro o fim da lista ficaria atrás da barra.
+     - Sem suporte a dvh, top:0 + bottom:0 já delimitam a área visível (ver @supports abaixo).
+     - safe-area: respeita notch/home indicator quando a página roda em tela cheia
+       (viewport-fit=cover / PWA); nos demais casos env() vale 0. */
+  .sidebar { position: fixed; z-index: 10; top: 0; bottom: 0; left: 0; width: 272px; max-height: 100vh; overflow: hidden; padding-top: calc(28px + env(safe-area-inset-top, 0px)); padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-100%); transition: transform .2s ease; }
   .sidebar.sidebar-open { transform: translateX(0); }
+  .sidebar-scroll { min-height: 0; overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; }
   .close-menu { display: grid; place-items: center; }
-  .sidebar-overlay { position: fixed; z-index: 9; inset: 0; display: block; border: 0; background: #101b3580; }
+  .sidebar-overlay { position: fixed; z-index: 9; inset: 0; display: block; border: 0; background: #101b3580; touch-action: none; }
   .topbar { height: 74px; padding: 0 16px; gap: 12px; }
   .mobile-menu { display: grid; flex-shrink: 0; }
   .topbar > div:nth-child(2) { flex: 1; }
@@ -118,6 +128,12 @@ button { font: inherit; }
   .foundation-card { min-height: 125px; }
   .module-placeholder { align-items: flex-start; padding: 22px; }
   .placeholder-arrow { display: none; }
+}
+
+@supports (height: 100dvh) {
+  @media (max-width: 680px) {
+    .sidebar { bottom: auto; height: 100dvh; max-height: 100dvh; }
+  }
 }
 
 /* Regras compartilhadas de responsividade e toque */

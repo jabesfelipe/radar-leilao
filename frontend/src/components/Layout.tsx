@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { Header } from './Header'
 import { Sidebar } from './Sidebar'
+import { useBodyScrollLock } from './useBodyScrollLock'
 
 type SessionUser = { id: number; email: string; name: string; role: string }
 
@@ -14,6 +15,8 @@ type LayoutProps = {
 
 export function Layout({ currentPath, onNavigate, children, user, onLogout }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Menu aberto (só acontece no mobile): a página atrás do overlay não rola.
+  useBodyScrollLock(sidebarOpen)
 
   const navigate = (path: string) => {
     onNavigate(path)

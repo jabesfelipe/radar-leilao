@@ -44,25 +44,30 @@ export function Sidebar({ currentPath, isOpen, onNavigate, onClose }: SidebarPro
           </div>
           <IconButton label="Fechar menu" icon={<X size={18} />} className="close-menu" onClick={onClose} />
         </div>
-        <p className="navigation-title">MÓDULOS PRINCIPAIS</p>
-        <nav className="navigation" aria-label="Navegação principal">
-          {navigationItems.map(({ path, label, icon: Icon }) => (
-            <button
-              className={`navigation-item ${currentPath === path ? 'navigation-item-active' : ''}`}
-              key={path}
-              type="button"
-              onClick={() => onNavigate(path)}
-            >
-              <Icon size={17} strokeWidth={currentPath === path ? 2.3 : 1.8} />
-              <span>{label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-footer">
-          <span className="status-dot" />
-          <div>
-            <strong>Ambiente local</strong>
-            <small>Radar Leilão</small>
+        {/* Área rolável: no mobile o painel tem a altura da viewport e só este bloco rola;
+            o cabeçalho (marca + fechar) acima permanece visível. */}
+        <div className="sidebar-scroll" data-testid="sidebar-scroll">
+          <p className="navigation-title">MÓDULOS PRINCIPAIS</p>
+          <nav className="navigation" aria-label="Navegação principal">
+            {navigationItems.map(({ path, label, icon: Icon }) => (
+              <button
+                className={`navigation-item ${currentPath === path ? 'navigation-item-active' : ''}`}
+                key={path}
+                type="button"
+                aria-current={currentPath === path ? 'page' : undefined}
+                onClick={() => onNavigate(path)}
+              >
+                <Icon size={17} strokeWidth={currentPath === path ? 2.3 : 1.8} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-footer">
+            <span className="status-dot" />
+            <div>
+              <strong>Ambiente local</strong>
+              <small>Radar Leilão</small>
+            </div>
           </div>
         </div>
       </aside>
