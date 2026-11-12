@@ -4,7 +4,7 @@ Estado de cada integração, conferido em código e configuração. Diagrama: [a
 
 | Integração | Situação | Como funciona | Configuração |
 |---|---|---|---|
-| OpenAI (LLM e embeddings) | existe, **opcional** | modelos `gpt-4o-mini` e `text-embedding-3-small` (1536 dimensões); sem chave, agentes retornam `SEM_CHAVE` e embeddings ficam pendentes | `OPENAI_API_KEY` (não configurada na VPS) |
+| OpenAI (LLM e embeddings) | existe, **opcional** | modelos `gpt-4o-mini` e `text-embedding-3-small` (1536 dimensões); sem chave, agentes retornam `SEM_CHAVE` e embeddings ficam pendentes | `OPENAI_API_KEY` (não configurada na VPS); `LLM_TIMEOUT_SECONDS` (90) e `LLM_MAX_RETRIES` (1) configuráveis; erros classificados e sanitizados ([security.md §7](security.md#7-integração-openai)) |
 | RAG híbrido | existe | pgvector + busca textual (`portuguese`): peso 0,7 vetorial e 0,3 textual; fallback textual; limites 8 e 50 | parâmetros em `config.py` |
 | OCR (Tesseract) | existe, **desabilitado** | pytesseract, pdf2image, Pillow | `OCR_ENABLED=false` |
 | Judicial API (DataJud) | existe | `POST {JUDICIAL_API_BASE_URL}/api/v1/judicial/search` com `X-API-Key`; serviço próprio em `judicial_api/` | `JUDICIAL_API_BASE_URL` (padrão `http://judicial_api:8010`); presente só no compose de desenvolvimento |

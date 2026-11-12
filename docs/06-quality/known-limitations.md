@@ -5,7 +5,8 @@ Lista consolidada do que o sistema **não faz** ou faz com restrição hoje. Cad
 ## Segurança e exposição
 | Limitação | Fonte |
 |---|---|
-| 148 de 184 rotas sem credencial no backend; proteção por portão do proxy | [security.md](../03-architecture/security.md) |
+| Em produção (até o deploy do hardening) 148 de 184 rotas sem credencial no backend, só com o portão do proxy; **na branch `feature/security-hardening-openai` todas exigem JWT + permissão** (exceto `/health` e login) | [security.md](../03-architecture/security.md) |
+| Sem isolamento de dados entre usuários (organização única); rate limit em memória por processo; sem antivírus em uploads | [security.md §9](../03-architecture/security.md#9-lacunas-e-riscos-que-permanecem) |
 | HTTP sem TLS; senha, JWT e cookie em texto claro | [infrastructure.md](../04-operations/infrastructure.md#12-segurança-e-limitações) |
 | Não usar dados sensíveis no ambiente de testes | idem |
 | JWT em `localStorage`; `X-Admin-Token` legado ainda aceito | [auth-users](../02-product/modules/auth-users.md) |

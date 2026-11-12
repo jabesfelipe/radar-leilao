@@ -82,3 +82,9 @@ não devem ser usados na VPS gerenciada por tags.
 | `OPERATIONS-RUNBOOK §5` | `git pull`, `build` e `up` na VPS | deploy por tag, sem build na VPS |
 | `DEPLOYMENT`, `ARCHITECTURE` | proxy 80/443 com HTTPS | HTTP 80 |
 | `CAPACITY-PLANNING`, `DEPLOYMENT §1` | 2 vCPU / 4 GB | 6 vCPU / ~11 GiB |
+
+## 8. Release com a migration 0024 (hardening de segurança)
+
+A versão com o hardening inclui a migration `0024_analysis_version_unique` (índice único de análise por imóvel, oportunidade e versão). O deploy por tag já faz backup antes de migrar. A migration é idempotente, não altera dados e **aborta com mensagem clara** se houver análises duplicadas (o que não ocorre num banco sem análises).
+
+Rollback: como a migration muda o schema, `rollback.sh` recusa voltar a imagem (rc=3). Procedimento: `alembic downgrade 0023_usuarios` (apenas remove o índice) e então `rollback.sh`; ou corrija à frente com nova tag. Plano completo em [security.md §11](../03-architecture/security.md#11-homologação-implantação-e-rollback).

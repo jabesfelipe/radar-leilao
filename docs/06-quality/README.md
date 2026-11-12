@@ -19,10 +19,12 @@ Como executar: [../05-development/testing.md](../05-development/testing.md).
 
 Último resultado registrado antes desta reestruturação (**não reexecutado nesta missão documental**, que não altera código):
 
-- backend: 807 passed, 2 skipped, mais o teste de política de release;
-- frontend: 27 arquivos, 161 testes;
-- API: 144 paths (baseline); 184 rotas, das quais 36 com credencial;
-- banco: 60 tabelas, 23 migrations (head `0023_usuarios`).
+- backend: 807 passed, 2 skipped, mais o teste de política de release (main, antes do hardening);
+- backend na branch de hardening: 943 passed, 2 skipped (PostgreSQL 16.15 + pgvector local; os 2 skips são testes reais do DataJud, desabilitados de propósito); frontend: 29 arquivos, 169 testes, `tsc` e build de produção OK;
+- API: 144 paths (baseline); 184 rotas; **na branch de hardening todas passam pelo portão global** (2 públicas);
+- banco: 69 tabelas num banco novo por `alembic upgrade head` (igual à produção), 23 migrations em `main` (head `0023_usuarios`) e **24 na branch** (`0024_analysis_version_unique`).
+
+Marcador de testes de segurança: `@pytest.mark.security_gate` roda com o portão real; os demais testes usam o bypass descrito em [testing.md](../05-development/testing.md).
 
 Documentos antigos citam outros números (527 passed, 99 a 143 paths, migrations 0017 e 0019); todos estão superados. Para números novos, rode os comandos e cite data e fonte.
 
