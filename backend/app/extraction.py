@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from . import models
-from .ai.gateway import LLMCall, LLMGateway, build_gateway
+from .ai.gateway import LLMCall, LLMGateway, build_gateway, sanitize_error
 from .evidence import normalize_documentary_evidence
 from .rag.retriever import RetrieverFilters
 from .rag.service import RAGService
@@ -82,7 +82,7 @@ def extract_document(db, property_id: int, document_version_id: int, document_ty
         output = call.content if isinstance(call.content, schema) else schema.model_validate(call.content)
         validate_extraction_references(output)
     except Exception as exc:
-        call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = str(exc); return ExtractionResult(document_type, document_version_id, call, None, retrieval.chunks)
+        call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = sanitize_error(str(exc)); return ExtractionResult(document_type, document_version_id, call, None, retrieval.chunks)
     return ExtractionResult(document_type, document_version_id, call, output, retrieval.chunks)
 
 

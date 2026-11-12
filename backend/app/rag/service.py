@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from .retriever import HybridRetriever, RetrieverFilters, clamp_limit
-from ..ai.gateway import build_gateway
+from ..ai.gateway import build_gateway, classify_provider_error, sanitize_error
 from ..config import settings
 from ..logging_config import get_logger
 
@@ -43,10 +43,12 @@ class RAGService:
                 embedding = build_gateway().embed([query])[0]
         except RuntimeError as exc:
             text_fallback = True
-            reason = str(exc)
+            reason = sanitize_error(str(exc))
         except Exception as exc:
+            # Falha do provider (401/429/timeout/rede): cai para busca textual sem expor
+            # a mensagem bruta da biblioteca. Categoria ajuda no diagnóstico.
             text_fallback = True
-            reason = f"Busca vetorial indisponível: {exc}"
+            reason = f"Busca vetorial indisponível ({classify_provider_error(exc)}): {sanitize_error(str(exc))[:200]}"
         log.info("rag busca iniciada: property_id=%s categoria=%s vetorial=%s fallback_texto=%s%s",
                  property_id, effective_filters.category, embedding is not None, text_fallback,
                  f" motivo={reason}" if reason else "")
