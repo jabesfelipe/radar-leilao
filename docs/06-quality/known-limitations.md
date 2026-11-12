@@ -31,7 +31,7 @@ Lista consolidada do que o sistema **não faz** ou faz com restrição hoje. Cad
 | Uma única VPS, sem redundância | [infrastructure.md](../04-operations/infrastructure.md) |
 | Migrations destrutivas dependem de revisão humana; o pipeline não as detecta | [github-actions.md](../04-operations/github-actions.md#7-limites-conhecidos) |
 | Rollback não desfaz schema; recusa quando as heads divergem | [deployment.md](../04-operations/deployment.md#4-rollback) |
-| `bootstrap-vps.sh` pode abortar silenciosamente no passo do firewall (`sshd -T` + `awk`); correção aplicada na VPS não registrada | [infrastructure.md §6.1](../04-operations/infrastructure.md#61-troubleshooting-sshd--t-com-awk-no-passo-do-firewall) |
+| `bootstrap-vps.sh` abortava silenciosamente no passo do firewall (`sshd -T` + `awk`, rc 141); **corrigido no repositório**, coberto por teste, ainda não reexecutado em servidor real | [infrastructure.md §6.1](../04-operations/infrastructure.md#61-troubleshooting-sshd--t-com-awk-no-passo-do-firewall) |
 
 ## Divergências entre documentos e código (registradas, não corrigidas)
 | Item | Observação |

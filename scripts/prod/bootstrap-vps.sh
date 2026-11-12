@@ -106,7 +106,10 @@ fi
 echo "== [6/7] Firewall"
 if [ "$UFW" = "1" ]; then
   command -v ufw >/dev/null 2>&1 || apt-get install -y -qq ufw
-  SSHP="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"; SSHP="${SSHP:-22}"
+  # awk lê TODA a saída (sem `exit`): evita SIGPIPE (rc 141) em sshd -T sob `set -o pipefail`.
+  # `|| true` deixa o padrão 22 valer também se o sshd -T falhar ou não estiver no PATH.
+  SSHP="$(sshd -T 2>/dev/null | awk '/^port / && !found {p=$2; found=1} END {if (found) print p}' || true)"
+  SSHP="${SSHP:-22}"
   ufw allow "$SSHP/tcp" >/dev/null; ufw allow 80/tcp >/dev/null; ufw --force enable >/dev/null
   echo "ufw: liberadas ${SSHP}/tcp (SSH) e 80/tcp. Obs.: o Docker publica a porta 80 por regra própria."
 else

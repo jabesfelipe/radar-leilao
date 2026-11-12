@@ -18,7 +18,7 @@
 | Consulta automática a Registro de Imóveis e Prefeitura | SPEC-ADAPTADORES-CONSULTA-MUNICIPAL | sem cliente hoje |
 | Curadoria da Central Jurídica | TODO-CENTRAL-JURIDICA | pendente (ver o TODO) |
 | Desativação do `X-Admin-Token` | [operations.md](../04-operations/operations.md#3-desativação-controlada-do-x-admin-token-legado) | planejada |
-| Correção do `bootstrap-vps.sh` (leitura de porta SSH) | [infrastructure.md](../04-operations/infrastructure.md#61-troubleshooting-sshd--t-com-awk-no-passo-do-firewall) | requer confirmação do que foi aplicado na VPS |
+| Correção do `bootstrap-vps.sh` (leitura de porta SSH) | [infrastructure.md](../04-operations/infrastructure.md#61-troubleshooting-sshd--t-com-awk-no-passo-do-firewall) | concluída no repositório; validação em servidor novo pendente |
 
 ## Em discussão (sem decisão)
 

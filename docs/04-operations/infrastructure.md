@@ -126,34 +126,51 @@ O usuário `radar` está no grupo `docker`, o que equivale a root na máquina. U
 
 **Sintoma.** O script para no passo "[6/7] Firewall", sem mensagem de erro e sem imprimir `BOOTSTRAP_OK`.
 
-**Código envolvido** (`scripts/prod/bootstrap-vps.sh`, linha 109 no commit `4691860`):
+**Código antigo** (`scripts/prod/bootstrap-vps.sh`, linha 109 no commit `4691860`):
 
 ```bash
 SSHP="$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')"; SSHP="${SSHP:-22}"
 ```
 
-**Causa técnica provável (não confirmada em laboratório).** O script usa `set -euo pipefail`. O
-`exit` do `awk` encerra a leitura assim que acha a linha `port`; o `sshd -T` pode então receber
-SIGPIPE ao escrever o restante e terminar com código 141. Com `pipefail`, a substituição de comando
-falha e `set -e` aborta o script, sem mensagem, porque o stderr foi descartado (`2>/dev/null`). Outra
-possibilidade registrada: `sshd` fora do `PATH` do `root` na sessão em uso.
+**Causa.** O script usa `set -euo pipefail`. O `exit` do `awk` encerra a leitura assim que acha a
+linha `port`; o `sshd -T` ainda escreve o restante da saída num pipe sem leitor e recebe SIGPIPE
+(código 141). Com `pipefail`, a substituição de comando falha e `set -e` aborta o script, sem mensagem,
+porque o stderr foi descartado (`2>/dev/null`). Reproduzido em teste local: com uma saída longa depois
+da linha `port`, o pipeline antigo terminou com `rc=141` em 5 de 5 execuções. A causa foi confirmada
+em laboratório (simulação com um `sshd` falso); no sshd real da VPS o diagnóstico é o mesmo, mas a
+execução original não foi capturada.
 
-**Correção aplicada.** Foi aplicada uma correção na VPS para concluir o bootstrap, mas **ela não
-está registrada no repositório**: o único commit que toca `bootstrap-vps.sh` é `4691860` e a linha
-acima continua igual em `main`. Qual foi a correção exata é uma **pendência de confirmação com o
-proprietário** (ver [§14](#14-pendências)). Este documento não afirma qual foi a alteração.
+**Correção no repositório.** `bootstrap-vps.sh` agora consome toda a saída do `sshd -T` e mantém o
+padrão 22:
 
-**Validação (como conferir o resultado).**
+```bash
+SSHP="$(sshd -T 2>/dev/null | awk '/^port / && !found {p=$2; found=1} END {if (found) print p}' || true)"
+SSHP="${SSHP:-22}"
+```
+
+- O `awk` não usa `exit`: lê tudo, guarda a primeira linha `port` e imprime no `END`. Sem SIGPIPE.
+- `|| true` faz o padrão 22 valer também se o `sshd -T` falhar ou não estiver no `PATH` (antes, isso também abortava o script sob `pipefail`).
+- **22 é um fallback, não a confirmação da porta efetiva.** Se o `sshd -T` falhar ou não trouxer a linha `port`, o script assume 22 em silêncio e libera `22/tcp` no UFW. Num servidor com SSH em outra porta, confira com `sudo ss -tlnp | grep sshd` e ajuste a regra do UFW antes de fechar a sessão.
+- Comportamento preservado: porta única, primeira porta quando há várias, 22 quando não há linha `port`.
+
+A correção foi aplicada na VPS diretamente, antes de existir no repositório. O texto exato usado lá não
+foi comparado com este; o resultado (bootstrap terminando com `BOOTSTRAP_OK`) foi informado pelo
+proprietário. O bootstrap **não foi reexecutado** em produção após a mudança no repositório.
+
+**Testes:** `tests/test_bootstrap_ssh_port.py` extrai a linha real do script e a executa com um `sshd`
+falso (porta customizada com saída grande, várias portas, sem linha `port`, `sshd` falhando ou
+ausente) e confere `bash -n`. Rodam no CI (job backend).
+
+**Validação manual (como conferir o resultado).**
 
 ```bash
 # a leitura da porta deve funcionar sem abortar mesmo com set -euo pipefail
-bash -c 'set -euo pipefail; P="$(/usr/sbin/sshd -T 2>/dev/null | awk "/^port /{print \$2}")"; echo "porta=${P:-22}"'
+bash -c 'set -euo pipefail; P="$(sshd -T 2>/dev/null | awk "/^port / && !found {p=\$2; found=1} END {if (found) print p}" || true)"; echo "porta=${P:-22}"'
 # o bootstrap só está concluído se a saída terminar com BOOTSTRAP_OK
 sudo ufw status verbose        # SSH e 80/tcp liberados
 ```
 
-Ler a saída inteira com `awk` (sem `exit`) evita o SIGPIPE; é a forma segura de ler uma única linha
-sob `pipefail`. Isso é um padrão geral de shell, não uma descrição do que foi feito na VPS.
+Regra geral de shell: sob `pipefail`, não encerre o leitor do pipe antes do fim (`exit`, `head -1`, `grep -q`) quando o escritor pode ter saída longa.
 
 **Contorno manual do firewall**, se o script voltar a abortar nesse passo:
 
@@ -164,7 +181,7 @@ ufw --force enable
 ufw status verbose
 ```
 
-Correção do script no repositório: fora do escopo desta reestruturação documental (código não foi alterado).
+Com o script corrigido, esse contorno só é necessário se o `ufw` falhar por outro motivo.
 
 ## 7. SSH: chaves, host key e fingerprint
 
@@ -327,7 +344,7 @@ Todos os serviços usam `restart: unless-stopped`: após `sudo reboot` tudo volt
 
 ## 14. Pendências
 
-1. **Confirmar com o proprietário** qual correção foi aplicada na VPS para o problema `sshd -T` + `awk` e registrá-la (e, no futuro, corrigir `bootstrap-vps.sh` no repositório).
+1. ~~Registrar no repositório a correção do `sshd -T` + `awk`~~ feito em `bootstrap-vps.sh` (ver §6.1). Resta, opcionalmente, comparar com o texto aplicado na VPS e validar o script corrigido no próximo bootstrap de um servidor novo.
 2. Anexar ao repositório (ou a documentação privada) a evidência do primeiro deploy (link da execução do Actions), já que data e tempo vêm da palavra do proprietário.
 3. Configurar e documentar backups agendados e a cópia externa ao servidor.
 4. Medir latência a partir do Brasil e consumo real (`docker stats`) durante o uso.
