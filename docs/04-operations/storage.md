@@ -1,5 +1,7 @@
 # Radar Leilão — Storage local na VPS
 
+> **Situação: VÁLIDO.** Movido de `docs/STORAGE-LOCAL.md`. Backend de storage: `STORAGE_BACKEND=local` (padrão), com S3/MinIO disponível na abstração.
+
 Nesta fase os documentos ficam na própria VPS, num volume Docker persistente. A
 abstração `backend/app/storage` (Local / S3 / MinIO) foi mantida para migração futura.
 

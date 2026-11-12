@@ -1,5 +1,7 @@
 # Operação local — Radar Leilão
 
+> **Situação: VÁLIDO.** Movido de `docs/OPERATIONS.md`. Escopo: ambiente local de desenvolvimento (`docker-compose.yml`). Operação em produção: [../04-operations/operations.md](../04-operations/operations.md).
+
 ## Objetivo
 
 Procedimento seguro para operar o Radar Leilão no Windows + WSL2 + Docker, especialmente durante desenvolvimento e validação E2E.
@@ -160,7 +162,7 @@ Preservar logs e backup, identificar o erro e só então corrigir código/migrat
 
 ## 11. Referências
 
-- docs/LOCAL-SETUP.md — instalação e comandos básicos;
-- docs/OPERATIONS.md — operação segura, rebuild, .env, logs e banco;
-- docs/PROJECT-STATUS.md — estado e próxima TASK;
-- docs/PROJECT-HISTORY.md — histórico das decisões e validações.
+- [getting-started.md](getting-started.md) — instalação e comandos básicos;
+- este documento — operação segura, rebuild, .env, logs e banco;
+- [PROJECT-STATUS](../99-archive/reports/PROJECT-STATUS.md) — estado antigo e próxima TASK (arquivado);
+- [PROJECT-HISTORY](../99-archive/reports/PROJECT-HISTORY.md) — histórico das decisões e validações (arquivado).

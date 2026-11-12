@@ -1,5 +1,10 @@
 # WORKFLOW LEILÃO — END TO END (F0 → F13)
 
+> **Situação (reestruturação documental): ATUALIZAR.** Este diagnóstico da "Fase Zero" afirma que a máquina de estados não existe.
+> Hoje o workflow F0-F13 **está implementado** (`workflow_rules.py`, `workflow_engine.py`, `routers/opportunities.py`).
+> Mapa atual: [modules/opportunities-workflow.md](../modules/opportunities-workflow.md). Mantido como descrição do workflow-alvo e
+> do mapeamento fase a fase da época.
+
 > **Fase Zero / diagnóstico.** Documento de planejamento. Nada implementado. Descreve o
 > workflow-alvo do `PROMPT-KIRO-PLATAFORMA-COMPLETA.md` e mapeia, fase a fase, o que **já
 > existe** no código vs o **gap**. Foco em leilão **extrajudicial de alienação fiduciária

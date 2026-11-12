@@ -1,7 +1,9 @@
 # Radar Leilão — Deploy com Docker Compose (VPS única)
 
+> **Situação: VÁLIDO.** Movido de `docs/DOCKER-DEPLOYMENT.md` (stub no caminho antigo, citado por `rollback.sh`, `docker-compose.prod.yml` e `.env.prod.example`). Visão geral em [deployment.md](deployment.md).
+
 > **Fluxo oficial: deploy automático por tag** (`git push origin vX.Y.Z`) —
-> `docs/GITHUB-ACTIONS-DEPLOY.md`. Este documento descreve o que roda **dentro da VPS** e os
+> [github-actions.md](github-actions.md). Este documento descreve o que roda **dentro da VPS** e os
 > procedimentos manuais (operação, migrations, rollback). Não há deploy manual "paralelo".
 
 Arquivo: `docker-compose.prod.yml` (projeto `radar-prod`). Variáveis: `.env.prod` (só na VPS,
@@ -47,7 +49,7 @@ GitHub Actions (release.yml, job deploy)
                  [6/6] smoke: /health 200 c/ cookie, 403 sem cookie, interface externa, versão em execução
 ```
 
-Regras de `auto`, `first` e `update`: tabela em `docs/GITHUB-ACTIONS-DEPLOY.md §2`.
+Regras de `auto`, `first` e `update`: tabela em [github-actions.md §2](github-actions.md#2-primeiro-deploy--atualização).
 `first` e `update` explícitos continuam disponíveis e se recusam mutuamente (rc=2).
 
 Validação do `.env.prod`: `POSTGRES_PASSWORD`, `JWT_SECRET_KEY` (≥ 32) e `GATE_KEY`
@@ -107,7 +109,7 @@ Rollback de **código/imagem** e de **dados** são operações diferentes.
   Se o downgrade não for seguro (dados novos, colunas removidas), restaure o backup gerado pelo
   deploy (§Dados) — nunca automático.
 - **Alternativa preferida para bugs:** corrigir à frente com nova tag (`vX.Y.Z+1`).
-- **Dados:** restaure o dump em banco isolado, valide e só então troque (`docs/BACKUP-RESTORE.md`).
+- **Dados:** restaure o dump em banco isolado, valide e só então troque ([backup-restore.md](backup-restore.md)).
 
 ## 7. Operação
 

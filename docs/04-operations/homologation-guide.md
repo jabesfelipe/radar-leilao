@@ -1,10 +1,15 @@
 # Radar Leilão — Guia de Homologação (acesso restrito)
 
+> **Situação: ATUALIZAR (parcial).** Movido de `docs/HOMOLOGATION-GUIDE.md`. O conteúdo de proteção (portão, JWT, rate limit) é
+> válido. Problemas conhecidos: a tabela da §1 aparece depois da §2 em alguns trechos e há numeração repetida (3, 3.1, 3.2);
+> o fluxo de deploy está descrito corretamente (por tag). O modo de acesso atual da VPS é HTTP na porta 80 (modo A do guia).
+> Visão consolidada de infraestrutura em [infrastructure.md](infrastructure.md).
+
 Objetivo: permitir que poucas pessoas validem o produto pelo celular e computador **sem**
 abrir uma plataforma pública. Nada do RBAC foi removido.
 
 > Como a versão chega à VPS: **deploy automático por tag** (`git push origin vX.Y.Z`),
-> `docs/GITHUB-ACTIONS-DEPLOY.md`. Cada tag homologada fica identificável na VPS
+> [github-actions.md](github-actions.md). Cada tag homologada fica identificável na VPS
 > (`grep RADAR_RELEASE_TAG /opt/radar-leilao/.release.env`) e no resumo do run no GitHub.
 
 ## 1. Camadas de proteção
@@ -37,7 +42,7 @@ na entrada, sem alterar regras de negócio. Fechar as rotas legadas com JWT é p
 | Documentos (upload/download) | corpo das requisições | texto claro |
 
 Quem capturar o cookie do portão ganha acesso às rotas legadas **sem JWT** (ver
-`docs/SECURITY-EXPOSURE-AUDIT.md`). Por isso o **modo seguro de homologação sem domínio é o
+[SECURITY-EXPOSURE-AUDIT](../03-architecture/specs/SECURITY-EXPOSURE-AUDIT.md)). Por isso o **modo seguro de homologação sem domínio é o
 modo B**: o tráfego vai cifrado pelo WireGuard da tailnet e, com `tailscale serve --https`,
 também por TLS com certificado válido `*.ts.net` — sem comprar domínio e sem porta pública.
 
@@ -112,7 +117,7 @@ pode capturá-los. Não use com dados reais.
 ## 4. Domínio + HTTPS (pós-homologação)
 
 Quando houver domínio: use `docker/nginx-proxy.conf` (TLS) como base, emita certificado com
-certbot e mude `CORS_ALLOW_ORIGINS` para `https://seu-dominio`. Ver `docs/DEPLOYMENT.md §4`.
+certbot e mude `CORS_ALLOW_ORIGINS` para `https://seu-dominio`. Ver [deployment.md §6](deployment.md#6-referência-futura-domínio-e-tls-não-existe-hoje).
 
 ## 5. Usuários
 

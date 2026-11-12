@@ -1,5 +1,8 @@
 # Como executar o Radar Leilão em um notebook novo
 
+> **Situação: VÁLIDO.** Movido de `docs/LOCAL-SETUP.md` (stub no caminho antigo, citado por `scripts/setup.sh`).
+> Guia para ambiente local de desenvolvimento (Windows + WSL2 + Docker Desktop). Para a VPS, veja [../04-operations/infrastructure.md](../04-operations/infrastructure.md).
+
 Este guia é para quem **nunca usou Docker ou PostgreSQL**. Ao final, você terá o
 Radar Leilão rodando localmente (banco, backend e frontend) com um único comando.
 
@@ -7,7 +10,7 @@ O ambiente oficial é **Windows + WSL2 + Docker**. Tudo roda em containers: voc�
 **não** precisa instalar Python, Node, PostgreSQL nem criar banco manualmente.
 
 > Para a operação do dia a dia (rebuild, `.env`, logs, backup, proteção de dados),
-> consulte também [`docs/OPERATIONS.md`](OPERATIONS.md).
+> consulte também [`local-operations.md`](local-operations.md).
 
 ---
 
@@ -320,7 +323,7 @@ Só use `./scripts/reset.sh` como último recurso (e depois de fazer backup).
 
 ## 15. Operação, rebuild e logs
 
-Para o procedimento completo e seguro, consulte docs/OPERATIONS.md.
+Para o procedimento completo e seguro, consulte [local-operations.md](local-operations.md).
 
 Comandos principais no WSL:
 

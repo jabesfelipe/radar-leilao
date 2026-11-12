@@ -1,5 +1,7 @@
 # Radar Leilão — Procedimento de Migração de Banco (controlado)
 
+> **Situação: VÁLIDO.** Movido de `docs/DATABASE-MIGRATION.md`. Head atual confirmada: `0023_usuarios` (23 migrations).
+
 Migrations usam **Alembic**. A cadeia atual vai de `0001_fundacao_radar` até
 `0023_usuarios` (head). Em produção, migração é um procedimento **controlado** —
 nunca um efeito colateral do start do backend.
@@ -40,7 +42,7 @@ head do código antes de agir.
    ```
 7. **Plano de rollback** definido ANTES (ver §3).
 8. **Aplicar** no ambiente real — na VPS isso é feito pelo **deploy por tag** (backup →
-   migrate → up; `docs/GITHUB-ACTIONS-DEPLOY.md`). Manual só em emergência:
+   migrate → up; [github-actions.md](../04-operations/github-actions.md)). Manual só em emergência:
    ```bash
    scripts/prod/compose.sh --profile migrate run --rm migrate
    ```

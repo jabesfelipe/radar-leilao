@@ -1,5 +1,10 @@
 # MATRIZ CHECKLIST × MODALIDADE
 
+> **Situação (reestruturação documental): ATUALIZAR.** O texto abaixo é um diagnóstico da "Fase Zero" e afirma "nada implementado".
+> Hoje a aplicabilidade do checklist por modalidade **está implementada** em `backend/app/modality_rules.py` (ruleset
+> `modality-v1`, 5 modalidades, LICITACAO em aberto) e exposta em `GET /api/oportunidades/{id}/checklist-aplicavel`.
+> Leia o documento como histórico de planejamento; o estado real está em [modules/opportunities-workflow.md](../modules/opportunities-workflow.md).
+
 > **Fase Zero / diagnóstico.** Planejamento. Nada implementado. Mapeia os **27 `canonical_key`
 > existentes** (preservados, imutáveis) contra as modalidades-alvo e propõe a estrutura de um
 > **checklist dinâmico** (épico D) sem renomear/remover nenhuma chave canônica.

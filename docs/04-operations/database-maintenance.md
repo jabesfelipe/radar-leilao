@@ -1,5 +1,11 @@
 # Manutenção do banco local — Radar Leilão
 
+> **Situação: ATUALIZAR (parcial).** Movido de `docs/DB-MAINTENANCE.md`. Escopo: ambiente **local de desenvolvimento**.
+> Divergência registrada: os comandos usam `-U postgres`, mas o usuário real do banco vem de `POSTGRES_USER` no `.env` /
+> `.env.prod`. Em produção,
+> não use estes comandos; use [backup-restore.md](backup-restore.md). O script `scripts/db/cleanup_test_properties.sql`
+> é destrutivo (remove imóveis exceto o 633): nunca execute em produção.
+
 ## Limpeza de dados de teste
 
 Script versionado em:

@@ -1,5 +1,10 @@
 # ADR — Arquitetura de Workflow do Radar Leilão
 
+> **Situação (reestruturação documental): ATUALIZAR STATUS.** O cabeçalho original abaixo diz "PROPOSTO" e "nada foi implementado".
+> O código atual **implementa** o que este ADR descreve (`workflow_rules.py` cita "ADR-006" no versionamento de regras;
+> `workflow_engine.py`, `routers/opportunities.py`). Não há registro, no repositório, da data nem do aprovador da decisão:
+> o status formal permanece **pendente de confirmação pelo proprietário**. Índice: [README.md](README.md).
+
 > **Status:** PROPOSTO (aguardando aprovação). **Natureza:** decisão arquitetural — documento
 > de especificação. **Nada foi implementado.** Nenhuma migration, modelo, endpoint ou dado foi
 > alterado. Preserva imóvel 633, análises V1–V9, `llm_runs` e os 27 `canonical_key`.

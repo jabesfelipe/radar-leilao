@@ -1,5 +1,9 @@
 # Radar Leilão — Backup e Restauração
 
+> **Situação: VÁLIDO.** Movido de `docs/BACKUP-RESTORE.md` (stub no caminho antigo). Os scripts descritos
+> existem em `scripts/prod/`. A evidência da §6 é de **teste local** em bancos descartáveis. Backups
+> agendados e cópia externa na VPS real **não estão confirmados** (ver [infrastructure.md](infrastructure.md#14-pendências)).
+
 Estratégia de backup/restore para produção. Scripts em `scripts/prod/`. Testado
 end-to-end em bancos descartáveis (ver §5).
 
@@ -27,7 +31,7 @@ scripts/prod/pg-backup.sh backups
 - Log em `backups/backup.log`.
 
 Agende via cron (ex.: diário 03:00); a linha completa está em
-`docs/INFRASTRUCTURE-CONTABO.md §9`:
+[infrastructure.md §10.2](infrastructure.md#102-backups-agendados-modelo-ainda-não-confirmado-como-instalado):
 ```
 0 3 * * * cd /opt/radar-leilao && RETENTION_DAYS=14 scripts/prod/pg-backup.sh /opt/radar-backups >> /opt/radar-backups/cron.log 2>&1
 ```
@@ -127,4 +131,4 @@ Nada disso tocou `radar_leilao` (dev) — conferido por contagem antes/depois.
 
 O backup é a rede de segurança dos invariantes históricos (imóvel 633, V1–V9, 45
 `llm_runs`, 27 `canonical_key`, Central Jurídica). Sempre faça backup ANTES de qualquer
-migração ou operação de manutenção (ver `docs/DATABASE-MIGRATION.md`).
+migração ou operação de manutenção (ver [database-migrations.md](../05-development/database-migrations.md)).
