@@ -36,6 +36,17 @@ x-backend-env: &backend-env
   OCR_ENABLED: ${OCR_ENABLED:-false}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+  # LLM: provider/modelo explícitos e resiliência configurável (timeout por chamada e
+  # retries do SDK). O padrão da biblioteca (~600 s) excederia o proxy_read_timeout (300 s).
+  LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+  LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+  LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
+  LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}
+  # Limites de upload e proteção contra consumo indevido (ver docs/03-architecture/security.md).
+  UPLOAD_MAX_MB: ${UPLOAD_MAX_MB:-30}
+  RATE_LIMIT_CRITICAL_PER_MINUTE: ${RATE_LIMIT_CRITICAL_PER_MINUTE:-10}
+  RATE_LIMIT_UPLOAD_PER_MINUTE: ${RATE_LIMIT_UPLOAD_PER_MINUTE:-30}
+  MAX_CONCURRENT_CRITICAL_PER_USER: ${MAX_CONCURRENT_CRITICAL_PER_USER:-2}
 
 services:
   postgres:
@@ -143,6 +154,7 @@ services:
       <<: *backend-env
       WORKER_INTERVAL_SECONDS: ${WORKER_INTERVAL_SECONDS:-30}
       WORKER_BATCH_LIMIT: ${WORKER_BATCH_LIMIT:-5}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-5}
       RUN_MIGRATIONS_ON_START: "false"
     mem_limit: 1g
     volumes:

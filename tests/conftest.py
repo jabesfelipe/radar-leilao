@@ -8,6 +8,37 @@ from backend.app import models
 from backend.app.config import settings
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "security_gate: executa o teste COM o portão de segurança global ativo (sem o bypass padrão da suíte)",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _security_gate_bypass(request):
+    """Os testes de domínio (financeiro, checklist, RAG...) exercitam regras de negócio via
+    TestClient sem se autenticar. Para não duplicar o login em centenas de testes, o portão
+    global de segurança (``security_gate``) é substituído por um no-op — o mesmo mecanismo
+    de ``dependency_overrides`` já usado para ``get_db``. Os testes de segurança usam o
+    marcador ``@pytest.mark.security_gate`` e rodam com o portão REAL. As dependências por
+    rota (RBAC de admin, usuários, oportunidades) permanecem ativas em todos os testes.
+    """
+    from backend.app.main import app
+    from backend.app.security import reset_limits, security_gate
+
+    reset_limits()
+    if request.node.get_closest_marker("security_gate"):
+        yield
+        reset_limits()
+        return
+    app.dependency_overrides[security_gate] = lambda: None
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(security_gate, None)
+
+
 @pytest.fixture(scope="session")
 def postgres_engine():
     database_url = os.getenv("RAG_TEST_DATABASE_URL")

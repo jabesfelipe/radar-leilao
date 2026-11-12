@@ -1,9 +1,11 @@
 from typing import Literal
 from datetime import date, datetime
 from decimal import Decimal
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -26,10 +28,34 @@ from .rag.retriever import RetrieverFilters
 from . import legal_service
 from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary, due_diligence_overview, location_out, ensure_property_location, get_property_location, validate_location_checklist, upsert_due_diligence_front, get_due_diligence_front, reflect_due_diligence_signals)
 
+from .locks import operation_lock
+from .request_context import CorrelationIdMiddleware, get_correlation_id, public_error
+from .security import security_gate
+from .upload_security import read_limited, sanitize_filename, validate_upload
+
 configure_logging()
 log = get_logger("api")
-app = FastAPI(title=settings.app_name, version="0.2.0")
+# Segurança (default-deny): TODAS as rotas passam por ``security_gate`` — só /health e o
+# login são públicos; o restante exige JWT + permissão (ver security.py).
+app = FastAPI(title=settings.app_name, version="0.2.0", dependencies=[Depends(security_gate)])
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CorrelationIdMiddleware)  # mais externo: todo response (inclusive preflight/CORS) leva X-Request-ID
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Erro inesperado: detalhe técnico (sanitizado) só no log; o cliente recebe uma
+    mensagem genérica e o código de referência para suporte."""
+    cid = get_correlation_id()
+    log.error("erro nao tratado ref=%s metodo=%s caminho=%s tipo=%s", cid, request.method, request.url.path, type(exc).__name__, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": f"Erro interno. Informe o código de referência ao suporte. (ref: {cid})"}, headers={"X-Request-ID": cid})
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 sem eco do valor enviado (``input``): evita devolver senhas/trechos de documentos."""
+    errors = [{"loc": list(err.get("loc", ())), "msg": str(err.get("msg", "")), "type": str(err.get("type", ""))} for err in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 # M0 — modularização gradual da API em routers por domínio. Cada router preserva
 # EXATAMENTE os paths/métodos/respostas originais (ver tests/contract/test_openapi_contract.py).
@@ -76,9 +102,23 @@ def _bootstrap_admin_on_startup() -> None:
     except Exception as exc:  # pragma: no cover - resiliência de startup
         log.warning("bootstrap admin ignorado: %s", type(exc).__name__)
 
+ANALYSIS_DOMAINS = ("documental", "juridico", "financeiro", "mercado", "checklist")
+
+
 class AnalyzeRequest(BaseModel):
-    domains: list[str] | None = None
-    query: str = ""
+    domains: list[str] | None = Field(default=None, max_length=len(ANALYSIS_DOMAINS))
+    query: str = Field(default="", max_length=500)
+
+
+def _normalize_domains(domains: list[str] | None) -> list[str]:
+    """Domínios de análise válidos, sem duplicatas (ordem preservada). Valor inválido => 422:
+    evita disparar chamadas LLM por nomes inesperados e limita o custo por requisição."""
+    if not domains:
+        return list(ANALYSIS_DOMAINS)
+    unknown = [d for d in domains if d not in ANALYSIS_DOMAINS]
+    if unknown:
+        raise HTTPException(422, f"Domínio de análise inválido. Use: {', '.join(ANALYSIS_DOMAINS)}.")
+    return list(dict.fromkeys(domains))
 
 
 @app.get("/api/imoveis")
@@ -412,7 +452,7 @@ def update_notice(property_id: int, notice_id: int, data: schemas.AuctionNoticeU
     db.commit(); db.refresh(item)
     return {"edital": item, "evento_id": event.id}
 
-@app.post("/api/imoveis/{property_id}/documentos/{document_version_id}/extrair")
+@app.post("/api/imoveis/{property_id}/documentos/{document_version_id}/extrair", dependencies=[Depends(operation_lock("extrair", "property_id", "document_version_id"))])
 def extract_document_endpoint(property_id: int, document_version_id: int, data: schemas.DocumentExtractionRequest, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     try:
@@ -438,7 +478,7 @@ def get_document_extraction(property_id: int, document_version_id: int, db: Sess
     evidence = db.scalars(select(models.Evidence).where(models.Evidence.property_id == property_id, models.Evidence.document_version_id == document_version_id).order_by(models.Evidence.created_at)).all()
     return {"property_id": prop.id, "document_version_id": document_version_id, "matriculas": registrations, "editais": notices, "evidencias": evidence}
 
-@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/documental")
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/documental", dependencies=[Depends(operation_lock("agente-documental", "property_id", "analysis_id"))])
 def run_document_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     analysis = db.get(models.Analysis, analysis_id)
@@ -460,7 +500,7 @@ def run_document_agent(property_id: int, analysis_id: int, db: Session = Depends
     db.commit()
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "documental", "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
-@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/juridico")
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/juridico", dependencies=[Depends(operation_lock("agente-juridico", "property_id", "analysis_id"))])
 def run_legal_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     analysis = db.get(models.Analysis, analysis_id)
@@ -487,7 +527,7 @@ def run_legal_agent(property_id: int, analysis_id: int, db: Session = Depends(ge
     db.commit()
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "juridico", "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
-@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/financeiro")
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/financeiro", dependencies=[Depends(operation_lock("agente-financeiro", "property_id", "analysis_id"))])
 def run_financial_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     analysis = db.get(models.Analysis, analysis_id)
@@ -522,7 +562,7 @@ def run_financial_agent(property_id: int, analysis_id: int, db: Session = Depend
     db.commit()
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "financeiro", "financial_analysis_id": financial_record.id, "financeiro": serialize(current), "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
-@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/mercado")
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/mercado", dependencies=[Depends(operation_lock("agente-mercado", "property_id", "analysis_id"))])
 def run_market_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     analysis = db.get(models.Analysis, analysis_id)
@@ -551,7 +591,7 @@ def run_market_agent(property_id: int, analysis_id: int, db: Session = Depends(g
     db.commit()
     return {"status": "CONCLUIDO", "analysis_id": analysis_id, "agente": "mercado", "mercado": serialize(current), "findings": result.facts, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "chunks_recuperados": retrieval.chunk_ids}
 
-@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/checklist")
+@app.post("/api/imoveis/{property_id}/analises/{analysis_id}/agents/checklist", dependencies=[Depends(operation_lock("agente-checklist", "property_id", "analysis_id"))])
 def run_checklist_agent(property_id: int, analysis_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     analysis = db.get(models.Analysis, analysis_id)
@@ -912,7 +952,7 @@ class JudicialConsultRequest(BaseModel):
     justice_types: list[str] | None = None
 
 
-@app.post("/api/imoveis/{property_id}/processos/consultar")
+@app.post("/api/imoveis/{property_id}/processos/consultar", dependencies=[Depends(operation_lock("consulta-judicial", "property_id"))])
 def consult_judicial(property_id: int, request: JudicialConsultRequest | None = None, db: Session = Depends(get_db)):
     """Consulta a Judicial API (DataJud) e persiste processos/sinais no imóvel.
 
@@ -947,7 +987,7 @@ def consult_judicial(property_id: int, request: JudicialConsultRequest | None = 
     except JudicialApiError as exc:
         db.rollback()
         log.warning("consulta judicial rejeitada: property_id=%s erro=%s", property_id, str(exc)[:200])
-        raise HTTPException(502, f"Falha ao consultar a Judicial API: {str(exc)[:300]}") from exc
+        public_error(502, "Falha ao consultar a Judicial API. Tente novamente mais tarde.", exc, context=f"consultar-judicial property_id={property_id}")
 
     db.commit()
     log.info("consulta judicial concluida: property_id=%s status=%s criados=%d atualizados=%d sinais=%d",
@@ -1031,21 +1071,27 @@ def document_snapshot(document: models.Document) -> dict:
 
 
 async def process_document_upload(document: models.Document, file: UploadFile, db: Session):
+    # Validação ANTES de tocar no pipeline/storage: tamanho (lido em partes), vazio, nome
+    # seguro, MIME e assinatura real do conteúdo. Rejeições (400/413/415) não deixam
+    # registro persistido: a exceção sai antes de qualquer commit.
+    content = await read_limited(file)
+    safe_name = validate_upload(file.filename, getattr(file, "content_type", None), content)
     try:
-        content = await file.read()
         log.info("upload de documento: document_id=%s property_id=%s tipo=%s arquivo=%r bytes=%d",
-                 document.id, document.property_id, document.document_type, file.filename, len(content))
-        version = DocumentPipeline(db).ingest(document, content, file.filename or "documento")
+                 document.id, document.property_id, document.document_type, safe_name, len(content))
+        version = DocumentPipeline(db).ingest(document, content, safe_name)
         log.info("upload processado: document_id=%s version=%s status=%s", document.id, version.version, version.status)
         return version
     except ValueError as exc:
         document.status = "ERRO"; db.commit()
         log.warning("upload rejeitado (validacao): document_id=%s erro=%s", document.id, sanitize_error(str(exc)))
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(400, "Documento inválido ou em formato não suportado.") from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         document.status = "ERRO"; db.commit()
         log.exception("falha ao processar documento: document_id=%s tipo=%s", document.id, type(exc).__name__)
-        raise HTTPException(422, f"Falha ao processar documento: {exc}") from exc
+        public_error(422, "Não foi possível processar o documento. Verifique se o arquivo não está protegido ou corrompido.", exc, context=f"upload document_id={document.id}")
 
 
 @app.post("/api/imoveis/{property_id}/documentos")
@@ -1117,11 +1163,11 @@ def link_evidence(property_id: int, evidence_id: int, data: schemas.EvidenceLink
     record_history(db, prop, "EvidenceLink", link.id, "CREATE", None, payload, event.id, evidence_id)
     db.commit(); db.refresh(link); return link
 
-@app.post("/api/imoveis/{property_id}/analisar")
+@app.post("/api/imoveis/{property_id}/analisar", dependencies=[Depends(operation_lock("analise", "property_id", message="Já existe uma análise em andamento para este imóvel. Aguarde a conclusão."))])
 def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     request = request or AnalyzeRequest()
-    domains = request.domains or ["documental", "juridico", "financeiro", "mercado", "checklist"]
+    domains = _normalize_domains(request.domains)
     analysis = create_analysis(db, prop, ",".join(domains), domains, [], f"Domínios afetados: {', '.join(domains)}", [])
     execution = create_execution(db, prop, "REANALISE_INCREMENTAL", analysis.version)
     log.info("analise iniciada: property_id=%s versao=%s dominios=%s", property_id, analysis.version, domains)
@@ -1130,7 +1176,7 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     except Exception as exc:
         db.rollback()
         log.exception("analise falhou na orquestracao: property_id=%s versao=%s tipo=%s", property_id, analysis.version, type(exc).__name__)
-        raise HTTPException(502, f"Falha na orquestração da análise: {str(exc)[:500]}") from exc
+        public_error(502, "Não foi possível concluir a análise agora. Tente novamente em instantes.", exc, context=f"analisar property_id={property_id}")
     agents = [item["agent"] for item in orchestration.get("agent_results", [])]
     analysis.agents_executed = agents
     analysis.model = orchestration.get("model")
@@ -1155,7 +1201,7 @@ def history(property_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id); return {"eventos": db.scalars(select(models.DomainEvent).where(models.DomainEvent.property_id == property_id).order_by(models.DomainEvent.created_at.desc())).all(), "alteracoes": db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id).order_by(models.EntityHistory.created_at.desc())).all(), "analises": db.scalars(select(models.Analysis).where(models.Analysis.property_id == property_id).order_by(models.Analysis.version.desc())).all()}
 
 
-@app.post("/api/imoveis/{property_id}/eventos/{event_id}/reanalisar")
+@app.post("/api/imoveis/{property_id}/eventos/{event_id}/reanalisar", dependencies=[Depends(operation_lock("analise", "property_id", message="Já existe uma análise em andamento para este imóvel. Aguarde a conclusão."))])
 def reanalyze_from_event(property_id: int, event_id: int, db: Session = Depends(get_db)):
     """Gatilho operacional da reanálise incremental.
 
@@ -1172,7 +1218,7 @@ def reanalyze_from_event(property_id: int, event_id: int, db: Session = Depends(
         result = IncrementalAnalysisService(db).run_for_event(event)
     except Exception as exc:
         log.exception("reanalise incremental falhou: property_id=%s event_id=%s tipo=%s", property_id, event_id, type(exc).__name__)
-        raise HTTPException(502, f"Falha na reanálise incremental: {str(exc)[:500]}") from exc
+        public_error(502, "Não foi possível concluir a reanálise agora. Tente novamente em instantes.", exc, context=f"reanalisar property_id={property_id} event_id={event_id}")
     log.info("reanalise incremental concluida: property_id=%s event_id=%s status=%s analise_executada=%s versao=%s",
              property_id, event_id, result.get("status"), result.get("analise_executada"), result.get("versao"))
     return result
@@ -1987,7 +2033,7 @@ def geocode_location(property_id: int, data: schemas.GeocodeRequest | None = Non
                 "mensagem": "Geocodificação indisponível no momento; a análise não foi interrompida.",
                 "localizacao": serialize(location_out(db, prop))}
     except GeocodingError as exc:
-        raise HTTPException(502, f"Falha ao geocodificar: {str(exc)[:200]}") from exc
+        public_error(502, "Falha ao geocodificar o endereço. Confira o endereço ou tente mais tarde.", exc, context=f"geocodificar property_id={property_id}")
     if not result.found:
         upsert_due_diligence_front(db, prop, "LOCALIZACAO", status="SEM_OCORRENCIA", source="Google Maps", mode="AUTOMATICO",
                                    pendencias=["Endereço não geocodificado (ZERO_RESULTS); confirme/ajuste o endereço."], consulted=True)
