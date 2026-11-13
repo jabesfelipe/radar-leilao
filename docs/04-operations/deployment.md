@@ -86,7 +86,7 @@ não devem ser usados na VPS gerenciada por tags.
 
 ## 8. Release com a migration 0024 (hardening de segurança)
 
-A versão com o hardening inclui a migration `0024_analysis_version_unique` (índice único de análise por imóvel, oportunidade e versão). O deploy por tag já faz backup antes de migrar. A migration é idempotente, não altera dados e **aborta com mensagem clara** se houver análises duplicadas (o que não ocorre num banco sem análises).
+A versão com o hardening inclui a migration `0024_analysis_version_unique` (índice único de análise por imóvel, oportunidade e versão). O deploy por tag já faz backup antes de migrar. A migration é idempotente, não altera dados e **aborta com mensagem clara** se houver análises duplicadas (o que não ocorre num banco sem análises). Também **aborta** se já existir, no schema da tabela `analyses`, um índice chamado `uq_analysis_property_opp_version` que não seja exatamente o esperado (único, não parcial, `(property_id, COALESCE(opportunity_id, 0), version)`, em `analyses`); homônimos em outros schemas são ignorados, e o downgrade remove somente o índice esperado, com o schema qualificado. Em banco novo o índice não existe ao chegar na 0024 (a 0001 o perde ao remover `analyses.opportunity_id`), então é a 0024 que o cria.
 
 ### Rollback desta release (ordem obrigatória)
 

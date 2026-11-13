@@ -131,8 +131,17 @@ Configuração em `backend/app/config.py` e repassada ao backend e ao worker em 
 | `LLM_MAX_RETRIES` | 1 | pior caso de uma chamada: (1 + retries) x timeout = 180 s, abaixo do `proxy_read_timeout` (300 s) |
 | `LLM_MAX_OUTPUT_TOKENS` | sem limite | opcional; não é repassada pelo compose (valor vazio quebraria a leitura) |
 | `WORKER_MAX_ATTEMPTS` | 5 | agora repassada ao worker; inclui tentativas interrompidas por crash |
-| `WORKER_LEASE_SECONDS` | 600 | só o worker; prazo após o qual uma tentativa sem conclusão é tratada como interrompida |
+| `WORKER_LEASE_SECONDS` | 600 | só o worker; prazo após o qual uma tentativa sem conclusão é tratada como interrompida. Dimensionamento abaixo |
 | `RATE_LIMIT_SEARCH_PER_MINUTE` | 30 | só o backend; limite da busca jurídica (ver seção 4) |
+
+**Dimensionamento do lease.** O lease não é o mutex (quem impede a execução simultânea é o lock de linha); ele só define em quanto tempo uma tentativa sem conclusão passa a contar como interrompida. Regra:
+
+```
+WORKER_LEASE_SECONDS >= lotes x ((1 + LLM_MAX_RETRIES) x LLM_TIMEOUT_SECONDS + 10) + 60
+lotes = ceil(chunks da versão / 1000)      # o cliente de embeddings envia até 1000 textos por chamada
+```
+
+Com os padrões (timeout 90 s, 1 retry) cada lote custa até ~190 s no pior caso: 600 s cobre 2 lotes lentos (~2000 chunks) e 900 s cobre 4. Um erro em qualquer lote aborta a versão, então o pior caso longo só ocorre com a API lenta mas respondendo. Valor acima do necessário só atrasa a recuperação de um crash; valor abaixo apenas faz a versão aparecer como elegível enquanto um worker vivo a processa (o lock de linha impede duplicidade e a recuperação a ignora). O default de 600 s foi mantido; `chunk_size` do cliente de embeddings não foi alterado.
 
 Falhas do provider são classificadas (`AUTENTICACAO`, `RATE_LIMIT`, `TIMEOUT`, `CONEXAO`, `REQUISICAO_INVALIDA`, `PROVEDOR`, `DESCONHECIDO`) em `LLMCall.error_category`, registradas em log e sanitizadas. No worker, erros **transitórios** (credencial, rate limit, timeout, rede, provedor) não consomem as 5 tentativas (`WORKER_MAX_ATTEMPTS`) e aplicam backoff exponencial (60 s até 15 min); o motivo fica em `extraction_metadata.embedding_last_error`. Se o **processo morrer** no meio de uma versão, a tentativa já foi gravada antes do trabalho (ver seção 8): ela conta, recebe o mesmo backoff e, ao atingir o limite, a versão sai da fila com status `ERRO`. Prompts e regras de análise **não** foram alterados. Embeddings continuam fora de `llm_runs` (pendência P2).
 
@@ -141,7 +150,7 @@ Falhas do provider são classificadas (`AUTENTICACAO`, `RATE_LIMIT`, `TIMEOUT`, 
 | Risco | Tratamento |
 |---|---|
 | Duas análises/reanálises do mesmo imóvel ao mesmo tempo | advisory lock de transação `analise:{imóvel}` → 2ª requisição recebe **409** |
-| Mesma versão de análise calculada duas vezes | índice único `uq_analysis_property_opp_version` em `(property_id, COALESCE(opportunity_id,0), version)` (migration **0024**); a migration aborta, sem apagar nada, se existirem duplicatas |
+| Mesma versão de análise calculada duas vezes | índice único `uq_analysis_property_opp_version` em `(property_id, COALESCE(opportunity_id,0), version)` (migration **0024**); a migration aborta, sem apagar nada, se existirem duplicatas ou se houver, no schema de `analyses`, um índice homônimo diferente do esperado |
 | Dois cliques no mesmo agente / extração / consulta judicial | locks `agente-*`, `extrair`, `consulta-judicial` → 409 |
 | Worker e reprocesso processando a mesma versão (embeddings e custo duplicados) | `SELECT ... FOR UPDATE SKIP LOCKED` na versão; quem encontra a linha travada a ignora |
 | Duas varreduras manuais simultâneas | lock de sessão numa conexão dedicada; a segunda sai sem fazer nada |
@@ -149,6 +158,7 @@ Falhas do provider são classificadas (`AUTENTICACAO`, `RATE_LIMIT`, `TIMEOUT`, 
 | Seed do checklist concorrente (HTTP 500 por violação de unicidade) | `INSERT ... ON CONFLICT DO NOTHING` |
 | Seed da Central Jurídica concorrente (primeira leitura; HTTP 500 por violação de unicidade) | catálogo completo => caminho rápido sem escrita nem lock; incompleto => `pg_advisory_xact_lock` bloqueante serializa os seeders e quem espera reavalia e não cria nada. Só cria o que falta, nunca altera dados existentes, nunca gera embedding (`embed=False`) |
 | Worker morre no meio da versão (rollback desfazia o contador; reprocesso infinito) | a tentativa e um lease (`embedding_lease_until`) são gravados com **commit antes** de chamar o provider; lease vencido e linha livre => `INTERROMPIDO` (motivo em `embedding_last_error`, `embedding_interruptions`, backoff 60 s a 15 min); ao atingir `WORKER_MAX_ATTEMPTS` => status `ERRO`, fora da fila. Chunks e vetores permanecem; nada é marcado como indexado |
+| Outro executor segura a linha entre a gravação da tentativa e o início do processamento (tentativa gasta sem processar) | o lease guarda o dono (`embedding_lease_owner`); a etapa 2 re-adquire o lock de forma **bloqueante com `lock_timeout` (5 s)** e reavalia o lease. Lock não obtido: a tentativa é devolvida, mas só se o lease ainda for desta execução (se nem a devolução obtiver o lock, o lease vence e a tentativa conta uma única vez como interrompida). Lease de outra execução: nada é alterado. Nada a processar: a tentativa não é consumida |
 
 **Seeds executados por GET.** `GET /api/checklist` e os GETs da Central Jurídica inicializam seus dados na primeira leitura. Avaliada a separação "inicialização x leitura" (migration, comando de seed ou seed no startup): ela mudaria o fluxo de implantação e os testes que dependem da inicialização preguiçosa, sem ganho de segurança depois que o seed passou a ser idempotente e serializado. Decisão: manter a inicialização preguiçosa, agora segura sob concorrência; o caminho comum (catálogo completo) não escreve nada.
 

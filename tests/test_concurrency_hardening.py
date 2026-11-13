@@ -472,3 +472,223 @@ def test_falha_comum_continua_registrando_motivo_e_encerrando_o_lease(postgres_e
     meta, status = _meta_db(postgres_engine, versao_pendente.ver)
     assert out["status"] == states.ERRO == status and meta["embedding_attempts"] == 1
     assert "SEGREDO999" not in meta["embedding_last_error"] and "embedding_lease_until" not in meta
+
+
+# ------------------------------------------------------------------ worker: corrida entre as etapas 1 e 2, lock e dono do lease
+
+def _com_chave(monkeypatch):
+    monkeypatch.setattr(settings, "openai_api_key", "sk-teste-nao-real", raising=False)
+
+
+def _provider_falso(monkeypatch, retorno=None):
+    chamadas: list[int] = []
+    monkeypatch.setattr(worker, "embed_pending_chunks", lambda db, vid: chamadas.append(vid) or (retorno if retorno is not None else {}))
+    return chamadas
+
+
+def _travar_linha(session, ver_id):
+    session.execute(select(models.DocumentVersion.id).where(models.DocumentVersion.id == ver_id).with_for_update())
+
+
+def test_corrida_entre_etapa_1_e_2_espera_o_lock_e_processa_sem_gastar_tentativa_em_vao(postgres_engine, versao_pendente, monkeypatch, aguardar_bloqueio):
+    """Outro executor segura a linha logo depois do commit da etapa 1. A etapa 2 deve ESPERAR (e não
+    desistir com a tentativa consumida): ao liberar, processa. Uma tentativa, uma chamada ao provider."""
+    _com_chave(monkeypatch)
+    chamadas = _provider_falso(monkeypatch)
+    w1, outro = Session(postgres_engine), Session(postgres_engine)
+    pid_w1 = w1.execute(text("SELECT pg_backend_pid()")).scalar()
+    esperou: list[bool] = []
+    threads: list[threading.Thread] = []
+    commit_original = w1.commit
+
+    def commit_e_outro_segura_a_linha():
+        commit_original()                                   # fim da etapa 1 (tentativa + lease gravados)
+        _travar_linha(outro, versao_pendente.ver)           # o outro executor passa a segurar a linha
+
+        def liberar():
+            esperou.append(aguardar_bloqueio(pid_w1))       # só libera quando W1 estiver de fato bloqueada
+            outro.rollback()
+        t = threading.Thread(target=liberar); t.start(); threads.append(t)
+
+    w1.commit = commit_e_outro_segura_a_linha
+    try:
+        out = worker.process_version(w1, versao_pendente.ver)
+        w1.commit = commit_original
+        commit_original()
+        [t.join(timeout=15) for t in threads]
+    finally:
+        w1.commit = commit_original
+        w1.rollback(); outro.rollback(); w1.close(); outro.close()
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert esperou == [True], "a etapa 2 deveria ter ficado bloqueada esperando o lock"
+    assert chamadas == [versao_pendente.ver] and out["status"] != "EM_PROCESSAMENTO"
+    assert meta["embedding_attempts"] == 1 and "embedding_lease_until" not in meta and "embedding_lease_owner" not in meta
+    assert status == states.AGUARDANDO_EMBEDDING            # chunks ainda sem vetor (provider falso): segue na fila
+
+
+def test_timeout_do_lock_mantem_estado_consistente_e_a_tentativa_so_conta_uma_vez(postgres_engine, versao_pendente, relogio, monkeypatch):
+    """Lock indisponível durante TODA a chamada (nem a devolução consegue o lock): nada é processado,
+    o estado fica consistente (tentativa + lease ativo do dono) e o vencimento do lease a contabiliza UMA vez."""
+    _com_chave(monkeypatch)
+    chamadas = _provider_falso(monkeypatch)
+    monkeypatch.setattr(worker, "_pending_ids", lambda db: [versao_pendente.ver])
+    w1, outro = Session(postgres_engine), Session(postgres_engine)
+    commit_original = w1.commit
+
+    def commit_e_outro_segura_a_linha():
+        commit_original()
+        _travar_linha(outro, versao_pendente.ver)
+
+    w1.commit = commit_e_outro_segura_a_linha
+    try:
+        inicio = time.monotonic()
+        out = worker.process_version(w1, versao_pendente.ver, lease_seconds=30, lock_timeout_ms=200)
+        decorrido = time.monotonic() - inicio
+    finally:
+        w1.commit = commit_original
+        w1.rollback(); outro.rollback(); w1.close(); outro.close()
+    assert out["status"] == "EM_PROCESSAMENTO" and "lock indisponível" in out["motivo"]
+    assert chamadas == [] and decorrido < 5, "o lock_timeout deve impedir espera indefinida"
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert meta["embedding_attempts"] == 1 and meta["embedding_lease_until"] == relogio.t + 30 and meta["embedding_lease_owner"]
+    assert status == states.PROCESSANDO_EMBEDDING
+
+    relogio.t += 31                                          # lease vence: a tentativa é tratada como interrompida
+    with Session(postgres_engine) as db:
+        assert worker.recover_interrupted(db) == [versao_pendente.ver]
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert meta["embedding_attempts"] == 1 and meta["embedding_interruptions"] == 1 and "embedding_lease_owner" not in meta
+    assert status == states.AGUARDANDO_EMBEDDING
+
+
+def test_lock_demora_mas_vem_depois_do_primeiro_timeout_a_tentativa_e_devolvida_sem_processar(postgres_engine, versao_pendente, monkeypatch):
+    """Primeiro re-claim estoura o lock_timeout; ao tentar devolver, o lock vem: a tentativa dessa execução é
+    devolvida (attempts volta ao valor anterior, lease encerrado) e o provider NÃO é chamado."""
+    _com_chave(monkeypatch)
+    chamadas = _provider_falso(monkeypatch)
+    real = worker._claim_row_blocking
+    estado = {"n": 0}
+
+    def claim_com_primeiro_timeout(db, vid, ms):
+        estado["n"] += 1
+        if estado["n"] == 1:
+            raise worker.LockUnavailable("simulado")
+        return real(db, vid, ms)
+
+    monkeypatch.setattr(worker, "_claim_row_blocking", claim_com_primeiro_timeout)
+    with Session(postgres_engine) as db:
+        out = worker.process_version(db, versao_pendente.ver)
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert out["status"] == "EM_PROCESSAMENTO" and "devolvida" in out["motivo"] and chamadas == []
+    assert meta.get("embedding_attempts", 0) == 0 and "embedding_lease_until" not in meta and "embedding_lease_owner" not in meta
+    assert status == states.AGUARDANDO_EMBEDDING
+
+
+def test_lease_de_outra_execucao_nao_e_limpo_nem_a_tentativa_devolvida(postgres_engine, versao_pendente, monkeypatch):
+    """Entre as etapas 1 e 2 o lease passa a ser de outra execução: esta não processa e não mexe em nada."""
+    _com_chave(monkeypatch)
+    chamadas = _provider_falso(monkeypatch)
+    w1 = Session(postgres_engine)
+    commit_original = w1.commit
+
+    def commit_e_outra_execucao_assume():
+        commit_original()
+        with Session(postgres_engine) as outra:
+            ver = outra.get(models.DocumentVersion, versao_pendente.ver)
+            meta = dict(ver.extraction_metadata or {})
+            meta.update({"embedding_lease_owner": "outra-execucao", "embedding_attempts": 2})
+            ver.extraction_metadata = meta
+            outra.commit()
+
+    w1.commit = commit_e_outra_execucao_assume
+    try:
+        out = worker.process_version(w1, versao_pendente.ver)
+    finally:
+        w1.commit = commit_original
+        w1.rollback(); w1.close()
+    meta, _ = _meta_db(postgres_engine, versao_pendente.ver)
+    assert out["status"] == "EM_PROCESSAMENTO" and "outra execução" in out["motivo"] and chamadas == []
+    assert meta["embedding_lease_owner"] == "outra-execucao" and meta["embedding_attempts"] == 2 and "embedding_lease_until" in meta
+
+
+def test_worker_concorrente_segurando_o_lock_nao_consome_tentativa(postgres_engine, versao_pendente, monkeypatch):
+    _com_chave(monkeypatch)
+    chamadas = _provider_falso(monkeypatch)
+    vivo, outro = Session(postgres_engine), Session(postgres_engine)
+    try:
+        _travar_linha(vivo, versao_pendente.ver)                        # worker vivo dentro do processamento
+        out = worker.process_version(outro, versao_pendente.ver)
+        vivo.rollback()
+    finally:
+        vivo.rollback(); outro.rollback(); vivo.close(); outro.close()
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert out["status"] == "EM_PROCESSAMENTO" and chamadas == []
+    assert meta.get("embedding_attempts", 0) == 0 and "embedding_lease_until" not in meta
+    assert status != states.PROCESSANDO_EMBEDDING
+
+
+def test_lease_vencido_com_worker_ainda_vivo_nao_e_recuperado_nem_reprocessado_nem_consome_tentativa(postgres_engine, versao_pendente, relogio, monkeypatch):
+    _com_chave(monkeypatch)
+    chamadas = _provider_falso(monkeypatch)
+    monkeypatch.setattr(worker, "_pending_ids", lambda db: [versao_pendente.ver])
+    with Session(postgres_engine) as s:
+        ver = s.get(models.DocumentVersion, versao_pendente.ver)
+        ver.extraction_metadata = {"embedding_attempts": 1, "embedding_lease_until": relogio.t - 5, "embedding_lease_owner": "worker-vivo"}
+        s.commit()
+    antes, _ = _meta_db(postgres_engine, versao_pendente.ver)
+    vivo, outro = Session(postgres_engine), Session(postgres_engine)
+    try:
+        _travar_linha(vivo, versao_pendente.ver)                        # ainda processando, embora o lease tenha vencido
+        assert versao_pendente.ver in worker.pending_versions(outro)    # aparece como elegível...
+        assert worker.recover_interrupted(outro) == []                  # ...mas não é "recuperada"
+        out = worker.process_version(outro, versao_pendente.ver)        # ...nem reprocessada
+        vivo.rollback()
+    finally:
+        vivo.rollback(); outro.rollback(); vivo.close(); outro.close()
+    depois, _ = _meta_db(postgres_engine, versao_pendente.ver)
+    assert out["status"] == "EM_PROCESSAMENTO" and chamadas == []
+    assert depois == antes, "nada pode ser alterado enquanto o worker vivo segura a linha"
+
+
+def test_duas_execucoes_simultaneas_da_mesma_versao_processam_uma_unica_vez(postgres_engine, versao_pendente, monkeypatch):
+    _com_chave(monkeypatch)
+    entrou, liberar = threading.Event(), threading.Event()
+    chamadas: list[int] = []
+
+    def embed_lento(db, vid):
+        chamadas.append(vid)
+        entrou.set()
+        assert liberar.wait(timeout=20)
+        return {}
+
+    monkeypatch.setattr(worker, "embed_pending_chunks", embed_lento)
+    resultado: dict = {}
+
+    def w1():
+        with Session(postgres_engine) as db:
+            resultado["w1"] = worker.process_version(db, versao_pendente.ver)
+            db.commit()
+
+    t = threading.Thread(target=w1); t.start()
+    try:
+        assert entrou.wait(timeout=20), "W1 deveria ter entrado no processamento"
+        with Session(postgres_engine) as db2:
+            resultado["w2"] = worker.process_version(db2, versao_pendente.ver)     # W1 está no meio do embedding
+            db2.commit()
+    finally:
+        liberar.set(); t.join(timeout=20)
+    meta, _ = _meta_db(postgres_engine, versao_pendente.ver)
+    assert resultado["w2"]["status"] == "EM_PROCESSAMENTO"
+    assert resultado["w1"]["status"] != "EM_PROCESSAMENTO"
+    assert chamadas == [versao_pendente.ver], "o provider só pode ser chamado uma vez"
+    assert meta["embedding_attempts"] == 1 and "embedding_lease_until" not in meta
+
+
+def test_nada_a_processar_nao_consome_tentativa(postgres_engine, versao_pendente, monkeypatch):
+    _com_chave(monkeypatch)
+    chamadas = _provider_falso(monkeypatch, retorno={"embeddings_pendentes": 0})
+    with Session(postgres_engine) as db:
+        worker.process_version(db, versao_pendente.ver)
+        db.commit()
+    meta, _ = _meta_db(postgres_engine, versao_pendente.ver)
+    assert chamadas == [versao_pendente.ver] and meta["embedding_attempts"] == 0

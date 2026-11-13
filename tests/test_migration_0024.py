@@ -14,6 +14,10 @@ idempotência e downgrade.
 from __future__ import annotations
 
 import importlib.util
+import os
+import subprocess
+import sys
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -21,7 +25,7 @@ import alembic.op as alembic_op
 import pytest
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 
 from backend.app import models
@@ -49,7 +53,16 @@ def _analysis(conn, property_id, opportunity_id, version) -> int:
 
 
 def _index_def(conn) -> str | None:
-    return conn.execute(text("SELECT indexdef FROM pg_indexes WHERE tablename = 'analyses' AND indexname = :n"), {"n": INDEX}).scalar()
+    """Definição do índice ``INDEX`` SOMENTE se ele pertencer à tabela ``analyses`` (a do search_path)."""
+    return conn.execute(text(
+        "SELECT pg_get_indexdef(i.indexrelid) FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid "
+        "WHERE c.relname = :n AND i.indrelid = to_regclass('analyses')"), {"n": INDEX}).scalar()
+
+
+def _indexes_named(conn) -> list[tuple]:
+    """Todos os índices com o nome ``INDEX``, em qualquer schema/tabela."""
+    return [tuple(r) for r in conn.execute(text(
+        "SELECT schemaname, tablename, indexdef FROM pg_indexes WHERE indexname = :n ORDER BY schemaname, tablename"), {"n": INDEX})]
 
 
 def _rows(conn) -> list[tuple]:
@@ -195,7 +208,7 @@ def test_upgrade_e_idempotente(mig):
     _seed_representativo(mig.conn)
     mig.m.upgrade()
     definicao, schema, linhas = _index_def(mig.conn), _schema(mig.conn), _rows(mig.conn)
-    mig.m.upgrade()      # índice já existe (ex.: banco criado pela 0001 com os modelos atuais): no-op
+    mig.m.upgrade()      # índice correto já existe (reaplicação, ou criado à mão): no-op
     mig.m.upgrade()
     assert _index_def(mig.conn) == definicao and _schema(mig.conn) == schema and _rows(mig.conn) == linhas
 
@@ -216,3 +229,150 @@ def test_downgrade_remove_o_indice_e_preserva_os_dados(mig):
     mig.conn.execute(text("DELETE FROM analyses WHERE id = (SELECT max(id) FROM analyses)"))
     mig.m.upgrade()
     assert _index_def(mig.conn) is not None
+
+
+# ----------------------------------------------------------------------------- validação do índice (homônimos)
+
+CORRETO = f"CREATE UNIQUE INDEX {INDEX} ON analyses (property_id, (COALESCE(opportunity_id, 0)), version)"
+
+
+def test_indice_correto_ja_existente_e_aceito_e_o_downgrade_o_remove(mig):
+    _seed_representativo(mig.conn)
+    mig.conn.exec_driver_sql(CORRETO)                      # criado à mão com a definição esperada
+    definicao, schema, linhas = _index_def(mig.conn), _schema(mig.conn), _rows(mig.conn)
+    mig.m.upgrade()                                        # reconhece como já aplicado
+    assert _index_def(mig.conn) == definicao and _schema(mig.conn) == schema and _rows(mig.conn) == linhas
+    mig.m.downgrade()
+    assert _index_def(mig.conn) is None and _rows(mig.conn) == linhas
+
+
+def test_indice_homonimo_em_outro_schema_nao_e_confundido_com_o_correto(mig):
+    s = _seed_representativo(mig.conn)
+    outro = f"s24_{uuid.uuid4().hex[:8]}"
+    mig.conn.exec_driver_sql(f"CREATE SCHEMA {outro}")
+    mig.conn.exec_driver_sql(f"CREATE TABLE {outro}.alheia (a int, b int)")
+    mig.conn.exec_driver_sql(f"CREATE UNIQUE INDEX {INDEX} ON {outro}.alheia (a)")
+    alheio = (outro, "alheia")
+    assert _index_def(mig.conn) is None                    # nenhum índice em analyses ainda
+
+    mig.m.upgrade()                                        # o homônimo alheio NÃO conta como "já aplicado"
+    assert "COALESCE(opportunity_id, 0)" in _index_def(mig.conn)
+    assert {(r[0], r[1]) for r in _indexes_named(mig.conn)} >= {alheio}   # e continua intacto
+    with pytest.raises(IntegrityError, match=INDEX):
+        with mig.conn.begin_nested():
+            _analysis(mig.conn, s.p1, None, 1)             # o índice correto está de fato ativo
+
+    # downgrade com o schema alheio NA FRENTE do search_path: remove só o índice de analyses
+    mig.conn.exec_driver_sql(f"SET LOCAL search_path = {outro}, public")
+    mig.m.downgrade()
+    mig.conn.exec_driver_sql("SET LOCAL search_path = public")
+    restantes = {(r[0], r[1]) for r in _indexes_named(mig.conn)}
+    assert restantes == {alheio}, f"o downgrade só podia remover o índice de analyses: {restantes}"
+
+
+@pytest.mark.parametrize("ddl,trecho", [
+    (f"CREATE INDEX {INDEX} ON analyses (property_id)", "não é o esperado"),                                # não único
+    (f"CREATE UNIQUE INDEX {INDEX} ON analyses (property_id, opportunity_id, version)", "não é o esperado"),  # sem o COALESCE (NULLs distintos)
+    (f"CREATE UNIQUE INDEX {INDEX} ON analyses (property_id, (COALESCE(opportunity_id, 0)), version) WHERE version > 0", "não é o esperado"),  # parcial
+    (f"CREATE UNIQUE INDEX {INDEX} ON analyses (version, property_id, (COALESCE(opportunity_id, 0)))", "não é o esperado"),                    # ordem errada
+])
+def test_indice_homonimo_com_definicao_incorreta_aborta_e_o_downgrade_o_preserva(mig, ddl, trecho):
+    _seed_representativo(mig.conn)
+    mig.conn.exec_driver_sql(ddl)
+    definicao, schema, linhas, versao = _index_def(mig.conn), _schema(mig.conn), _rows(mig.conn), _alembic_version(mig.conn)
+
+    with pytest.raises(RuntimeError, match="Migration 0024 abortada") as erro:
+        mig.m.upgrade()
+    assert trecho in str(erro.value) and "Nada foi alterado" in str(erro.value) and INDEX in str(erro.value)
+    assert _index_def(mig.conn) == definicao and _schema(mig.conn) == schema        # nada mudou
+    assert _rows(mig.conn) == linhas and _alembic_version(mig.conn) == versao
+
+    mig.m.downgrade()                                      # não remove o que a 0024 não criaria
+    assert _index_def(mig.conn) == definicao
+
+
+def test_indice_homonimo_em_outra_tabela_do_mesmo_schema_aborta_com_erro_claro(mig):
+    _seed_representativo(mig.conn)
+    mig.conn.exec_driver_sql("CREATE TABLE t24_outra (a int)")
+    mig.conn.exec_driver_sql(f"CREATE UNIQUE INDEX {INDEX} ON t24_outra (a)")
+    antes = _indexes_named(mig.conn)
+    with pytest.raises(RuntimeError, match="Migration 0024 abortada") as erro:
+        mig.m.upgrade()
+    assert "t24_outra" in str(erro.value) and _index_def(mig.conn) is None
+    assert _indexes_named(mig.conn) == antes
+    mig.m.downgrade()                                      # o índice da outra tabela é preservado
+    assert _indexes_named(mig.conn) == antes
+
+
+# ----------------------------------------------------------------------------- alembic real: banco novo x banco em 0023
+
+@pytest.fixture
+def banco_descartavel(postgres_engine):
+    """Banco PostgreSQL novo (criado e removido pelo teste), com URL para o alembic."""
+    nome = f"radar_mig24_{uuid.uuid4().hex[:8]}"
+    admin = postgres_engine.execution_options(isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.exec_driver_sql(f"CREATE DATABASE {nome}")
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"sem permissão para criar banco descartável: {exc}")
+    url = postgres_engine.url.set(database=nome)
+    engine = create_engine(url)
+    try:
+        yield SimpleNamespace(engine=engine, url=url.render_as_string(hide_password=False))
+    finally:
+        engine.dispose()
+        with admin.connect() as conn:
+            conn.exec_driver_sql(f"DROP DATABASE IF EXISTS {nome} WITH (FORCE)")
+
+
+def _alembic(url: str, *args: str) -> subprocess.CompletedProcess:
+    root = Path(__file__).resolve().parents[1]
+    env = {**os.environ, "DATABASE_URL": url, "PYTHONPATH": os.pathsep.join(filter(None, [str(root), os.environ.get("PYTHONPATH", "")]))}
+    return subprocess.run([sys.executable, "-m", "alembic", *args], cwd=root / "backend", env=env, capture_output=True, text=True, timeout=240)
+
+
+def test_banco_novo_e_banco_existente_na_0023_com_alembic_real(banco_descartavel):
+    url, engine = banco_descartavel.url, banco_descartavel.engine
+
+    # Banco NOVO até a 0023: o índice não existe (a 0001 o perde ao remover analyses.opportunity_id).
+    r = _alembic(url, "upgrade", "0023_usuarios")
+    assert r.returncode == 0, r.stderr[-800:]
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM pg_indexes WHERE indexname = :n"), {"n": INDEX}).scalar() == 0
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0023_usuarios"
+        # Banco EXISTENTE na 0023, com dados — inclusive uma duplicidade.
+        p = _insert(conn, models.Property, title="Imóvel existente", address="Rua E", city="Santos", state="SP")
+        opp = _insert(conn, models.Opportunity, property_id=p)
+        _analysis(conn, p, None, 1); _analysis(conn, p, None, 2); _analysis(conn, p, opp, 1)
+        duplicada = _analysis(conn, p, None, 1)
+        conn.commit()
+        antes = _rows(conn)
+
+    falha = _alembic(url, "upgrade", "head")      # a 0024 aborta; o alembic reverte a transação inteira
+    assert falha.returncode != 0 and "Migration 0024 abortada" in (falha.stderr + falha.stdout)
+    with engine.connect() as conn:
+        assert _rows(conn) == antes
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0023_usuarios"
+        assert conn.execute(text("SELECT count(*) FROM pg_indexes WHERE indexname = :n"), {"n": INDEX}).scalar() == 0
+        conn.execute(text("DELETE FROM analyses WHERE id = :i"), {"i": duplicada}); conn.commit()
+        sem_duplicata = _rows(conn)
+
+    ok = _alembic(url, "upgrade", "head")
+    assert ok.returncode == 0, ok.stderr[-800:]
+    with engine.connect() as conn:
+        assert _rows(conn) == sem_duplicata                                   # dados preservados
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0024_analysis_version_unique"
+        definicao = _index_def(conn)
+        assert definicao and "UNIQUE" in definicao and "COALESCE(opportunity_id, 0)" in definicao
+
+    volta = _alembic(url, "downgrade", "-1")
+    assert volta.returncode == 0, volta.stderr[-800:]
+    with engine.connect() as conn:
+        assert _index_def(conn) is None and _rows(conn) == sem_duplicata
+        assert conn.execute(text("SELECT version_num FROM alembic_version")).scalar() == "0023_usuarios"
+
+    de_novo = _alembic(url, "upgrade", "head")
+    assert de_novo.returncode == 0, de_novo.stderr[-800:]
+    with engine.connect() as conn:
+        assert _index_def(conn) == definicao
