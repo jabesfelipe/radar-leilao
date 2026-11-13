@@ -106,8 +106,18 @@ ANALYSIS_DOMAINS = ("documental", "juridico", "financeiro", "mercado", "checklis
 
 
 class AnalyzeRequest(BaseModel):
-    domains: list[str] | None = Field(default=None, max_length=len(ANALYSIS_DOMAINS))
-    query: str = Field(default="", max_length=500)
+    """Corpo opcional de ``POST /api/imoveis/{id}/analisar`` (``{}`` ou ausente = análise completa)."""
+    domains: list[str] | None = Field(
+        default=None, max_length=len(ANALYSIS_DOMAINS),
+        description="Domínios a analisar. Valores permitidos: documental, juridico, financeiro, mercado, checklist. "
+                    "No máximo 5 itens (duplicatas são ignoradas). Vazio ou ausente = todos. Valor desconhecido ou mais de 5 itens => 422.",
+        examples=[["juridico", "mercado"]],
+    )
+    query: str = Field(
+        default="", max_length=500,
+        description="Foco opcional da análise (consulta ao RAG). No máximo 500 caracteres; acima disso => 422.",
+        examples=["riscos de ocupação e dívidas condominiais"],
+    )
 
 
 def _normalize_domains(domains: list[str] | None) -> list[str]:
@@ -1163,8 +1173,13 @@ def link_evidence(property_id: int, evidence_id: int, data: schemas.EvidenceLink
     record_history(db, prop, "EvidenceLink", link.id, "CREATE", None, payload, event.id, evidence_id)
     db.commit(); db.refresh(link); return link
 
-@app.post("/api/imoveis/{property_id}/analisar", dependencies=[Depends(operation_lock("analise", "property_id", message="Já existe uma análise em andamento para este imóvel. Aguarde a conclusão."))])
+@app.post("/api/imoveis/{property_id}/analisar", dependencies=[Depends(operation_lock("analise", "property_id", message="Já existe uma análise em andamento para este imóvel. Aguarde a conclusão."))],
+          responses={401: {"description": "Sem autenticação."}, 403: {"description": "Sem a permissão analysis:write."},
+                     404: {"description": "Imóvel não encontrado."}, 409: {"description": "Já existe uma análise em andamento para o imóvel."},
+                     422: {"description": "Corpo inválido: domínio desconhecido, mais de 5 domínios ou query com mais de 500 caracteres."},
+                     429: {"description": "Limite de operações críticas (por minuto ou simultâneas) excedido."}})
 def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session = Depends(get_db)):
+    """Executa uma nova versão de análise (pode acionar LLM). Corpo opcional; veja ``AnalyzeRequest`` para os limites."""
     prop = property_or_404(db, property_id)
     request = request or AnalyzeRequest()
     domains = _normalize_domains(request.domains)

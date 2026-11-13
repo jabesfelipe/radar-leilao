@@ -381,3 +381,104 @@ def test_dominios_de_analise_validados(env):
     assert env.client.post(f"/api/imoveis/{prop.id}/analisar", headers=headers, json={"domains": ["invalido"]}).status_code == 422
     assert env.client.post(f"/api/imoveis/{prop.id}/analisar", headers=headers, json={"query": "x" * 501}).status_code == 422
     assert env.client.post(f"/api/imoveis/{prop.id}/analisar", headers=headers, json={"domains": ["a"] * 6}).status_code == 422
+
+
+def test_limites_do_corpo_de_analisar_nos_extremos(env):
+    """Limites exatos de AnalyzeRequest: 5 domínios e 500 caracteres passam pela validação
+    (imóvel inexistente => 404, que só ocorre depois do corpo válido); acima disso => 422."""
+    headers = _login(env, "ANALISTA")
+    url = "/api/imoveis/987654/analisar"
+    todos = ["documental", "juridico", "financeiro", "mercado", "checklist"]
+    assert env.client.post(url, headers=headers, json={"domains": todos, "query": "x" * 500}).status_code == 404
+    assert env.client.post(url, headers=headers, json={}).status_code == 404
+    assert env.client.post(url, headers=headers, json={"domains": []}).status_code == 404
+    for corpo in ({"domains": todos + ["mercado"]}, {"query": "x" * 501}, {"domains": "juridico"}, {"query": 123}, {"domains": [1]}):
+        resp = env.client.post(url, headers=headers, json=corpo)
+        assert resp.status_code == 422, corpo
+        assert "detail" in resp.json()
+
+
+def test_422_de_analisar_nao_ecoa_o_valor_enviado(env):
+    headers = _login(env, "ANALISTA")
+    segredo = "TRECHO-SENSIVEL-" + "y" * 600
+    resp = env.client.post("/api/imoveis/987654/analisar", headers=headers, json={"query": segredo})
+    assert resp.status_code == 422
+    assert "TRECHO-SENSIVEL" not in resp.text
+
+
+def test_normalizacao_de_dominios_rejeita_desconhecidos_e_remove_duplicatas():
+    from fastapi import HTTPException
+    from backend.app.main import ANALYSIS_DOMAINS, _normalize_domains
+
+    assert _normalize_domains(None) == list(ANALYSIS_DOMAINS) == _normalize_domains([])
+    assert _normalize_domains(["mercado", "juridico", "mercado"]) == ["mercado", "juridico"]
+    with pytest.raises(HTTPException) as erro:
+        _normalize_domains(["juridico", "invalido"])
+    assert erro.value.status_code == 422
+
+
+def test_contrato_openapi_documenta_as_restricoes_de_analisar():
+    esquema = app.openapi()
+    corpo = esquema["components"]["schemas"]["AnalyzeRequest"]["properties"]
+    dominios = next(o for o in corpo["domains"].get("anyOf", [corpo["domains"]]) if o.get("type") == "array")
+    assert dominios["maxItems"] == 5
+    assert corpo["query"]["maxLength"] == 500
+    for campo in ("domains", "query"):
+        assert corpo[campo].get("description") and corpo[campo].get("examples")
+    assert "mercado" in corpo["domains"]["description"] and "422" in corpo["query"]["description"]
+    respostas = esquema["paths"]["/api/imoveis/{property_id}/analisar"]["post"]["responses"]
+    assert {"401", "403", "404", "409", "422", "429"} <= set(respostas)
+    assert "500 caracteres" in respostas["422"]["description"]
+
+
+# --------------------------------------------------------------------------- busca jurídica (embedding pago)
+
+@pytest.fixture
+def embedding_espiao(monkeypatch):
+    """Provider de embedding FALSO que conta chamadas; a chave é fictícia (nenhuma chamada real)."""
+    from backend.app.rag import embeddings as rag_embeddings
+
+    chamadas: list[list[str]] = []
+
+    class _Gateway:
+        def embed(self, textos):
+            chamadas.append(list(textos))
+            return [[0.1] * settings.embedding_dimensions for _ in textos]
+
+    monkeypatch.setattr(settings, "openai_api_key", "sk-teste-nao-real", raising=False)
+    monkeypatch.setattr(rag_embeddings, "build_gateway", lambda: _Gateway())
+    return chamadas
+
+
+def test_busca_juridica_e_classificada_como_leitura_com_bucket_de_busca():
+    politica = security.classify("GET", "/api/juridico/biblioteca/busca")
+    assert politica.permission == "read" and politica.bucket == "search"
+    # as demais leituras da Central Jurídica continuam sem bucket
+    assert security.classify("GET", "/api/juridico/biblioteca").bucket is None
+
+
+def test_busca_juridica_acima_do_limite_nao_chega_ao_provider(env, monkeypatch, embedding_espiao):
+    monkeypatch.setattr(settings, "rate_limit_search_per_minute", 2, raising=False)
+    headers = _login(env, "CONSULTA")  # RBAC: leitura basta
+    codigos = [env.client.get("/api/juridico/biblioteca/busca", params={"q": "alienacao fiduciaria"}, headers=headers).status_code for _ in range(5)]
+    assert codigos == [200, 200, 429, 429, 429]
+    assert len(embedding_espiao) == 2  # só as 2 permitidas geraram embedding
+    limitado = env.client.get("/api/juridico/biblioteca/busca", params={"q": "x"}, headers=headers)
+    assert limitado.status_code == 429 and int(limitado.headers["retry-after"]) >= 1
+    assert len(embedding_espiao) == 2
+
+
+def test_busca_juridica_sem_autenticacao_nao_chega_ao_provider(env, embedding_espiao):
+    assert env.client.get("/api/juridico/biblioteca/busca", params={"q": "leilao"}).status_code == 401
+    assert embedding_espiao == []
+
+
+def test_busca_juridica_limite_e_por_usuario_e_nao_consome_cota_de_analise(env, monkeypatch, embedding_espiao):
+    monkeypatch.setattr(settings, "rate_limit_search_per_minute", 1, raising=False)
+    monkeypatch.setattr(settings, "rate_limit_critical_per_minute", 5, raising=False)
+    a, b = _login(env, "ANALISTA"), _login(env, "CONSULTA")
+    assert env.client.get("/api/juridico/biblioteca/busca", params={"q": "edital"}, headers=a).status_code == 200
+    assert env.client.get("/api/juridico/biblioteca/busca", params={"q": "edital"}, headers=a).status_code == 429
+    assert env.client.get("/api/juridico/biblioteca/busca", params={"q": "edital"}, headers=b).status_code == 200  # outro usuário
+    assert env.client.post("/api/imoveis/987654/analisar", headers=a).status_code == 404  # cota de análise intacta
+    assert len(embedding_espiao) == 2

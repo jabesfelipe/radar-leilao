@@ -11,7 +11,8 @@ portão do proxy. Agora ``security_gate`` é registrada como dependência GLOBAL
    qualquer papel autenticado, escrita exige ``analysis:write`` e operações
    administrativas exigem ``admin:write``;
 4. aplica rate limit e limite de concorrência às operações com potencial de consumo
-   externo (LLM, embeddings, serviços externos) e a uploads.
+   externo (LLM, embeddings, serviços externos), a uploads e à busca da biblioteca jurídica
+   (leitura que gera embedding): o limite é verificado aqui, ANTES do endpoint e do provider.
 
 As dependências por rota já existentes (``require_permission`` etc.) continuam valendo
 como camada ADICIONAL. O cookie do proxy deixa de ser a única autorização de negócio.
@@ -59,6 +60,9 @@ PUBLIC_ROUTES: frozenset[tuple[str, str]] = frozenset({
 
 _CRITICAL = Policy(PERM_ANALYSIS_WRITE, "critical", "operacao-critica")
 _UPLOAD = Policy(PERM_ANALYSIS_WRITE, "upload", "upload")
+# Leitura que pode acionar embedding pago: mesmo mecanismo de rate limit (aplicado no
+# portão, ANTES do endpoint/provider), bucket próprio e permissão apenas ``read``.
+_SEARCH = Policy(PERM_READ, "search", "busca-com-embedding")
 _ADMIN = Policy(PERM_ADMIN_WRITE, None, "administrativa")
 
 # (métodos, regex sobre o TEMPLATE da rota, política). Ordem importa (primeira vence).
@@ -74,6 +78,8 @@ _RULES: tuple[tuple[frozenset[str], re.Pattern[str], Policy], ...] = tuple(
         ({"POST"}, r"^/api/imoveis/\{property_id\}/processos/consultar$", _CRITICAL),
         ({"POST"}, r"^/api/imoveis/\{property_id\}/debitos/consultar$", _CRITICAL),
         ({"POST"}, r"^/api/imoveis/\{property_id\}/localizacao/geocodificar$", _CRITICAL),
+        # --- Busca semântica da biblioteca jurídica (gera embedding da consulta) ---
+        ({"GET"}, r"^/api/juridico/biblioteca/busca$", _SEARCH),
         # --- Upload de documentos (processa, indexa e pode gerar embeddings) ---
         ({"POST"}, r"^/api/imoveis/\{property_id\}/documentos$", _UPLOAD),
         ({"POST"}, r"^/api/documentos/\{document_id\}/versoes$", _UPLOAD),
@@ -203,7 +209,10 @@ def security_gate(request: Request, db: Session = Depends(get_db)):
 
     held: str | None = None
     if policy.bucket:
-        per_minute = settings.rate_limit_upload_per_minute if policy.bucket == "upload" else settings.rate_limit_critical_per_minute
+        per_minute = {
+            "upload": settings.rate_limit_upload_per_minute,
+            "search": settings.rate_limit_search_per_minute,
+        }.get(policy.bucket, settings.rate_limit_critical_per_minute)
         retry = LIMITER.hit(f"{principal}:{policy.bucket}", max(1, per_minute))
         if retry is not None:
             log.warning("rate limit: principal=%s bucket=%s rota=%s", principal, policy.bucket, template)

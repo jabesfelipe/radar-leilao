@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # geocodificar). Valores justificados em docs/03-architecture/security.md.
     rate_limit_critical_per_minute: int = 10
     rate_limit_upload_per_minute: int = 30
+    # Buscas de leitura que podem gerar embedding (ex.: biblioteca jurídica): bucket próprio
+    # para não consumir a cota das análises; permissão continua sendo apenas ``read``.
+    rate_limit_search_per_minute: int = 30
     max_concurrent_critical_per_user: int = 2
     # ---- Upload de documentos ----
     upload_max_mb: int = 30  # < client_max_body_size do nginx (50 MB)

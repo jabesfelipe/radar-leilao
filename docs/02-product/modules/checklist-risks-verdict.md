@@ -17,7 +17,7 @@ Estruturar a verificação do método (checklist), transformar achados em riscos
 Hubs `/checklist`, `/riscos`, `/veredito`, `/historico`; seções homônimas no imóvel.
 
 ## Endpoints
-`/api/checklist` (GET/POST, `/{id}` GET/PATCH, `/{id}/ativar`, `/{id}/desativar`, `/{id}/historico`); `GET /api/imoveis/{id}/checklist` e `/checklist/historico`; `POST /api/imoveis/{id}/analisar`; `POST /api/imoveis/{id}/analises/{aid}/agents/{documental|juridico|financeiro|mercado|checklist}`; hubs `/api/riscos`, `/api/veredito`, `/api/checklist-global`.
+`/api/checklist` (GET/POST, `/{id}` GET/PATCH, `/{id}/ativar`, `/{id}/desativar`, `/{id}/historico`); `GET /api/imoveis/{id}/checklist` e `/checklist/historico`; `POST /api/imoveis/{id}/analisar` (corpo opcional: até 5 `domains` válidos e `query` de até 500 caracteres, senão 422; ver [security.md](../../03-architecture/security.md#contrato-de-post-apiimoveisidanalisar)); `POST /api/imoveis/{id}/analises/{aid}/agents/{documental|juridico|financeiro|mercado|checklist}`; hubs `/api/riscos`, `/api/veredito`, `/api/checklist-global`.
 
 ## Estados
 Checklist: PENDENTE, EM_ANALISE, CONFIRMADO, RISCO_IDENTIFICADO, ATENCAO, NAO_IDENTIFICADO, NAO_APLICAVEL (7). Confiança: BAIXA, MEDIA, ALTA.
