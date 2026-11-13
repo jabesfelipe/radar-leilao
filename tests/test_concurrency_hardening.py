@@ -298,3 +298,176 @@ def test_varredura_manual_nao_executa_se_outra_estiver_em_andamento(postgres_eng
     with postgres_engine.connect() as c:
         assert c.execute(text("SELECT pg_try_advisory_lock(hashtextextended('rag-reprocess', 0))")).scalar()
         c.execute(text("SELECT pg_advisory_unlock(hashtextextended('rag-reprocess', 0))")); c.commit()
+
+
+# ------------------------------------------------------------------ worker: crash, lease e limite de tentativas
+
+class _Relogio:
+    def __init__(self, inicio=1_800_000_000.0):
+        self.t = inicio
+    def __call__(self):
+        return self.t
+
+
+@pytest.fixture
+def relogio(monkeypatch):
+    r = _Relogio()
+    monkeypatch.setattr(worker, "_now", r)
+    return r
+
+
+def _meta_db(postgres_engine, ver_id):
+    with Session(postgres_engine) as s:
+        ver = s.get(models.DocumentVersion, ver_id)
+        return dict(ver.extraction_metadata or {}), ver.status
+
+
+def _chunks_sem_vetor(postgres_engine, ver_id):
+    with Session(postgres_engine) as s:
+        return s.scalar(select(text("count(*)")).select_from(models.DocumentChunk).where(
+            models.DocumentChunk.document_version_id == ver_id, models.DocumentChunk.embedding.is_(None)))
+
+
+def _crash(monkeypatch):
+    """Simula a morte do processo durante o embedding (BaseException não é capturada pelo worker)."""
+    chamadas: list[int] = []
+
+    def embed(db, vid):
+        chamadas.append(vid)
+        raise SystemExit("worker morto (kill/OOM)")
+
+    monkeypatch.setattr(worker, "embed_pending_chunks", embed)
+    monkeypatch.setattr(settings, "openai_api_key", "sk-teste-nao-real", raising=False)
+    return chamadas
+
+
+def test_crash_durante_o_processamento_nao_perde_a_contagem_de_tentativas(postgres_engine, versao_pendente, relogio, monkeypatch):
+    chamadas = _crash(monkeypatch)
+    with Session(postgres_engine) as db:
+        with pytest.raises(SystemExit):
+            worker.process_version(db, versao_pendente.ver, lease_seconds=30)
+        # o processo morreu: a transação de processamento é desfeita (rollback), como no banco real
+        db.rollback()
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert chamadas == [versao_pendente.ver]
+    assert meta["embedding_attempts"] == 1                       # a tentativa sobreviveu ao crash
+    assert meta["embedding_lease_until"] == relogio.t + 30
+    assert status == states.PROCESSANDO_EMBEDDING                # não foi marcada como concluída
+    assert _chunks_sem_vetor(postgres_engine, versao_pendente.ver) == 2   # nenhum chunk perdido
+    with Session(postgres_engine) as s:
+        assert versao_pendente.ver not in worker.pending_versions(s)     # lease ativo: outro worker poderia estar nela
+
+
+def test_worker_reiniciado_repete_com_backoff_e_para_no_limite_de_tentativas(postgres_engine, versao_pendente, relogio, monkeypatch):
+    chamadas = _crash(monkeypatch)
+    monkeypatch.setattr(worker, "_pending_ids", lambda db: [versao_pendente.ver])   # isola a varredura da nossa versão
+    t0 = relogio.t
+
+    def reiniciar_e_varrer(em, esperar_crash):
+        relogio.t = t0 + em
+        with Session(postgres_engine) as db:      # processo novo = sessão nova
+            if esperar_crash:
+                with pytest.raises(SystemExit):
+                    worker.run_once(db, limit=5, max_attempts=3, lease_seconds=10)
+                db.rollback()
+                return None
+            return worker.run_once(db, limit=5, max_attempts=3, lease_seconds=10)
+
+    reiniciar_e_varrer(0, esperar_crash=True)                       # tentativa 1 -> crash
+    assert reiniciar_e_varrer(1, False)["processadas"] == 0         # lease ainda válido: ninguém repete
+    out = reiniciar_e_varrer(11, False)                             # lease expirou: interrupção registrada + backoff
+    assert out["interrompidas"] == [versao_pendente.ver] and out["processadas"] == 0
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert meta["embedding_last_error"].startswith("[INTERROMPIDO]") and meta["embedding_interruptions"] == 1
+    assert meta["embedding_retry_after"] == t0 + 11 + 60 and "embedding_lease_until" not in meta
+    assert status == states.AGUARDANDO_EMBEDDING and meta["embedding_attempts"] == 1
+
+    assert reiniciar_e_varrer(40, False)["processadas"] == 0        # ainda em backoff
+    reiniciar_e_varrer(80, esperar_crash=True)                      # tentativa 2 -> crash
+    assert reiniciar_e_varrer(100, False)["interrompidas"] == [versao_pendente.ver]
+    meta, _ = _meta_db(postgres_engine, versao_pendente.ver)
+    assert meta["embedding_attempts"] == 2 and meta["embedding_interruptions"] == 2
+    assert meta["embedding_retry_after"] == t0 + 100 + 120          # backoff exponencial
+    reiniciar_e_varrer(300, esperar_crash=True)                     # tentativa 3 -> crash
+    out = reiniciar_e_varrer(400, False)                            # limite atingido: sai da fila com ERRO
+    assert out["interrompidas"] == [versao_pendente.ver]
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert status == states.ERRO and meta["embedding_attempts"] == 3
+    assert "limite de 3 tentativas" in meta["embedding_last_error"]
+
+    # Daqui em diante, nenhum reinício volta a processar: sem loop ilimitado.
+    for depois in (10_000, 100_000):
+        assert reiniciar_e_varrer(depois, False)["processadas"] == 0
+    assert len(chamadas) == 3                                       # exatamente WORKER_MAX_ATTEMPTS chamadas
+    assert _chunks_sem_vetor(postgres_engine, versao_pendente.ver) == 2   # documento/trechos preservados, não "concluído"
+    assert status != states.INDEXADO
+
+
+def test_recuperacao_nao_mexe_em_versao_de_worker_vivo(postgres_engine, versao_pendente, relogio, monkeypatch):
+    monkeypatch.setattr(worker, "_pending_ids", lambda db: [versao_pendente.ver])
+    with Session(postgres_engine) as s:
+        ver = s.get(models.DocumentVersion, versao_pendente.ver)
+        ver.extraction_metadata = {"embedding_attempts": 1, "embedding_lease_until": relogio.t - 5}   # lease vencido
+        s.commit()
+    vivo, outro = Session(postgres_engine), Session(postgres_engine)
+    try:
+        vivo.execute(select(models.DocumentVersion.id).where(models.DocumentVersion.id == versao_pendente.ver).with_for_update())  # ainda processando
+        assert worker.recover_interrupted(outro) == []          # linha travada por worker vivo: não é "crash"
+        vivo.rollback()
+        assert worker.recover_interrupted(outro) == [versao_pendente.ver]   # liberada e lease vencido: interrompida
+    finally:
+        vivo.rollback(); outro.rollback(); vivo.close(); outro.close()
+
+
+def test_apos_crash_uma_nova_tentativa_bem_sucedida_conclui_e_limpa_o_historico(postgres_engine, versao_pendente, relogio, monkeypatch):
+    from backend.app.documents import embedding
+    _crash(monkeypatch)
+    monkeypatch.setattr(worker, "_pending_ids", lambda db: [versao_pendente.ver])
+    with Session(postgres_engine) as db:
+        with pytest.raises(SystemExit):
+            worker.run_once(db, lease_seconds=10)
+        db.rollback()
+    relogio.t += 11
+    with Session(postgres_engine) as db:
+        assert worker.run_once(db)["interrompidas"] == [versao_pendente.ver]
+    relogio.t += 61                                              # backoff cumprido
+    monkeypatch.undo()                                           # remove o crash simulado
+    vetor = [0.1] * settings.embedding_dimensions
+    monkeypatch.setattr(worker, "_now", relogio)
+    monkeypatch.setattr(worker, "_pending_ids", lambda db: [versao_pendente.ver])
+    monkeypatch.setattr(settings, "openai_api_key", "sk-teste-nao-real", raising=False)
+    monkeypatch.setattr(embedding, "build_gateway", lambda: SimpleNamespace(embed=lambda textos: [vetor for _ in textos]))
+    with Session(postgres_engine) as db:
+        out = worker.run_once(db)
+        assert out["processadas"] == 1
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert status == states.INDEXADO and meta["embedding_attempts"] == 2
+    for chave in ("embedding_lease_until", "embedding_interruptions", "embedding_last_error", "embedding_retry_after"):
+        assert chave not in meta
+    assert _chunks_sem_vetor(postgres_engine, versao_pendente.ver) == 0
+
+
+def test_sem_chave_nao_conta_tentativa_nem_cria_lease(postgres_engine, versao_pendente, monkeypatch):
+    monkeypatch.setattr(settings, "openai_api_key", None, raising=False)
+    monkeypatch.setattr(settings, "llm_api_key", None, raising=False)
+    with Session(postgres_engine) as db:
+        out = worker.process_version(db, versao_pendente.ver)
+        db.commit()
+    meta, _ = _meta_db(postgres_engine, versao_pendente.ver)
+    assert out["status"] == states.AGUARDANDO_EMBEDDING
+    assert "embedding_attempts" not in meta and "embedding_lease_until" not in meta
+
+
+def test_falha_comum_continua_registrando_motivo_e_encerrando_o_lease(postgres_engine, versao_pendente, relogio, monkeypatch):
+    monkeypatch.setattr(settings, "openai_api_key", "sk-teste-nao-real", raising=False)
+
+    def quebra(db, vid):
+        raise RuntimeError("falha com key=sk-proj-SEGREDO999")
+
+    monkeypatch.setattr(worker, "embed_pending_chunks", quebra)
+    with Session(postgres_engine) as db:
+        out = worker.process_version(db, versao_pendente.ver)
+        db.commit()
+    meta, status = _meta_db(postgres_engine, versao_pendente.ver)
+    assert out["status"] == states.ERRO == status and meta["embedding_attempts"] == 1
+    assert "SEGREDO999" not in meta["embedding_last_error"] and "embedding_lease_until" not in meta
