@@ -105,7 +105,7 @@ erDiagram
   AUCTIONEERS ||--o{ PORTAL_ACCESSES : portais
 ```
 
-São 60 tabelas e 23 migrations (`0001_fundacao_radar` a `0023_usuarios`); o diagrama mostra o núcleo. Ver [data-model.md](data-model.md).
+São 69 tabelas e 24 migrations na branch de hardening (`0001_fundacao_radar` a `0024_analysis_version_unique`; `main` e a produção em `0023_usuarios`); o diagrama mostra o núcleo. Ver [data-model.md](data-model.md).
 
 ## 6. Autenticação e autorização
 
@@ -122,11 +122,11 @@ sequenceDiagram
   N->>N: localStorage radar.auth.token
   N->>P: requisições /api com Authorization Bearer
   P->>B: exige cookie do portão, senão 403
-  B->>B: RBAC por permissão (rotas protegidas)
-  B-->>N: 401 limpa a sessão e emite radar:unauthorized
+  B->>B: security_gate: JWT válido + permissão por papel
+  B-->>N: 401 limpa a sessão (radar:unauthorized), 403 aviso, 429 aviso
 ```
 
-Duas camadas independentes: o portão do proxy (todas as rotas) e o JWT com RBAC (apenas as rotas protegidas; 148 de 184 rotas não exigem credencial no backend).
+Duas camadas independentes: o portão do proxy (cookie) e o `security_gate` do backend (JWT + RBAC em **todas** as rotas, exceto `/health` e o login; default-deny). Em `main`/produção, antes do deploy do hardening, 148 de 184 rotas ainda não exigiam credencial no backend. Ver [security.md](security.md).
 
 ## 7. Análise de oportunidade (workflow)
 

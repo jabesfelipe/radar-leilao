@@ -38,6 +38,26 @@ class Settings(BaseSettings):
     extraction_min_chars_per_kb: float = 1.0
     llm_api_key: str | None = None
     openai_api_key: str | None = None
+    # ---- Resiliência da chamada ao provider LLM (configuráveis) ----
+    # Timeout por chamada (s) e retries do SDK. O padrão da biblioteca seria ~600 s com
+    # 2 retries, MAIOR que o proxy_read_timeout do nginx (300 s); aqui o pior caso por
+    # chamada fica em (1 + retries) × timeout. max_output_tokens opcional (None = padrão
+    # do modelo).
+    llm_timeout_seconds: float = 90.0
+    llm_max_retries: int = 1
+    llm_max_output_tokens: int | None = None
+    # ---- Proteção contra consumo indevido / abuso (por usuário, por processo) ----
+    # Operações "críticas" são as que podem acionar LLM/embeddings/serviço externo
+    # (analisar, agentes, extrair, reanalisar, reprocessar, consultar processos/débitos,
+    # geocodificar). Valores justificados em docs/03-architecture/security.md.
+    rate_limit_critical_per_minute: int = 10
+    rate_limit_upload_per_minute: int = 30
+    # Buscas de leitura que podem gerar embedding (ex.: biblioteca jurídica): bucket próprio
+    # para não consumir a cota das análises; permissão continua sendo apenas ``read``.
+    rate_limit_search_per_minute: int = 30
+    max_concurrent_critical_per_user: int = 2
+    # ---- Upload de documentos ----
+    upload_max_mb: int = 30  # < client_max_body_size do nginx (50 MB)
     # Integração com a Judicial API (módulo independente consumido por HTTP).
     # URL-base, credencial e timeout vêm de ambiente/secret — nunca versionados.
     judicial_api_base_url: str = "http://judicial_api:8010"

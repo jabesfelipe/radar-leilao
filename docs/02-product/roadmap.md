@@ -12,7 +12,7 @@
 | TIR, VPL, fluxo descontado e grid de sensibilidade | MATRIZ-CUSTOS | pendente |
 | Parametrização fiscal por jurisdição, ato, base, vigência e fonte | MATRIZ-CUSTOS | exige ADR |
 | Modalidade LICITACAO (regras em aberto) | `modality_rules.py` | em aberto |
-| Autenticação nas rotas legadas (≈ 148 sem credencial) | auditoria de segurança | antes de qualquer acesso público |
+| Autenticação nas rotas legadas (≈ 148 sem credencial) | auditoria de segurança | implementada na branch `feature/security-hardening-openai` (portão global); falta deploy |
 | TLS e domínio | [deployment.md](../04-operations/deployment.md#6-referência-futura-domínio-e-tls-não-existe-hoje) | pendente |
 | Backups agendados e cópia externa na VPS | [infrastructure.md](../04-operations/infrastructure.md#14-pendências) | pendente |
 | Consulta automática a Registro de Imóveis e Prefeitura | SPEC-ADAPTADORES-CONSULTA-MUNICIPAL | sem cliente hoje |

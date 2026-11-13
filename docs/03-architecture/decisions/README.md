@@ -28,6 +28,9 @@ Fonte: [ADR-WORKFLOW-ARCHITECTURE.md](ADR-WORKFLOW-ARCHITECTURE.md). O cabeçalh
 | D-12 | Storage local em volume com abstração para S3/MinIO | [storage.md](../../04-operations/storage.md) | sim, no documento |
 | D-13 | Credenciais de portal cifradas (Fernet) em coluna separada | docstring de `PortalAccess` em `models.py` | sim: nunca devolver ou enviar a LLM |
 | D-14 | Projeto Compose fixo `radar-prod` para separar volumes de dev e produção | [docker-deployment.md](../../04-operations/docker-deployment.md) | sim |
+| D-16 | Portão de segurança **global default-deny** (dependência do app) em vez de decorar cada rota; permissões por papel reaproveitando o RBAC existente | `backend/app/security.py`, `tests/test_security_gate.py` | sim: ~150 rotas legadas sem autenticação e nenhuma segunda arquitetura de auth |
+| D-17 | Advisory locks do PostgreSQL (de transação) e `FOR UPDATE SKIP LOCKED` contra duplicidade, em vez de fila ou lock em memória | `backend/app/locks.py`, `documents/worker.py` | sim: 2 workers uvicorn + worker + reprocesso compartilham o banco |
+| D-18 | Rate limit e concorrência em memória por processo (sem Redis) | `backend/app/security.py` | sim: simplicidade do MVP; limitação documentada em security.md §9 |
 | D-15 | Uma única VPS com Docker Compose na fase de homologação | [infrastructure.md](../../04-operations/infrastructure.md) | sim: testar remotamente com custo baixo; VPC adiada |
 
 Para registrar uma nova decisão: crie `ADR-NNN-titulo.md` nesta pasta e acrescente uma linha na tabela acima.

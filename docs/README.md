@@ -37,10 +37,10 @@ Tudo precisa ficar dentro de `docs/` porque o `.dockerignore` exclui essa pasta 
 | Item | Valor |
 |---|---|
 | Paths OpenAPI | 144 (`tests/contract/openapi_baseline.json`) |
-| Rotas | 184 (36 com credencial, 148 sem) |
-| Tabelas / migrations | 60 / 23 (head `0023_usuarios`) |
+| Rotas | 184; em `main`/produção 36 com credencial e 148 sem; na branch de hardening todas protegidas pelo portão global, exceto `/health` e o login |
+| Tabelas / migrations | 60 nos modelos (produção: 69) / 23 em `main` (head `0023_usuarios`), 24 na branch de hardening (`0024_analysis_version_unique`) |
 | Itens de checklist | 27 |
-| Testes | backend 807 passed, 2 skipped; frontend 27 arquivos, 161 testes (última execução registrada) |
+| Testes | backend 990 passed, 2 skipped; frontend 29 arquivos, 169 testes (branch de hardening, com PostgreSQL real; `main`: 813 passed, 3 skipped) |
 
 ## Inventário e classificação (79 documentos)
 

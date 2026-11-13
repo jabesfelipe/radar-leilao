@@ -1,7 +1,7 @@
 # Modelo de dados
 
 PostgreSQL 16 com extensão pgvector. ORM SQLAlchemy 2.0 (`backend/app/models.py`); migrations Alembic em `backend/migrations/versions`.
-Estado conferido: **60 tabelas** e **23 migrations**, head `0023_usuarios`. Diagrama do núcleo em [architecture.md](architecture.md#5-persistência).
+Estado conferido: **69 tabelas** num banco novo criado por `alembic upgrade head` (igual à produção; o número 60 citado antes contava só os modelos de `models.py`, sem `alembic_version` e sem as tabelas `judicial_*`) e **24 migrations**: head `0024_analysis_version_unique` na branch de hardening; `main` e a produção estão em `0023_usuarios`. Diagrama do núcleo em [architecture.md](architecture.md#5-persistência).
 
 ## Princípios
 - O imóvel (`properties`) é a entidade central; quase tudo referencia `property_id`.
@@ -27,7 +27,7 @@ Estado conferido: **60 tabelas** e **23 migrations**, head `0023_usuarios`. Diag
 | Workflow | oportunidades, transições, estados de fase e decisões (0018, 0019) |
 | Usuários | usuários e papéis (0023) |
 
-A lista completa das 60 tabelas está em `models.py` e nas migrations; este documento lista só o que foi conferido diretamente.
+A lista completa das tabelas está em `models.py` e nas migrations; este documento lista só o que foi conferido diretamente.
 
 ## Migrations
 
@@ -56,8 +56,9 @@ A lista completa das 60 tabelas está em `models.py` e nas migrations; este docu
 | 0021 | cobertura municipal |
 | 0022 | consulta e estimativa |
 | 0023 | usuários |
+| 0024 | índice único de análise por (imóvel, oportunidade, versão); idempotente, aborta sem alterar dados se houver duplicatas |
 
-Próxima migration livre: `0024`. As Ondas 1 e 2 do workflow reusam o schema de 0018 e 0019. Regras para novas migrations:
+Próxima migration livre: `0025`. As Ondas 1 e 2 do workflow reusam o schema de 0018 e 0019. Regras para novas migrations:
 [../05-development/database-migrations.md](../05-development/database-migrations.md). Especificações do modelo de workflow:
 [specs/MODEL-DATA-WORKFLOW.md](specs/MODEL-DATA-WORKFLOW.md), [specs/SPEC-OPPORTUNITY-DOMAIN.md](specs/SPEC-OPPORTUNITY-DOMAIN.md).
 

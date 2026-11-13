@@ -1,4 +1,5 @@
 import os
+import time
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
@@ -6,6 +7,37 @@ from sqlalchemy.orm import Session
 
 from backend.app import models
 from backend.app.config import settings
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "security_gate: executa o teste COM o portão de segurança global ativo (sem o bypass padrão da suíte)",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _security_gate_bypass(request):
+    """Os testes de domínio (financeiro, checklist, RAG...) exercitam regras de negócio via
+    TestClient sem se autenticar. Para não duplicar o login em centenas de testes, o portão
+    global de segurança (``security_gate``) é substituído por um no-op — o mesmo mecanismo
+    de ``dependency_overrides`` já usado para ``get_db``. Os testes de segurança usam o
+    marcador ``@pytest.mark.security_gate`` e rodam com o portão REAL. As dependências por
+    rota (RBAC de admin, usuários, oportunidades) permanecem ativas em todos os testes.
+    """
+    from backend.app.main import app
+    from backend.app.security import reset_limits, security_gate
+
+    reset_limits()
+    if request.node.get_closest_marker("security_gate"):
+        yield
+        reset_limits()
+        return
+    app.dependency_overrides[security_gate] = lambda: None
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(security_gate, None)
 
 
 @pytest.fixture(scope="session")
@@ -24,6 +56,31 @@ def postgres_engine():
     except Exception as exc:
         pytest.skip(f"PostgreSQL/pgvector indisponível: {exc}")
     return engine
+
+
+@pytest.fixture
+def aguardar_bloqueio(postgres_engine):
+    """Sincronização determinística para testes de concorrência (substitui ``sleep``).
+
+    ``aguardar_bloqueio(pid)`` consulta ``pg_stat_activity`` e só retorna ``True`` quando o
+    backend ``pid`` está ATIVO e aguardando um lock (``wait_event_type = 'Lock'``), ou ``False``
+    se o timeout expirar. Usa conexão em AUTOCOMMIT: dentro de uma transação o PostgreSQL
+    mantém um snapshot das estatísticas e a espera nunca seria percebida.
+    """
+    def _aguardar(pid: int, timeout: float = 15.0) -> bool:
+        limite = time.monotonic() + timeout
+        with postgres_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as monitor:
+            while time.monotonic() < limite:
+                esperando = monitor.execute(
+                    text("SELECT 1 FROM pg_stat_activity WHERE pid = :pid AND state = 'active' AND wait_event_type = 'Lock'"),
+                    {"pid": pid},
+                ).first()
+                if esperando:
+                    return True
+                time.sleep(0.02)
+        return False
+
+    return _aguardar
 
 
 @pytest.fixture

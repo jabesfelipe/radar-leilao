@@ -9,7 +9,7 @@ from ..logging_config import get_logger
 from ..rag.retriever import RetrieverFilters
 from ..rag.service import RAGService
 from ..services import latest_execution
-from .gateway import LLMGateway, build_gateway
+from .gateway import LLMGateway, build_gateway, sanitize_error
 from ..consolidation import consolidate_agent_results
 
 log = get_logger("langgraph")
@@ -69,7 +69,7 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
         try:
             retrieval = RAGService(db).retrieve_context(query, property_id=property_id, filters=filters)
         except Exception as exc:
-            message = f"Falha no RAG: {type(exc).__name__}: {str(exc)[:500]}"
+            message = f"Falha no RAG: {type(exc).__name__}: {sanitize_error(str(exc))[:300]}"
             return {
                 "context": "",
                 "retrieved_chunk_ids": [],

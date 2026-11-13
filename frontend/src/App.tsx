@@ -13,6 +13,7 @@ import {
 } from './pages/hubs'
 import { navigationItems } from './components/Sidebar'
 import { installAuthFetch, isAuthenticated, getUser, clearSession } from './services/session'
+import { SecurityNotice } from './components/SecurityNotice'
 
 installAuthFetch()
 
@@ -68,22 +69,28 @@ function App() {
   const detailPropertyId = matchPropertyDetail(currentPath)
   if (detailPropertyId !== null) {
     return (
-      <Layout currentPath="/imoveis" onNavigate={navigate} user={user} onLogout={onLogout}>
-        <PageContainer title="Detalhe do imóvel" description="Centro de navegação do imóvel e ponto de partida para as análises.">
-          <PropertyDetailPage propertyId={detailPropertyId} onBack={() => navigate('/imoveis')} />
-        </PageContainer>
-      </Layout>
+      <>
+        <SecurityNotice />
+        <Layout currentPath="/imoveis" onNavigate={navigate} user={user} onLogout={onLogout}>
+          <PageContainer title="Detalhe do imóvel" description="Centro de navegação do imóvel e ponto de partida para as análises.">
+            <PropertyDetailPage propertyId={detailPropertyId} onBack={() => navigate('/imoveis')} />
+          </PageContainer>
+        </Layout>
+      </>
     )
   }
 
   const page = navigationItems.find((item) => item.path === currentPath) ?? navigationItems[0]
 
   return (
-    <Layout currentPath={currentPath} onNavigate={navigate} user={user} onLogout={onLogout}>
-      <PageContainer title={page.label} description={pageDescription[page.path] ?? ''}>
-        <HubRouter path={page.path} onOpenProperty={openProperty} />
-      </PageContainer>
-    </Layout>
+    <>
+      <SecurityNotice />
+      <Layout currentPath={currentPath} onNavigate={navigate} user={user} onLogout={onLogout}>
+        <PageContainer title={page.label} description={pageDescription[page.path] ?? ''}>
+          <HubRouter path={page.path} onOpenProperty={openProperty} />
+        </PageContainer>
+      </Layout>
+    </>
   )
 }
 

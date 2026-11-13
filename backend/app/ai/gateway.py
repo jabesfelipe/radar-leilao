@@ -1,28 +1,42 @@
 from __future__ import annotations
 
-import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
 
 from ..config import settings
 from ..logging_config import get_logger
+from ..redaction import redact
 
 log = get_logger("llm")
 
 
-_SECRET_PATTERNS = (
-    (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"), r"\1[REDACTED]"),
-    (re.compile(r"(?i)(api[_-]?key\s*[=:]\s*)[^\s,;]+"), r"\1[REDACTED]"),
-    (re.compile(r"(?i)\bsk-[A-Za-z0-9_-]+"), "[REDACTED]"),
-)
-
-
 def sanitize_error(message: str) -> str:
-    sanitized = message[:2000]
-    for pattern, replacement in _SECRET_PATTERNS:
-        sanitized = pattern.sub(replacement, sanitized)
-    return sanitized
+    """Mensagem de erro segura para log/persistência (sem chaves, tokens, URLs de banco)."""
+    return redact(message)
+
+
+# Categorias de falha do provider (sem depender do SDK: classificação pelo nome da
+# classe da exceção e do status HTTP, quando disponível).
+ERROR_CATEGORIES = ("AUTENTICACAO", "RATE_LIMIT", "TIMEOUT", "CONEXAO", "REQUISICAO_INVALIDA", "PROVEDOR", "DESCONHECIDO")
+
+
+def classify_provider_error(exc: BaseException) -> str:
+    name = type(exc).__name__.lower()
+    status = getattr(exc, "status_code", None)
+    if "authentication" in name or "permissiondenied" in name or status in (401, 403):
+        return "AUTENTICACAO"
+    if "ratelimit" in name or status == 429:
+        return "RATE_LIMIT"
+    if "timeout" in name or isinstance(exc, TimeoutError):
+        return "TIMEOUT"
+    if "connection" in name:
+        return "CONEXAO"
+    if "badrequest" in name or "unprocessable" in name or status in (400, 404, 422):
+        return "REQUISICAO_INVALIDA"
+    if "internalserver" in name or "apistatus" in name or (isinstance(status, int) and status >= 500):
+        return "PROVEDOR"
+    return "DESCONHECIDO"
 
 
 class ChatProvider(Protocol):
@@ -52,6 +66,7 @@ class LLMCall:
     status: str = "CONCLUIDO"
     error_type: str | None = None
     error_message: str | None = None
+    error_category: str | None = None
 
     @property
     def total_tokens(self) -> int | None:
@@ -90,9 +105,10 @@ class LLMGateway:
         except Exception as exc:
             elapsed = int((time.perf_counter() - started) * 1000)
             # error_message já sanitizado (nunca expõe chave/token/credencial).
-            log.warning("llm chamada falhou: provider=%s modelo=%s duracao_ms=%d tipo=%s erro=%s",
-                        self.provider_name, self.model, elapsed, type(exc).__name__, sanitize_error(str(exc)))
-            return LLMCall(provider=self.provider_name, model=self.model, duration_ms=elapsed, status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)))
+            category = classify_provider_error(exc)
+            log.warning("llm chamada falhou: provider=%s modelo=%s duracao_ms=%d tipo=%s categoria=%s erro=%s",
+                        self.provider_name, self.model, elapsed, type(exc).__name__, category, sanitize_error(str(exc)))
+            return LLMCall(provider=self.provider_name, model=self.model, duration_ms=elapsed, status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)), error_category=category)
 
     def chat(self, messages: list[dict[str, str]], **kwargs: Any) -> LLMCall:
         return self._execute(lambda: self.provider.chat(messages, **kwargs))

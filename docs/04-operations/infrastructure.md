@@ -334,7 +334,7 @@ Todos os serviços usam `restart: unless-stopped`: após `sudo reboot` tudo volt
 - **Ambiente de testes (homologação)**, não produção endurecida.
 - Camadas existentes: portão por cookie (`/acesso?k=`) no proxy, limite de 10 requisições por minuto no login, `/docs` retorna 404, UFW com SSH e 80/tcp, usuário de deploy restrito, PostgreSQL e backend sem portas públicas.
 - Cuidados: nunca `docker compose down -v`; nunca `DROP`, `TRUNCATE` nem seeds destrutivos; confirme volumes e nome de projeto Compose (`radar-prod`) antes de limpar; nunca versione credenciais ou `.env`.
-- O repositório tem endpoints legados sem autenticação (ver [segurança](../03-architecture/security.md)); o portão do proxy é a proteção de borda nesta fase.
+- Até o deploy do hardening de segurança, a produção tem endpoints legados sem autenticação no backend e o portão do proxy é a proteção de borda. A partir desse deploy, todas as rotas (exceto `/health` e o login) exigem JWT e permissão ([segurança](../03-architecture/security.md)); o portão do proxy permanece como camada adicional.
 
 ## 13. Referências
 

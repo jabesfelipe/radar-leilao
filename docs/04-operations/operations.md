@@ -50,6 +50,19 @@ Não há ferramenta de monitoramento externa nem alertas configurados (ver [limi
 ### 2.5 Falha no bootstrap (firewall / `sshd -T`)
 Ver [infrastructure.md §6.1](infrastructure.md#61-troubleshooting-sshd--t-com-awk-no-passo-do-firewall).
 
+### 2.7 Respostas de erro da API (após o hardening de segurança)
+
+| Código | Significado | O que fazer |
+|---|---|---|
+| 401 | sem login, token inválido/expirado ou usuário desativado | entrar novamente |
+| 403 | papel sem permissão para a operação | pedir a um ADMIN o papel adequado |
+| 409 | já existe análise/agente/extração igual em andamento | aguardar a conclusão; não repetir |
+| 413 / 415 / 400 | arquivo grande demais (padrão 30 MB), MIME incompatível, vazio ou conteúdo que não corresponde à extensão | corrigir o arquivo |
+| 429 | rate limit ou limite de operações simultâneas (`Retry-After` informa a espera) | aguardar; ajustar `RATE_LIMIT_*` só se houver necessidade real |
+| 500 / 502 com `(ref: <id>)` | erro interno ou do provider | localizar o `<id>` nos logs: `scripts/prod/compose.sh logs backend | grep <id>` (detalhe técnico já sanitizado) |
+
+Embedding que falhou: ver `extraction_metadata.embedding_last_error` da versão (categoria entre colchetes) e os logs do worker. Erros transitórios fazem backoff e não consomem as 5 tentativas.
+
 ### 2.6 Falha de deploy
 Tabela por etapa em [github-actions.md §8](github-actions.md#8-recuperar-de-falha).
 

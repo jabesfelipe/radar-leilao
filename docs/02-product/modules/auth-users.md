@@ -24,8 +24,11 @@ Identificar usuários, aplicar papéis (RBAC) e proteger rotas novas e de escrit
 ## Endpoints (`/api/auth`)
 `POST /login`, `GET /me`, `GET /usuarios`, `POST /usuarios`, `PATCH /usuarios/{id}`.
 
+## Cobertura das rotas
+Na branch `feature/security-hardening-openai`, o `security_gate` global exige autenticação em todas as rotas, exceto `GET /health` e `POST /api/auth/login`, e aplica permissão por papel (leitura: qualquer papel; escrita: `analysis:write`; administrativas: `admin:write`). Detalhes em [security.md](../../03-architecture/security.md). Em `main`/produção (até o deploy do hardening), cerca de 112 endpoints de `main.py` e os hubs ainda estão sem JWT, atrás do portão do proxy.
+
 ## Limitações
-- Cerca de 112 endpoints de `main.py` e os hubs continuam sem JWT; o portão do proxy é a barreira de borda. Fechá-los é pendência registrada em [known-limitations.md](../../06-quality/known-limitations.md).
+- Sem isolamento de dados por usuário (organização única).
 - Token no `localStorage` (exposto a XSS) e tráfego em HTTP sem TLS.
 
 ## Código

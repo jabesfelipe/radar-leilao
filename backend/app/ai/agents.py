@@ -7,7 +7,7 @@ from ..config import settings
 from ..market import calculate_market
 from ..services import build_finance, latest_execution, serialize
 from .contracts import AgentResponse
-from .gateway import LLMCall, LLMGateway
+from .gateway import LLMCall, LLMGateway, sanitize_error
 from .prompts import ANALYSIS_SYSTEM_PROMPT
 
 @dataclass
@@ -53,7 +53,7 @@ class RadarAgent:
             facts = [finding.model_dump() for finding in parsed.findings]
             evidence_ids = [chunk_id for finding in facts for chunk_id in finding.get("chunk_ids", [])]
         except Exception as exc:
-            call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = str(exc)[:2000]
+            call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = sanitize_error(str(exc))
             return AgentResult(self.name, [], [], "", ["Resposta estruturada inválida"], False, call.model, call, retrieved_chunk_ids)
         return AgentResult(self.name, facts, sorted(set(evidence_ids)), parsed.summary, parsed.pending, True, call.model, call, retrieved_chunk_ids)
 
@@ -238,6 +238,6 @@ class Supervisor:
                 else:
                     results.append(agent.run(property_id, context, retrieved_chunk_ids))
             except Exception as exc:
-                call = LLMCall(provider=self.gateway.provider_name if self.gateway else settings.llm_provider, model=self.gateway.model if self.gateway else settings.llm_model, status="ERRO", error_type=type(exc).__name__, error_message=str(exc)[:2000])
+                call = LLMCall(provider=self.gateway.provider_name if self.gateway else settings.llm_provider, model=self.gateway.model if self.gateway else settings.llm_model, status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)))
                 results.append(AgentResult(name, [], [], "", [call.error_message or "Falha no agente"], False, call.model, call, retrieved_chunk_ids or []))
         return results

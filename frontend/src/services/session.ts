@@ -65,6 +65,13 @@ export function installAuthFetch() {
       // Sessão expirada/ausente: limpa e sinaliza (o App volta ao login).
       clearSession()
       window.dispatchEvent(new CustomEvent('radar:unauthorized'))
+    } else if (isApi && response.status === 403) {
+      // Autenticado, mas sem permissão para a operação (RBAC no backend): mantém a
+      // sessão e avisa o usuário (o App exibe a mensagem).
+      window.dispatchEvent(new CustomEvent('radar:forbidden'))
+    } else if (isApi && response.status === 429) {
+      // Limite de requisições / operação já em andamento: avisa e permite nova tentativa.
+      window.dispatchEvent(new CustomEvent('radar:rate-limited'))
     }
     return response
   }

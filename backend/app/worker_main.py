@@ -10,7 +10,8 @@ Execução:
 
 Variáveis:
     WORKER_INTERVAL_SECONDS (default 30), WORKER_BATCH_LIMIT (default 10),
-    WORKER_MAX_ATTEMPTS (default 5).
+    WORKER_MAX_ATTEMPTS (default 5), WORKER_LEASE_SECONDS (default 600; prazo após o qual
+    uma tentativa sem conclusão é tratada como interrompida/crash).
 Encerramento gracioso: SIGTERM/SIGINT interrompem o loop entre varreduras.
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ import time
 
 from .database import SessionLocal
 from .logging_config import configure_logging, get_logger
-from .documents.worker import run_once
+from .documents.worker import LEASE_SECONDS_DEFAULT, run_once
 
 configure_logging()
 log = get_logger("worker")
@@ -42,6 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     interval = int(os.getenv("WORKER_INTERVAL_SECONDS", "30"))
     batch = int(os.getenv("WORKER_BATCH_LIMIT", "10"))
     max_attempts = int(os.getenv("WORKER_MAX_ATTEMPTS", "5"))
+    lease_seconds = int(os.getenv("WORKER_LEASE_SECONDS", str(LEASE_SECONDS_DEFAULT)))
 
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
@@ -51,7 +53,9 @@ def main(argv: list[str] | None = None) -> int:
         try:
             db = SessionLocal()
             try:
-                result = run_once(db, limit=batch, max_attempts=max_attempts)
+                result = run_once(db, limit=batch, max_attempts=max_attempts, lease_seconds=lease_seconds)
+                if result["interrompidas"]:
+                    log.warning("worker: %s tentativa(s) interrompida(s) recuperada(s).", len(result["interrompidas"]))
                 if result["processadas"]:
                     log.info("worker: varredura processou %s versao(oes).", result["processadas"])
             finally:

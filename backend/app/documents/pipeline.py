@@ -18,10 +18,10 @@ ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv",
 
 
 def safe_filename(filename: str) -> str:
-    name = Path(filename or "documento").name
-    if not name or name in {".", ".."} or Path(name).suffix.lower() not in ALLOWED_DOCUMENT_EXTENSIONS:
-        raise ValueError("Extensão de documento não permitida")
-    return name
+    """Nome seguro (sem caminho/controle, comprimento limitado, extensão permitida).
+    Fonte única da regra: ``upload_security.sanitize_filename`` (levanta ValueError)."""
+    from ..upload_security import sanitize_filename
+    return sanitize_filename(filename)
 
 
 class DocumentPipeline:

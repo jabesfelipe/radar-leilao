@@ -12,7 +12,8 @@ Apenas convenções **observadas no repositório**. Não há linter nem formatad
 
 ## Backend (Python 3.12, FastAPI)
 - Regras declarativas e versionadas em módulos de dados (`checklist.py`, `workflow_rules.py`, `modality_rules.py`, `legal_catalog.py`) e lógica pura separada (`workflow_engine.py`, `finance.py`).
-- Novas rotas em `routers/` (modularização M0); rotas novas devem exigir autenticação (`get_current_user`, `authorized_writer` ou `require_permission`).
+- Novas rotas em `routers/` (modularização M0). Toda rota passa pelo `security_gate` global (default-deny: exige JWT e permissão conforme o método HTTP). Operações com custo externo (LLM, embeddings, serviços externos) devem ser registradas em `security._RULES` (bucket crítico) e usar `operation_lock` contra duplicidade; permissões específicas continuam com `require_permission`/`authorized_writer`.
+- Erros para o usuário: use `public_error(...)` (mensagem amigável + `ref`), nunca `str(exc)`; mensagens de provider passam por `sanitize_error`. Uploads: valide com `upload_security` (nome, tamanho, MIME, assinatura) antes de gravar.
 - Contrato OpenAPI protegido por baseline: atualize `tests/contract/openapi_baseline.json` quando a API mudar.
 - Segredos nunca em logs, históricos, evidências nem prompts; credenciais de portais cifradas (Fernet).
 - Configuração por variáveis de ambiente via `config.py` (pydantic-settings).

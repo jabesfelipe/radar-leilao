@@ -18,7 +18,7 @@ Mapa de módulos do Radar Leilão, com status verificado no código. Status usad
 | Pós-arrematação | implementado | seção Pós-arrematação | [post-auction](modules/post-auction.md) |
 | Leiloeiros | implementado | `/leiloeiros` | [auctioneers](modules/auctioneers.md) |
 | Administração | implementado | `/administracao` | [administration](modules/administration.md) |
-| Autenticação e usuários | implementado (rotas legadas sem JWT) | LoginPage | [auth-users](modules/auth-users.md) |
+| Autenticação e usuários | implementado; portão global default-deny na branch de hardening (em `main`/produção, rotas legadas ainda sem JWT) | LoginPage | [auth-users](modules/auth-users.md) |
 
 Nenhum módulo está descontinuado. O módulo de Knowledge Graph da especificação original foi declarado como camada evolutiva fora do MVP.
 

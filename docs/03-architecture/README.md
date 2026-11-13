@@ -3,9 +3,9 @@
 | Documento | Conteúdo |
 |---|---|
 | [architecture.md](architecture.md) | visão geral e **11 diagramas** (contexto, containers, backend, frontend, persistência, autenticação, workflow, financeiro, documental/jurídico, integrações, infra/deploy) |
-| [data-model.md](data-model.md) | grupos de tabelas, migrations 0001 a 0023, invariantes |
+| [data-model.md](data-model.md) | grupos de tabelas, migrations 0001 a 0024, invariantes |
 | [integrations.md](integrations.md) | estado de cada integração (existe, opcional, sem cliente) |
-| [security.md](security.md) | camadas de segurança e lacunas conhecidas |
+| [security.md](security.md) | autenticação, perfis, rotas públicas e críticas, limites, uploads, erros, concorrência, OpenAI, homologação e rollback |
 | [decisions/README.md](decisions/README.md) | índice de ADRs, só com evidência |
 
 ## Especificações técnicas (`specs/`)

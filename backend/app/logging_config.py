@@ -15,8 +15,30 @@ import os
 
 _CONFIGURED = False
 
-_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] [%(correlation_id)s] %(message)s"
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%S"
+
+
+class SecretRedactingFilter(logging.Filter):
+    """Defesa em profundidade: redige segredos de QUALQUER mensagem de log (inclusive de
+    bibliotecas) e anexa o ``correlation_id`` da requisição corrente.
+
+    Também sanitiza a mensagem de exceção anexada (``exc_text``) quando o formatter a
+    renderiza; o traceback permanece apenas no log interno, nunca na resposta HTTP.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from .redaction import redact
+        from .request_context import get_correlation_id
+        try:
+            record.msg = redact(record.getMessage(), max_len=4000)
+            record.args = ()
+            if record.exc_info and not record.exc_text:
+                record.exc_text = redact(logging.Formatter().formatException(record.exc_info), max_len=8000)
+        except Exception:  # nunca derrubar a aplicação por causa do filtro
+            pass
+        record.correlation_id = get_correlation_id()
+        return True
 
 
 def configure_logging() -> None:
@@ -28,6 +50,7 @@ def configure_logging() -> None:
     level = getattr(logging, level_name, logging.INFO)
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
+    handler.addFilter(SecretRedactingFilter())
 
     root = logging.getLogger()
     # Evita handlers duplicados quando o Uvicorn/reload reimporta o módulo.

@@ -10,8 +10,24 @@ class OpenAIProvider:
         if not settings.effective_llm_api_key:
             raise RuntimeError("LLM_API_KEY/OpenAI_API_KEY ainda não configurada")
         from langchain_openai import ChatOpenAI, OpenAIEmbeddings
-        self.chat_model = ChatOpenAI(model=settings.llm_model, api_key=settings.effective_llm_api_key, temperature=0)
-        self.embedding_model = OpenAIEmbeddings(model=settings.embedding_model, api_key=settings.effective_llm_api_key)
+        # Timeout e retries explícitos e configuráveis (ver Settings.llm_*): evitam
+        # depender do padrão da biblioteca (timeout longo) e limitam o custo de retries.
+        chat_kwargs: dict[str, Any] = {
+            "model": settings.llm_model,
+            "api_key": settings.effective_llm_api_key,
+            "temperature": 0,
+            "timeout": settings.llm_timeout_seconds,
+            "max_retries": settings.llm_max_retries,
+        }
+        if settings.llm_max_output_tokens:
+            chat_kwargs["max_tokens"] = settings.llm_max_output_tokens
+        self.chat_model = ChatOpenAI(**chat_kwargs)
+        self.embedding_model = OpenAIEmbeddings(
+            model=settings.embedding_model,
+            api_key=settings.effective_llm_api_key,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+        )
 
     @staticmethod
     def _messages(messages: list[dict[str, str]]):

@@ -61,6 +61,53 @@ def _library_item_for(db: Session, slug: str) -> models.KnowledgeItem | None:
     )
 
 
+_SEED_LOCK_KEY = "seed:legal-catalog"
+
+
+def _acquire_seed_lock(db: Session) -> None:
+    """Lock consultivo de TRANSAÇÃO (bloqueante) que serializa a inicialização do catálogo.
+
+    Sem ele, duas requisições simultâneas num banco ainda não semeado faziam
+    "consultar e inserir" ao mesmo tempo e uma delas falhava por violação de unicidade
+    (HTTP 500). O lock é liberado no commit/rollback; o chamador (endpoint) faz commit logo
+    após o seed. Os dados existentes nunca são alterados."""
+    from sqlalchemy import text
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"), {"k": _SEED_LOCK_KEY})
+
+
+def _catalog_is_seeded(db: Session) -> bool:
+    """True se todas as fontes, dispositivos, regras, vínculos e itens de biblioteca do
+    catálogo já existem (consultas de contagem; não escreve)."""
+    source_slugs = [s.slug for s in SOURCES]
+    provision_slugs = [p.slug for s in SOURCES for p in s.provisions]
+    rule_slugs = [r.slug for r in RULES]
+    expected_links = sum(1 for r in RULES for link in r.links if link.canonical_key in _CHECKLIST_INDEX)
+
+    def _count(stmt) -> int:
+        return int(db.scalar(stmt) or 0)
+
+    if _count(select(func.count()).select_from(models.LegalSource).where(models.LegalSource.slug.in_(source_slugs))) < len(source_slugs):
+        return False
+    if _count(select(func.count()).select_from(models.LegalProvision).where(models.LegalProvision.slug.in_(provision_slugs))) < len(provision_slugs):
+        return False
+    if _count(select(func.count()).select_from(models.LegalRule).where(models.LegalRule.slug.in_(rule_slugs))) < len(rule_slugs):
+        return False
+    links = _count(
+        select(func.count()).select_from(models.LegalRuleChecklistLink)
+        .join(models.LegalRule, models.LegalRule.id == models.LegalRuleChecklistLink.rule_id)
+        .where(models.LegalRule.slug.in_(rule_slugs))
+    )
+    if links < expected_links:
+        return False
+    library = _count(
+        select(func.count()).select_from(models.KnowledgeItem).where(
+            models.KnowledgeItem.kind == models.LEGAL_LIBRARY_KIND,
+            models.KnowledgeItem.metadata_json["provision_slug"].as_string().in_(provision_slugs),
+        )
+    )
+    return library >= len(provision_slugs)
+
+
 def seed_legal_catalog(db: Session, *, embed: bool = True) -> dict[str, int]:
     """Materializa o catálogo curado (upsert por slug). Idempotente: rodar N vezes
     não duplica nada e não sobrescreve ``verification_status`` humano já promovido a
@@ -68,6 +115,15 @@ def seed_legal_catalog(db: Session, *, embed: bool = True) -> dict[str, int]:
 
     Retorna contadores do que foi criado (para logs/diagnóstico)."""
     created = {"sources": 0, "provisions": 0, "rules": 0, "links": 0, "library": 0}
+
+    # Caminho rápido (leituras comuns): catálogo já completo => nada a fazer, sem lock.
+    if _catalog_is_seeded(db):
+        return created
+    # Caminho de inicialização: serializa seeders concorrentes (ver ``_acquire_seed_lock``).
+    # Quem espera o lock reavalia o estado abaixo e encontra tudo já criado.
+    _acquire_seed_lock(db)
+    if _catalog_is_seeded(db):
+        return created
 
     source_by_slug: dict[str, models.LegalSource] = {}
     provision_by_slug: dict[str, models.LegalProvision] = {}

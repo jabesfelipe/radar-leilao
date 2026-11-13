@@ -42,10 +42,14 @@ def valid_chunk_ids(raw_ids) -> list[int]:
 
 def ensure_checklist_master(db: Session) -> None:
     """Seed controlado: só cria chaves ausentes e nunca reativa/sobrescreve existentes."""
-    existing = {item.canonical_key for item in db.scalars(select(models.ChecklistItem)).all()}
-    for definition in master_items():
-        if definition["canonical_key"] not in existing:
-            db.add(models.ChecklistItem(**definition))
+    # Idempotente e seguro sob concorrência: INSERT ... ON CONFLICT DO NOTHING em
+    # ``canonical_key`` (UNIQUE). Duas requisições simultâneas num banco vazio não geram
+    # IntegrityError/HTTP 500 nem itens duplicados; o perdedor simplesmente não insere.
+    existing = {key for (key,) in db.execute(select(models.ChecklistItem.canonical_key))}
+    missing = [definition for definition in master_items() if definition["canonical_key"] not in existing]
+    if missing:
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        db.execute(pg_insert(models.ChecklistItem.__table__).on_conflict_do_nothing(index_elements=["canonical_key"]), missing)
     db.flush()
 
 
