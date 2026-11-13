@@ -49,7 +49,8 @@ Rollback de **imagem** e de **dados** são operações diferentes.
   anterior forem iguais à revisão atual do banco; se não forem, recusa com `rc=3` sem mudar nada.
 - **Com migration nova:** o gate de schema impede o código antigo de subir. Com a versão nova ainda no
   ar, revise a migration e, se for reversível sem perda, rode `alembic downgrade <revisão-anterior>`
-  (a revisão anterior aparece no passo `[3/6]` do log do deploy) e então `rollback.sh`.
+  (a revisão anterior aparece no passo `[3/6]` do log do deploy) e então `rollback.sh`. O comando completo
+  e a ordem para a migration `0024` estão na [seção 8](#8-release-com-a-migration-0024-hardening-de-segurança).
 - **Downgrade inseguro** (dados novos, colunas removidas): restaure o backup gerado pelo deploy em
   banco isolado, valide e só então troque. Nunca automático.
 - **Preferido para bugs:** corrigir à frente com nova tag.
@@ -87,4 +88,30 @@ não devem ser usados na VPS gerenciada por tags.
 
 A versão com o hardening inclui a migration `0024_analysis_version_unique` (índice único de análise por imóvel, oportunidade e versão). O deploy por tag já faz backup antes de migrar. A migration é idempotente, não altera dados e **aborta com mensagem clara** se houver análises duplicadas (o que não ocorre num banco sem análises).
 
-Rollback: como a migration muda o schema, `rollback.sh` recusa voltar a imagem (rc=3). Procedimento: `alembic downgrade 0023_usuarios` (apenas remove o índice) e então `rollback.sh`; ou corrija à frente com nova tag. Plano completo em [security.md §11](../03-architecture/security.md#11-homologação-implantação-e-rollback).
+### Rollback desta release (ordem obrigatória)
+
+Como a migration muda o schema, `rollback.sh` **recusa** voltar a imagem (`rc=3`, sem alterar nada) enquanto o banco estiver em `0024`. O downgrade precisa ser executado **antes**, com a imagem **nova** ainda no ar (é ela que conhece a revisão `0024`). O `compose.sh` já usa as imagens de `.release.env`, ou seja, a versão implantada.
+
+1. **Downgrade para 0023** (só remove o índice único; não altera nem apaga dados):
+
+   ```bash
+   scripts/prod/compose.sh run -T --rm --no-deps --entrypoint sh migrate -c 'cd /app/backend && alembic downgrade 0023_usuarios'
+   ```
+
+   O PostgreSQL precisa estar de pé (é o caso do ambiente em produção). O comando usa o mesmo formato que o próprio `rollback.sh` usa para consultar as revisões do Alembic.
+2. **Confirmar `alembic_version`** (deve ser `0023_usuarios`):
+
+   ```bash
+   scripts/prod/compose.sh exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "select version_num from alembic_version"'
+   ```
+
+   Se não for `0023_usuarios`, **pare**: não rode o `rollback.sh`.
+3. **Voltar a imagem**: `scripts/prod/rollback.sh`. Ele compara as heads do código anterior com o banco; com ambos em `0023_usuarios` prossegue e termina com `ROLLBACK_OK`.
+4. **Validar**: `scripts/prod/compose.sh ps` (serviços `healthy`) e `scripts/prod/post-deploy-check.sh` (deve terminar em `SMOKE_OK`; confira `alembic_version = 0023_usuarios` e os invariantes de contagem).
+5. **OpenAI**: se a chave já tiver sido configurada, esvazie `OPENAI_API_KEY` no `.env.prod`, recrie `backend` e `worker` (`scripts/prod/compose.sh up -d --no-build backend worker`) e revogue a chave no painel da OpenAI.
+
+Alternativa preferida para falhas de software: corrigir à frente com uma nova tag.
+
+**Status de evidência.** O `alembic downgrade 0023_usuarios` (e o upgrade de volta) foi validado em **banco PostgreSQL descartável** com dados representativos: o índice é removido, os dados permanecem idênticos e a revisão volta a `0023_usuarios`. A cadeia completa em containers (`compose.sh run ...`, `rollback.sh`, `post-deploy-check.sh`) **não foi executada**: o ambiente de desenvolvimento não tem Docker e nada foi feito na VPS. O procedimento acima ainda não foi exercitado na VPS.
+
+Plano completo (implantação e homologação) em [security.md §11](../03-architecture/security.md#11-homologação-implantação-e-rollback).

@@ -10,7 +10,7 @@ Receber documentos (edital, matrícula, outros), preservá-los imutáveis, norma
 - Normalização com MarkItDown (PDF); OCR com Tesseract quando habilitado (`OCR_ENABLED=false` hoje).
 - Chunking, embeddings (`text-embedding-3-small`, 1536 dimensões) e **busca híbrida** (vetorial 0,7 e textual 0,3), com fallback textual quando não há embeddings.
 - Extração estruturada de matrícula/edital e agentes de análise (ver [checklist-risks-verdict.md](checklist-risks-verdict.md)).
-- Worker que processa embeddings pendentes por polling (`python -m app.worker_main`; `WORKER_INTERVAL_SECONDS=30`, `WORKER_BATCH_LIMIT=10`, `WORKER_MAX_ATTEMPTS=5`; fila na tabela `document_versions`, sem Redis nem Celery).
+- Worker que processa embeddings pendentes por polling (`python -m app.worker_main`; `WORKER_INTERVAL_SECONDS=30`, `WORKER_BATCH_LIMIT=10`, `WORKER_MAX_ATTEMPTS=5`, `WORKER_LEASE_SECONDS=600`; fila na tabela `document_versions`, sem Redis nem Celery).
 - Monitoramento de cobertura e fila; governança de storage (dry-run por padrão).
 
 ## Telas

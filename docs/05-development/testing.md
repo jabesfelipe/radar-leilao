@@ -48,7 +48,7 @@ Estratégia, mapa de testes e números atuais: [../06-quality/README.md](../06-q
 
 O app registra o `security_gate` como dependência global (default-deny, ver [security.md](../03-architecture/security.md)). Para não repetir login em centenas de testes de domínio, `tests/conftest.py` substitui o portão por um no-op via `app.dependency_overrides` (mesmo mecanismo usado para `get_db`) em todos os testes **exceto** os marcados com `@pytest.mark.security_gate`, que rodam com o portão real (`tests/test_security_gate.py`). As dependências por rota (RBAC de admin, usuários, oportunidades) ficam ativas em todos os testes.
 
-Testes de segurança e concorrência do hardening: `tests/test_security_gate.py`, `test_upload_security.py`, `test_openai_hardening.py` (sem chamadas pagas: dublês/mocks), `test_concurrency_hardening.py` (conexões PostgreSQL independentes para lock, claim e seed), além de `frontend/src/services/session.test.ts` e `components/SecurityNotice.test.tsx`.
+Testes de segurança e concorrência do hardening: `tests/test_security_gate.py`, `test_upload_security.py`, `test_openai_hardening.py` (sem chamadas pagas: dublês/mocks), `test_concurrency_hardening.py` (conexões PostgreSQL independentes para lock, claim, seed do checklist e worker, incluindo crash simulado com relógio controlado), `test_seed_concurrency.py` (seed da Central Jurídica em schema PostgreSQL descartável, sem tocar em `public`), além de `frontend/src/services/session.test.ts` e `components/SecurityNotice.test.tsx`.
 
 Ao criar uma rota nova, rode `pytest tests/test_security_gate.py`: o inventário falha se algo ficar público sem estar em `PUBLIC_ROUTES` e se uma regra de política deixar de casar com uma rota real.
 

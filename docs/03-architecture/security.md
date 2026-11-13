@@ -31,6 +31,7 @@ Regra do portão (primeira que casar):
 | Operação | Permissão exigida |
 |---|---|
 | Leitura (`GET`/`HEAD`/`OPTIONS`) | `read` (qualquer papel autenticado) |
+| Busca da biblioteca jurídica (`GET .../biblioteca/busca`) | `read` + rate limit do bucket `search` |
 | Escrita (`POST`/`PUT`/`PATCH`/`DELETE`) | `analysis:write` |
 | Operações críticas e uploads (seção 4) | `analysis:write` + limites |
 | Regras do Checklist Mestre (criar, editar, ativar, desativar) | `admin:write` |
@@ -56,12 +57,15 @@ Classificadas como **críticas** (potencial de chamada LLM, embeddings ou servi�
 
 Uploads (`POST /api/imoveis/{id}/documentos`, `POST /api/documentos/{id}/versoes`) têm bucket próprio, pois processam e indexam o arquivo.
 
+A **busca da biblioteca jurídica** (`GET /api/juridico/biblioteca/busca`) gera o embedding da consulta na OpenAI quando há chave. Ela continua exigindo só `read` (o papel CONSULTA pode pesquisar), mas passa pelo mesmo mecanismo de rate limit, em bucket próprio (`search`). O limite é aplicado no portão, **antes** do endpoint e, portanto, antes de qualquer chamada ao provider; acima do limite a resposta é 429 e nenhum embedding é gerado.
+
 Controles (em `security.py`, `locks.py` e `config.py`):
 
 | Controle | Valor padrão | Justificativa |
 |---|---|---|
 | Rate limit de operações críticas, por usuário | 10 por minuto (`RATE_LIMIT_CRITICAL_PER_MINUTE`) | Uma análise completa é 1 requisição; usar os 5 agentes um a um são 5; 10/min cobre o uso humano normal e barra automação/loop. |
 | Rate limit de uploads, por usuário | 30 por minuto (`RATE_LIMIT_UPLOAD_PER_MINUTE`) | Envio de um lote de documentos de um imóvel sem atrito. |
+| Rate limit da busca jurídica (embedding), por usuário | 30 por minuto (`RATE_LIMIT_SEARCH_PER_MINUTE`) | Pesquisa interativa sem atrito (digitação e refinamento), mas sem permitir laço automático contra o provider. Bucket separado para não consumir a cota das análises. |
 | Operações críticas simultâneas, por usuário | 2 (`MAX_CONCURRENT_CRITICAL_PER_USER`) | Cliques repetidos e abas paralelas não multiplicam chamadas pagas. |
 | Lock por imóvel em análise/reanálise | `409` se já há análise em andamento | Evita análises duplicadas e custo duplicado entre processos (ver seção 8). |
 | Lock por (imóvel, análise, agente), por documento (extração) e por imóvel (consulta judicial) | `409` | Idem. |
@@ -70,6 +74,25 @@ Controles (em `security.py`, `locks.py` e `config.py`):
 Os contadores de rate limit e concorrência são **em memória, por processo**: com 2 workers do uvicorn, o limite efetivo é até 2x. A proteção entre processos contra duplicidade é feita por locks do PostgreSQL. Não existe sistema de saldo, créditos ou cobrança interno; o teto financeiro real é o limite configurado no painel da OpenAI.
 
 Resposta 429 inclui `Retry-After`.
+
+### Contrato de `POST /api/imoveis/{id}/analisar`
+
+Corpo **opcional** (`AnalyzeRequest`). `{}` ou ausente = análise completa, que é o que o frontend envia hoje. Restrições (também descritas no OpenAPI, em `components.schemas.AnalyzeRequest` e nas respostas da operação):
+
+| Campo | Regra | Violação |
+|---|---|---|
+| `domains` | lista de, no máximo, **5** itens; cada item deve ser um de `documental`, `juridico`, `financeiro`, `mercado`, `checklist`; duplicatas são ignoradas; vazio ou ausente = todos | **422** (mais de 5 itens, tipo errado ou domínio desconhecido) |
+| `query` | texto de até **500** caracteres | **422** |
+
+A resposta 422 não repete o valor enviado. Exemplos:
+
+```json
+{}
+{"domains": ["juridico", "mercado"]}
+{"domains": ["checklist"], "query": "riscos de ocupação e dívidas condominiais"}
+```
+
+Outras respostas documentadas: 401 (sem login), 403 (sem `analysis:write`), 404 (imóvel inexistente), 409 (análise já em andamento) e 429 (limite de operações críticas). Clientes que enviavam outros nomes de domínio ou textos longos passam a receber 422; o frontend atual não é afetado.
 
 ## 5. Uploads e documentos
 
@@ -107,9 +130,11 @@ Configuração em `backend/app/config.py` e repassada ao backend e ao worker em 
 | `LLM_TIMEOUT_SECONDS` | 90 | por chamada; o padrão da biblioteca seria ~600 s |
 | `LLM_MAX_RETRIES` | 1 | pior caso de uma chamada: (1 + retries) x timeout = 180 s, abaixo do `proxy_read_timeout` (300 s) |
 | `LLM_MAX_OUTPUT_TOKENS` | sem limite | opcional; não é repassada pelo compose (valor vazio quebraria a leitura) |
-| `WORKER_MAX_ATTEMPTS` | 5 | agora repassada ao worker |
+| `WORKER_MAX_ATTEMPTS` | 5 | agora repassada ao worker; inclui tentativas interrompidas por crash |
+| `WORKER_LEASE_SECONDS` | 600 | só o worker; prazo após o qual uma tentativa sem conclusão é tratada como interrompida |
+| `RATE_LIMIT_SEARCH_PER_MINUTE` | 30 | só o backend; limite da busca jurídica (ver seção 4) |
 
-Falhas do provider são classificadas (`AUTENTICACAO`, `RATE_LIMIT`, `TIMEOUT`, `CONEXAO`, `REQUISICAO_INVALIDA`, `PROVEDOR`, `DESCONHECIDO`) em `LLMCall.error_category`, registradas em log e sanitizadas. No worker, erros **transitórios** (credencial, rate limit, timeout, rede, provedor) não consomem as 5 tentativas e aplicam backoff exponencial (60 s até 15 min); o motivo fica em `extraction_metadata.embedding_last_error`. Prompts e regras de análise **não** foram alterados. Embeddings continuam fora de `llm_runs` (pendência P2).
+Falhas do provider são classificadas (`AUTENTICACAO`, `RATE_LIMIT`, `TIMEOUT`, `CONEXAO`, `REQUISICAO_INVALIDA`, `PROVEDOR`, `DESCONHECIDO`) em `LLMCall.error_category`, registradas em log e sanitizadas. No worker, erros **transitórios** (credencial, rate limit, timeout, rede, provedor) não consomem as 5 tentativas (`WORKER_MAX_ATTEMPTS`) e aplicam backoff exponencial (60 s até 15 min); o motivo fica em `extraction_metadata.embedding_last_error`. Se o **processo morrer** no meio de uma versão, a tentativa já foi gravada antes do trabalho (ver seção 8): ela conta, recebe o mesmo backoff e, ao atingir o limite, a versão sai da fila com status `ERRO`. Prompts e regras de análise **não** foram alterados. Embeddings continuam fora de `llm_runs` (pendência P2).
 
 ## 8. Concorrência e duplicidade
 
@@ -122,6 +147,10 @@ Falhas do provider são classificadas (`AUTENTICACAO`, `RATE_LIMIT`, `TIMEOUT`, 
 | Duas varreduras manuais simultâneas | lock de sessão numa conexão dedicada; a segunda sai sem fazer nada |
 | Perda de vetores já gerados se o lote falhar | `run_once` faz commit por versão |
 | Seed do checklist concorrente (HTTP 500 por violação de unicidade) | `INSERT ... ON CONFLICT DO NOTHING` |
+| Seed da Central Jurídica concorrente (primeira leitura; HTTP 500 por violação de unicidade) | catálogo completo => caminho rápido sem escrita nem lock; incompleto => `pg_advisory_xact_lock` bloqueante serializa os seeders e quem espera reavalia e não cria nada. Só cria o que falta, nunca altera dados existentes, nunca gera embedding (`embed=False`) |
+| Worker morre no meio da versão (rollback desfazia o contador; reprocesso infinito) | a tentativa e um lease (`embedding_lease_until`) são gravados com **commit antes** de chamar o provider; lease vencido e linha livre => `INTERROMPIDO` (motivo em `embedding_last_error`, `embedding_interruptions`, backoff 60 s a 15 min); ao atingir `WORKER_MAX_ATTEMPTS` => status `ERRO`, fora da fila. Chunks e vetores permanecem; nada é marcado como indexado |
+
+**Seeds executados por GET.** `GET /api/checklist` e os GETs da Central Jurídica inicializam seus dados na primeira leitura. Avaliada a separação "inicialização x leitura" (migration, comando de seed ou seed no startup): ela mudaria o fluxo de implantação e os testes que dependem da inicialização preguiçosa, sem ganho de segurança depois que o seed passou a ser idempotente e serializado. Decisão: manter a inicialização preguiçosa, agora segura sob concorrência; o caminho comum (catálogo completo) não escreve nada.
 
 Os locks são de transação e liberados no commit/rollback; não há lock "esquecido".
 
@@ -156,5 +185,6 @@ Os locks são de transação e liberados no commit/rollback; não há lock "esqu
 
 **Rollback**
 
-- Código: `scripts/prod/rollback.sh` volta à versão anterior **somente se o schema não mudou**; a migration `0024` altera o schema, portanto o rollback de imagem exige antes `alembic downgrade 0023_usuarios` (remove só o índice único; reversível e sem perda de dados). Alternativa preferida: corrigir à frente com nova tag.
+- Código: `scripts/prod/rollback.sh` volta à versão anterior **somente se o schema não mudou**; a migration `0024` altera o schema, portanto o rollback de imagem exige antes o downgrade para `0023_usuarios` (remove só o índice único; reversível e sem perda de dados). A ordem completa e o comando exato (downgrade, confirmar `alembic_version`, `rollback.sh`, `post-deploy-check.sh`, esvaziar `OPENAI_API_KEY`) estão em [deployment.md §8](../04-operations/deployment.md#8-release-com-a-migration-0024-hardening-de-segurança). Alternativa preferida: corrigir à frente com nova tag.
 - Chave OpenAI: esvaziar `OPENAI_API_KEY` no `.env.prod`, recriar `backend`/`worker` (volta a `SEM_CHAVE`) e revogar a chave no painel.
+- **Evidência:** o downgrade da migration foi validado em banco descartável; o procedimento em containers **ainda não foi executado na VPS** (nem em Docker local).
