@@ -85,7 +85,7 @@ def test_analises_simultaneas_do_mesmo_imovel_geram_409_via_http(postgres_engine
 
 # ------------------------------------------------------------------ seed do checklist
 
-def test_seed_do_checklist_concorrente_nao_gera_erro_nem_duplicata(postgres_engine, monkeypatch):
+def test_seed_do_checklist_concorrente_nao_gera_erro_nem_duplicata(postgres_engine, monkeypatch, aguardar_bloqueio):
     sufixo = uuid.uuid4().hex[:8].upper()
     definicoes = [
         {"canonical_key": f"RACE_{sufixo}_{i}", "question": f"q{i}", "description": f"q{i}", "category": "JURIDICO",
@@ -96,6 +96,7 @@ def test_seed_do_checklist_concorrente_nao_gera_erro_nem_duplicata(postgres_engi
     ]
     monkeypatch.setattr(services, "master_items", lambda: definicoes)
     a, b = Session(postgres_engine), Session(postgres_engine)
+    pid_b = b.execute(text("SELECT pg_backend_pid()")).scalar()
     erros: list[BaseException] = []
 
     def seed_b():
@@ -109,7 +110,7 @@ def test_seed_do_checklist_concorrente_nao_gera_erro_nem_duplicata(postgres_engi
         services.ensure_checklist_master(a)       # A insere (ainda sem commit)
         thread = threading.Thread(target=seed_b)
         thread.start()
-        time.sleep(0.6)                           # B está aguardando o commit de A
+        assert aguardar_bloqueio(pid_b), "B deveria estar bloqueada aguardando o commit de A"
         a.commit()
         thread.join(timeout=15)
         assert not thread.is_alive()

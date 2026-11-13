@@ -12,7 +12,6 @@ removido ao final.
 from __future__ import annotations
 
 import threading
-import time
 import uuid
 
 import pytest
@@ -66,8 +65,9 @@ def test_catalogo_nao_vazio_para_o_teste_ser_significativo():
     assert N_FONTES > 0 and N_DISPOSITIVOS > 0 and N_REGRAS > 0
 
 
-def test_seed_juridico_concorrente_nao_gera_erro_nem_duplicata(schema_engine):
+def test_seed_juridico_concorrente_nao_gera_erro_nem_duplicata(schema_engine, aguardar_bloqueio):
     a, b = Session(schema_engine), Session(schema_engine)
+    pid_b = b.execute(text("SELECT pg_backend_pid()")).scalar()
     resultado_b: dict = {}
     erros: list[BaseException] = []
 
@@ -83,8 +83,8 @@ def test_seed_juridico_concorrente_nao_gera_erro_nem_duplicata(schema_engine):
         assert resultado_a["sources"] == N_FONTES and resultado_a["provisions"] == N_DISPOSITIVOS
         thread = threading.Thread(target=seed_b)
         thread.start()
-        time.sleep(0.8)
-        assert thread.is_alive(), "B deveria estar aguardando o lock do seed de A"
+        assert aguardar_bloqueio(pid_b), "B deveria estar bloqueada aguardando o lock do seed de A"
+        assert thread.is_alive()
         a.commit()
         thread.join(timeout=20)
         assert not thread.is_alive()
@@ -100,13 +100,14 @@ def test_seed_juridico_concorrente_nao_gera_erro_nem_duplicata(schema_engine):
         a.rollback(); b.rollback(); a.close(); b.close()
 
 
-def test_controle_negativo_sem_o_lock_o_seed_concorrente_falha(schema_engine, monkeypatch):
+def test_controle_negativo_sem_o_lock_o_seed_concorrente_falha(schema_engine, monkeypatch, aguardar_bloqueio):
     """Prova que o cenário acima é sensível: desligando o lock, a 2ª sessão viola a unicidade
     (era o HTTP 500 original)."""
     from sqlalchemy.exc import IntegrityError
 
     monkeypatch.setattr(legal_service, "_acquire_seed_lock", lambda db: None)
     a, b = Session(schema_engine), Session(schema_engine)
+    pid_b = b.execute(text("SELECT pg_backend_pid()")).scalar()
     erros: list[BaseException] = []
 
     def seed_b():
@@ -120,7 +121,8 @@ def test_controle_negativo_sem_o_lock_o_seed_concorrente_falha(schema_engine, mo
         legal_service.seed_legal_catalog(a, embed=False)
         thread = threading.Thread(target=seed_b)
         thread.start()
-        time.sleep(0.8)
+        # Só libera A depois de confirmar que B está de fato bloqueada no INSERT conflitante.
+        assert aguardar_bloqueio(pid_b), "B deveria estar bloqueada no INSERT que conflita com o de A"
         a.commit()
         thread.join(timeout=20)
         assert erros and isinstance(erros[0], IntegrityError)

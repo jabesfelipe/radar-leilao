@@ -20,7 +20,7 @@ Como executar: [../05-development/testing.md](../05-development/testing.md).
 Último resultado registrado antes desta reestruturação (**não reexecutado nesta missão documental**, que não altera código):
 
 - backend: 807 passed, 2 skipped, mais o teste de política de release (main, antes do hardening);
-- backend na branch de hardening: 964 passed, 2 skipped (PostgreSQL 16.15 + pgvector local; os 2 skips são testes reais do DataJud, desabilitados de propósito); frontend: 29 arquivos, 169 testes, `tsc` e build de produção OK;
+- backend na branch de hardening: 974 passed, 2 skipped (PostgreSQL 16.15 + pgvector local; os 2 skips são testes reais do DataJud, desabilitados de propósito); frontend: 29 arquivos, 169 testes, `tsc` e build de produção OK;
 - API: 144 paths (baseline); 184 rotas; **na branch de hardening todas passam pelo portão global** (2 públicas);
 - banco: 69 tabelas num banco novo por `alembic upgrade head` (igual à produção), 23 migrations em `main` (head `0023_usuarios`) e **24 na branch** (`0024_analysis_version_unique`).
 

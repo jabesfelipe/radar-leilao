@@ -1,4 +1,5 @@
 import os
+import time
 
 import pytest
 from sqlalchemy import create_engine, inspect, text
@@ -55,6 +56,31 @@ def postgres_engine():
     except Exception as exc:
         pytest.skip(f"PostgreSQL/pgvector indisponível: {exc}")
     return engine
+
+
+@pytest.fixture
+def aguardar_bloqueio(postgres_engine):
+    """Sincronização determinística para testes de concorrência (substitui ``sleep``).
+
+    ``aguardar_bloqueio(pid)`` consulta ``pg_stat_activity`` e só retorna ``True`` quando o
+    backend ``pid`` está ATIVO e aguardando um lock (``wait_event_type = 'Lock'``), ou ``False``
+    se o timeout expirar. Usa conexão em AUTOCOMMIT: dentro de uma transação o PostgreSQL
+    mantém um snapshot das estatísticas e a espera nunca seria percebida.
+    """
+    def _aguardar(pid: int, timeout: float = 15.0) -> bool:
+        limite = time.monotonic() + timeout
+        with postgres_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as monitor:
+            while time.monotonic() < limite:
+                esperando = monitor.execute(
+                    text("SELECT 1 FROM pg_stat_activity WHERE pid = :pid AND state = 'active' AND wait_event_type = 'Lock'"),
+                    {"pid": pid},
+                ).first()
+                if esperando:
+                    return True
+                time.sleep(0.02)
+        return False
+
+    return _aguardar
 
 
 @pytest.fixture
