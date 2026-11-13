@@ -13,6 +13,7 @@
 Mantidas como referência de domínio; onde o texto diverge do código, vale o código e os documentos acima.
 
 | Especificação | Situação |
+| [SPEC-RADAR-LEILAO-INTELLIGENCE](specs/SPEC-RADAR-LEILAO-INTELLIGENCE.md) | proposta para MVP; módulo independente, coleta condicionada à validação de conformidade |
 |---|---|
 | [SPEC-WORKFLOW-ENGINE](specs/SPEC-WORKFLOW-ENGINE.md) | válida; implementada em `workflow_rules.py` e `workflow_engine.py` |
 | [SPEC-HARD-STOPS](specs/SPEC-HARD-STOPS.md) | válida |
