@@ -11,6 +11,11 @@ name: Release
 # Dispara SOMENTE em push de tag vX.Y.Z. Push em branch (main) roda apenas o CI.
 # Sem aprovação manual (nenhum Environment com reviewers). Se qualquer etapa falhar, as
 # seguintes não rodam. Ver docs/GITHUB-ACTIONS-DEPLOY.md.
+#
+# O job de deploy só roda com a variável de repositório DEPLOY_ENABLED=true
+# (Settings > Secrets and variables > Actions > Variables). Sem ela, a tag valida,
+# testa e publica as imagens no GHCR, mas NÃO toca a VPS. Ligue só depois de HTTPS,
+# backup e rollback conferidos (docs/06-quality/homologacao-v1.0.4/PLANO-HTTPS-VPS.md).
 
 on:
   push:
@@ -110,6 +115,7 @@ jobs:
   deploy:
     name: Deploy na VPS (Contabo)
     needs: [validate-tag, publish]
+    if: ${{ vars.DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Um deploy por vez e nunca cancela um em andamento (o seguinte espera na fila).
