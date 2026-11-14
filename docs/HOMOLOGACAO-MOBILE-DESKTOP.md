@@ -123,6 +123,23 @@ Nada abaixo foi aplicado. Os passos 3 e 4 mudam a rede e o firewall do Windows e
    Remove-NetFirewallRule -DisplayName "Radar hom 8100"
    ```
 
+### Roteiro rápido no aparelho (v1.0.4)
+
+1. Login com o usuário de homologação local (credencial do `hom_up.sh`; não é usuário de produção).
+2. **Dashboard**: os cards não podem cortar texto nem gerar rolagem para o lado.
+3. **Menu**: abrir pelo ícone ☰, rolar até "Administração", tocar num item. O menu precisa fechar e a página atrás não pode ter rolado.
+4. **Imóveis → Novo imóvel**: cadastrar um imóvel fictício (ex.: "TESTE CELULAR 1"). O teclado não pode dar zoom nos campos.
+5. **Detalhe → Documentos**: enviar um `.txt` fictício (pode ser `e2e/fixtures/caso-01/matricula.txt`, que é sintético).
+6. **Visão geral → Executar análise completa**: sem chave, a tela deve dizer que a IA está indisponível e mostrar o veredito determinístico.
+7. **Checklist, Financeiro e Veredito**: rolar a barra de seções até o fim; tabelas largas precisam rolar dentro do próprio quadro.
+8. Girar o aparelho (retrato e paisagem) em Veredito e Financeiro.
+
+Para reportar um problema, anote:
+- o aparelho e o navegador;
+- a tela e o que fez;
+- o que esperava e o que aconteceu;
+- se possível, uma captura de tela sem dados reais.
+
 Cuidados:
 
 - é HTTP sem criptografia; use só dados fictícios e só na rede de casa;
