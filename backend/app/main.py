@@ -18,6 +18,7 @@ from .ai.agents import ChecklistAgent, DocumentAgent, FinancialAgent, LegalAgent
 from .ai.gateway import build_gateway, sanitize_error
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
+from .documents.readiness import property_documents_summary, version_processing
 from .extraction import extract_document, persist_extraction
 from .incremental import IncrementalAnalysisService
 from .judicial_client import JudicialApiError, JudicialApiUnavailable
@@ -1077,7 +1078,26 @@ def document_or_404(db: Session, document_id: int) -> models.Document:
 
 
 def document_snapshot(document: models.Document) -> dict:
-    return {"id": document.id, "property_id": document.property_id, "name": document.name, "document_type": document.document_type, "source": document.source, "status": document.status, "created_at": document.created_at, "updated_at": document.updated_at, "versions": [{"id": version.id, "version": version.version, "content_hash": version.content_hash, "original_path": version.original_path, "normalized_path": version.normalized_path, "extraction_metadata": version.extraction_metadata, "status": version.status, "created_at": version.created_at, "updated_at": version.updated_at} for version in document.versions]}
+    return {"id": document.id, "property_id": document.property_id, "name": document.name, "document_type": document.document_type, "source": document.source, "status": document.status, "created_at": document.created_at, "updated_at": document.updated_at, "versions": [{"id": version.id, "version": version.version, "content_hash": version.content_hash, "extraction_metadata": _public_extraction_metadata(version.extraction_metadata), "status": version.status, "processamento": _version_processing(version), "created_at": version.created_at, "updated_at": version.updated_at} for version in document.versions]}
+
+
+def _public_extraction_metadata(meta: dict | None) -> dict:
+    """Metadados de extração SEM detalhes internos (caminhos do servidor, mensagens brutas de erro)."""
+    hidden = {"fallback_reason", "ocr_error", "embedding_last_error", "embedding_lease_owner"}
+    return {k: v for k, v in (meta or {}).items() if k not in hidden and not k.startswith("embedding_lease")}
+
+
+def _version_processing(version: models.DocumentVersion) -> dict | None:
+    """Etapas de processamento/prontidão da versão (None fora de uma sessão de banco, ex.: testes com fakes)."""
+    from sqlalchemy.orm import object_session
+    session = object_session(version)
+    if session is None:
+        return None
+    try:
+        return version_processing(session, version)
+    except Exception:
+        log.warning("prontidao do documento indisponivel: version_id=%s", getattr(version, "id", "?"))
+        return None
 
 
 async def process_document_upload(document: models.Document, file: UploadFile, db: Session):

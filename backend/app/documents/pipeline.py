@@ -8,8 +8,10 @@ from ..config import settings
 from ..logging_config import get_logger
 from ..storage import build_storage
 from .normalizer import DocumentNormalizer
+from .categories import chunk_category_metadata
 from .chunker import chunk_markdown
 from .embedding import embed_pending_chunks
+from .readiness import blocking_state
 from . import dedup, states
 
 log = get_logger("documentos")
@@ -91,7 +93,7 @@ class DocumentPipeline:
             self.db.add(version); self.db.flush()
             chunk_count = 0
             for chunk in chunk_markdown(normalized, extraction):
-                metadata = {**extraction, **chunk.metadata, "property_id": document.property_id, "document_id": document.id, "document_version_id": version.id, "document_type": document.document_type, "source": document.source, "chunk_index": chunk.index}
+                metadata = {**extraction, **chunk.metadata, "property_id": document.property_id, "document_id": document.id, "document_version_id": version.id, "document_type": document.document_type, "source": document.source, "chunk_index": chunk.index, **chunk_category_metadata(document.document_type)}
                 if opportunity_id is not None:
                     metadata["opportunity_id"] = opportunity_id
                 self.db.add(models.DocumentChunk(document_version_id=version.id, chunk_index=chunk.index, content=chunk.content, page=chunk.metadata.get("page"), section=chunk.metadata.get("section") or chunk.metadata.get("subsection"), metadata_json=metadata))
@@ -101,15 +103,26 @@ class DocumentPipeline:
             # provider/chave. Falha de embedding NÃO quebra a ingestão (o helper
             # captura erros e retorna telemetria); sem chave, apenas segue por texto.
             telemetry: dict = {}
+            # Sem texto utilizável (arquivo vazio, PDF escaneado sem OCR, OCR que falhou): o
+            # documento NÃO é apresentado como processado, não gera embeddings (sem custo
+            # inútil) e seus chunks ficam fora do RAG (ver retriever/worker).
+            blocking = blocking_state(extraction, chunk_count)
+            if blocking is not None:
+                version.status = blocking
+                document.status = blocking
+                self.db.flush()
+                log.warning("documento sem texto utilizavel: document_id=%s version=%s estado=%s chars=%s", document.id, version_number, blocking, extraction.get("char_count"))
+                return version
             try:
                 version.status = states.PROCESSANDO_EMBEDDING
                 telemetry = embed_pending_chunks(self.db, version.id) or {}
             except Exception:  # defesa extra: nunca deixar o embedding abortar a ingestão
                 log.warning("embedding de chunks ignorado por erro inesperado: document_id=%s version=%s", document.id, version_number)
-            # Estado terminal explícito: INDEXADO quando houve vetor; CONCLUIDO caso
-            # contrário (ingestão por texto, sem chave/provider). Nunca "meio-termo".
-            indexed = bool(telemetry.get("embeddings_persistidos"))
-            version.status = states.INDEXADO if indexed else states.CONCLUIDO
+            # Estado terminal explícito: INDEXADO SOMENTE quando TODOS os chunks têm vetor;
+            # CONCLUIDO (texto pronto, sem vetores completos) caso contrário. Antes, um único
+            # vetor persistido bastava para marcar INDEXADO.
+            persisted = int(telemetry.get("embeddings_persistidos") or 0)
+            version.status = states.INDEXADO if (chunk_count > 0 and persisted >= chunk_count) else states.CONCLUIDO
             document.status = states.CONCLUIDO
             self.db.flush()
             log.info("documento processado: document_id=%s version=%s chunks=%d hash=%s estado=%s", document.id, version_number, chunk_count, digest[:12], version.status)

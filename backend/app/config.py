@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # se indisponível, a limitação é registrada no metadata sem quebrar o pipeline.
     ocr_enabled: bool = False
     ocr_language: str = "por"
+    # Limites do OCR (protegem CPU/memória da VPS): máximo de páginas por PDF e tempo por página.
+    ocr_max_pages: int = 60
+    ocr_page_timeout_seconds: int = 120
     # Sinais objetivos de extração insuficiente (sem número mágico único):
     # documento binário (pdf/imagem) com menos de N caracteres por página estimada,
     # ou densidade de texto muito baixa frente ao tamanho do arquivo original.

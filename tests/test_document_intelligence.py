@@ -201,8 +201,9 @@ def test_run_ocr_usa_portugues_por_padrao(monkeypatch, tmp_path: Path):
 
     class _FakePyTesseract:
         @staticmethod
-        def image_to_string(_image, lang="eng"):
+        def image_to_string(_image, lang="eng", timeout=0):
             capturado["lang"] = lang
+            capturado["timeout"] = timeout
             return "texto ocr da pagina"
 
     class _FakeImage:
@@ -210,7 +211,8 @@ def test_run_ocr_usa_portugues_por_padrao(monkeypatch, tmp_path: Path):
         def open(_path):
             return object()
 
-    def _fake_convert_from_path(_path):
+    def _fake_convert_from_path(_path, first_page=None, last_page=None):
+        capturado["last_page"] = last_page  # limite de páginas do OCR repassado ao pdf2image
         return [object()]
 
     monkeypatch.setitem(__import__("sys").modules, "pytesseract", _FakePyTesseract)
@@ -225,6 +227,9 @@ def test_run_ocr_usa_portugues_por_padrao(monkeypatch, tmp_path: Path):
 
     texto, metadata = ocr_module.run_ocr(arquivo)
     assert capturado["lang"] == "por"
+    # limites de custo/memória do OCR: páginas e tempo por página vêm da configuração
+    assert capturado["last_page"] == ocr_module.settings.ocr_max_pages
+    assert capturado["timeout"] == ocr_module.settings.ocr_page_timeout_seconds
     assert metadata["ocr_language"] == "por"
     assert metadata["ocr_pages"] == 1
     assert "## Página 1" in texto
