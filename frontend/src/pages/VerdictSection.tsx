@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BadgeCheck, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section } from '../components/ui'
-import { getAssessment, verdictDecision, type Verdict, type VerdictEvidence, type VerdictGround } from '../services/assessment'
+import { getAssessment, verdictDecision, type ComparisonSide, type DocumentComparison, type Verdict, type VerdictEvidence, type VerdictGround } from '../services/assessment'
 
 // Natureza de cada fundamento: o investidor precisa distinguir risco jurídico, pendência documental
 // e inviabilidade financeira (e saber quando a leitura automática simplesmente não rodou).
@@ -75,6 +75,7 @@ function overallLabel(overall?: string | null) {
 export function VerdictSection({ propertyId }: VerdictSectionProps) {
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [evidences, setEvidences] = useState<VerdictEvidence[]>([])
+  const [comparisons, setComparisons] = useState<DocumentComparison[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -85,6 +86,7 @@ export function VerdictSection({ propertyId }: VerdictSectionProps) {
       const assessment = await getAssessment(propertyId)
       setVerdict(assessment.verdict)
       setEvidences(assessment.evidences)
+      setComparisons(assessment.comparisons ?? [])
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar o veredito.')
     } finally {
@@ -117,6 +119,8 @@ export function VerdictSection({ propertyId }: VerdictSectionProps) {
           </Card>
 
           <RecommendationBlock verdict={verdict} />
+
+          <ComparisonBlock comparisons={comparisons} />
 
           <div className="verdict-grid">
             {verdict.what_is_known && (
@@ -166,6 +170,47 @@ export function VerdictSection({ propertyId }: VerdictSectionProps) {
   )
 }
 
+const comparisonInfo: Record<string, { label: string; tone: 'danger' | 'warning' | 'info' | 'success' | 'neutral' }> = {
+  DIVERGENCIA: { label: 'Divergência', tone: 'warning' },
+  CONFERE: { label: 'Confere', tone: 'success' },
+  NAO_COMPARAVEL: { label: 'Não comparável', tone: 'neutral' },
+}
+
+function ComparisonSideText({ side }: { side?: ComparisonSide | null }) {
+  if (!side) return <span className="verdict-evidence-meta">Não localizado</span>
+  return (
+    <span>
+      <strong>{side.valor_texto ?? side.valor}</strong>
+      {side.trecho && <span className="verdict-evidence-meta"> — “{side.trecho}” ({side.documento}{side.pagina != null ? `, pág. ${side.pagina}` : ''})</span>}
+    </span>
+  )
+}
+
+// Confronto matrícula × edital: mostra as duas fontes; divergência é fato a validar, não irregularidade presumida.
+function ComparisonBlock({ comparisons }: { comparisons: DocumentComparison[] }) {
+  if (comparisons.length === 0) return null
+  const divergences = comparisons.filter((row) => row.resultado === 'DIVERGENCIA').length
+  return (
+    <Card padding="lg" className="verdict-block">
+      <p className="eyebrow">CONFRONTO DOCUMENTAL (MATRÍCULA × EDITAL)</p>
+      {divergences > 0 && <Alert tone="warning" title={divergences === 1 ? '1 divergência entre documentos' : `${divergences} divergências entre documentos`}>Validar antes de decidir.</Alert>}
+      <ul className="verdict-evidences" aria-label="Confronto documental">
+        {comparisons.map((row) => {
+          const info = comparisonInfo[row.resultado] ?? { label: row.resultado, tone: 'neutral' as const }
+          return (
+            <li key={row.informacao} className="verdict-evidence">
+              <p className="verdict-evidence-title">{row.informacao} <Badge tone={info.tone} size="sm">{info.label}</Badge></p>
+              <p className="verdict-evidence-desc">Matrícula: <ComparisonSideText side={row.matricula} /></p>
+              <p className="verdict-evidence-desc">Edital: <ComparisonSideText side={row.edital} /></p>
+              {row.observacao && <p className="verdict-evidence-meta">{row.observacao}</p>}
+            </li>
+          )
+        })}
+      </ul>
+    </Card>
+  )
+}
+
 function RecommendationBlock({ verdict }: { verdict: Verdict }) {
   const decision = verdictDecision(verdict)
   const recommendation = decision?.recomendacao
@@ -205,8 +250,29 @@ function RecommendationBlock({ verdict }: { verdict: Verdict }) {
   )
 }
 
+// Origem da informação (v1.0.4): o investidor distingue fato lido no documento, dado cadastrado, cálculo e
+// inferência da IA. Registros anteriores (sem origem) continuam exibidos como antes.
+const originInfo: Record<string, { label: string; tone: 'danger' | 'warning' | 'info' | 'success' | 'neutral'; icon: string; note?: string }> = {
+  DOCUMENTO: { label: 'Fato do documento', tone: 'success', icon: '📄' },
+  CADASTRO: { label: 'Informação cadastrada', tone: 'info', icon: '🗂️', note: 'Informação cadastrada no Radar — não foi lida em documento.' },
+  CALCULO: { label: 'Cálculo do Radar', tone: 'info', icon: '🧮', note: 'Resultado do cálculo determinístico — não é trecho de documento.' },
+  PESQUISA_JUDICIAL: { label: 'Pesquisa judicial', tone: 'info', icon: '⚖️' },
+  REGRA_DETERMINISTICA: { label: 'Regra determinística', tone: 'info', icon: '🧮' },
+  INFERENCIA_IA: { label: 'Inferência da IA', tone: 'warning', icon: '💡', note: 'Inferência da IA — não comprovada por documento; validar antes de decidir.' },
+}
+
+const strengthInfo: Record<string, { label: string; tone: 'danger' | 'warning' | 'info' | 'success' | 'neutral' }> = {
+  FORTE: { label: 'Evidência forte', tone: 'success' },
+  MODERADA: { label: 'Evidência moderada', tone: 'info' },
+  FRACA: { label: 'Citação fraca — não comprova', tone: 'warning' },
+  INVALIDA: { label: 'Citação inválida — descartada', tone: 'danger' },
+}
+
 function EvidenceItem({ evidence }: { evidence: VerdictEvidence }) {
-  const title = evidence.documento ?? (evidence.chunk_id != null ? `Trecho #${evidence.chunk_id}` : `Evidência #${evidence.id}`)
+  const origin = evidence.origin ? originInfo[evidence.origin] : undefined
+  const strength = evidence.strength ? strengthInfo[evidence.strength] : undefined
+  const fallbackTitle = origin && evidence.origin !== 'DOCUMENTO' ? origin.label : `Evidência #${evidence.id}`
+  const title = evidence.documento ?? (evidence.chunk_id != null ? `Trecho #${evidence.chunk_id}` : fallbackTitle)
   const meta: string[] = []
   const category = categoryLabel(evidence.category)
   if (category) meta.push(category)
@@ -217,13 +283,19 @@ function EvidenceItem({ evidence }: { evidence: VerdictEvidence }) {
   const excerpt = evidence.source_excerpt ?? null
   return (
     <li className="verdict-evidence">
-      <p className="verdict-evidence-title">📄 {title}</p>
+      <p className="verdict-evidence-title">{origin?.icon ?? '📄'} {title}</p>
+      {(origin || strength) && (
+        <p className="verdict-evidence-source" aria-label="Origem da informação">
+          {origin && <Badge tone={origin.tone} size="sm">{origin.label}</Badge>}
+          {strength && <Badge tone={strength.tone} size="sm">{strength.label}</Badge>}
+        </p>
+      )}
       <p className="verdict-evidence-meta">{meta.join(' · ')}</p>
       {statement && <p className="verdict-evidence-desc">{statement}</p>}
       {excerpt && statement !== excerpt ? (
         <blockquote className="verdict-evidence-excerpt" aria-label="Trecho literal do documento">“{excerpt}”</blockquote>
       ) : !excerpt ? (
-        <p className="verdict-evidence-meta">Sem trecho de documento vinculado.</p>
+        <p className="verdict-evidence-meta">{origin?.note ?? 'Sem trecho de documento vinculado.'}</p>
       ) : null}
     </li>
   )

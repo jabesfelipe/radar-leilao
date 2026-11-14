@@ -54,7 +54,10 @@ class OpenAIProvider:
         return ProviderResponse(content=str(result.content), input_tokens=input_tokens, output_tokens=output_tokens, request_id=request_id, metadata=getattr(result, "response_metadata", {}) or {})
 
     def structured_chat(self, schema: Any, messages: list[dict[str, str]], **kwargs: Any) -> ProviderResponse:
-        result = self.chat_model.with_structured_output(schema, include_raw=True).invoke(self._messages(messages), **kwargs)
+        # method explícito (v1.0.4): no modo padrão (json_schema estrito) o gpt-4o-mini às vezes gera até o limite de
+        # saída (LLM_MAX_OUTPUT_TOKENS) sem fechar o JSON — resposta truncada, cobrada e descartada. Com function calling o
+        # mesmo schema e contexto devolvem ~380 tokens (diagnóstico da homologação v1.0.4, caso-01).
+        result = self.chat_model.with_structured_output(schema, include_raw=True, method="function_calling").invoke(self._messages(messages), **kwargs)
         raw = result.get("raw")
         input_tokens, output_tokens, request_id = self._usage(raw)
         if result.get("parsing_error"):

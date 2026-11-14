@@ -474,14 +474,19 @@ def extract_document_endpoint(property_id: int, document_version_id: int, data: 
         result = extract_document(db, property_id, document_version_id, data.document_type)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
-    run_data = dict(result.call.to_dict(), agent="extracao_documental", retrieved_chunk_ids=[chunk["chunk_id"] for chunk in result.chunks])
-    runs = persist_llm_runs(db, prop, None, [run_data])
+    chunk_ids = [chunk["chunk_id"] for chunk in result.chunks]
+    # Uma linha em llm_runs por chamada cobrada (inclui a resposta truncada que motivou a única nova tentativa).
+    calls = list(getattr(result, "previous_calls", []) or []) + [result.call]
+    runs = persist_llm_runs(db, prop, None, [dict(call.to_dict(), agent="extracao_documental", retrieved_chunk_ids=chunk_ids) for call in calls])
+    runs = runs[-1:] if runs else runs
     if not result.success:
         db.commit()
-        return {"status": result.call.status, "erro": result.call.error_message, "llm_run_id": runs[0].id if runs else None, "document_version_id": document_version_id}
+        # "status" mantém o contrato anterior (status da chamada); "status_extracao" diferencia ausência legítima
+        # (NAO_ENCONTRADO), extração sem comprovação (INCONCLUSIVA), documento sem texto (SEM_TEXTO) e falha (ERRO).
+        return {"status": result.call.status, "status_extracao": result.extraction_status, "erro": result.call.error_message, "campos": result.field_status, "llm_run_id": runs[0].id if runs else None, "document_version_id": document_version_id}
     record, evidence_ids = persist_extraction(db, prop, result)
     db.commit(); db.refresh(record)
-    return {"status": "PROCESSADO", "document_type": data.document_type, "document_version_id": document_version_id, "registro_id": record.id, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "dados": record}
+    return {"status": "PROCESSADO", "status_extracao": result.extraction_status, "campos": result.field_status, "document_type": data.document_type, "document_version_id": document_version_id, "registro_id": record.id, "evidence_ids": evidence_ids, "llm_run_id": runs[0].id if runs else None, "dados": record}
 
 @app.get("/api/imoveis/{property_id}/documentos/{document_version_id}/extracao")
 def get_document_extraction(property_id: int, document_version_id: int, db: Session = Depends(get_db)):
@@ -672,7 +677,7 @@ def verdict_evidences_view(db: Session, evidence_ids: list[int] | None) -> list[
         if version is not None:
             item["version"] = version.version
             item["document_version_id"] = version.id
-        for field in ("page", "section", "fact", "source_excerpt", "interpretation", "hypothesis", "confidence", "chunk_id"):
+        for field in ("page", "section", "fact", "source_excerpt", "interpretation", "hypothesis", "confidence", "chunk_id", "origin", "strength", "agent"):
             value = getattr(evidence, field, None)
             if value is not None and value != "":
                 item[field] = value
@@ -703,8 +708,19 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     latest = db.scalar(select(models.Verdict).where(models.Verdict.property_id == property_id).order_by(models.Verdict.analysis_version.desc(), models.Verdict.id.desc()))
     veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
     juridico = juridical_overview(db, prop)
-    checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
-    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": [masked_evidence(e) for e in prop.evidences], "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop)}
+    checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk, "resolution_origin": r.resolution_origin, "evidence_ids": sorted(link.evidence_id for link in r.evidence_links)} for r in (execution.results if execution else [])]
+    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": [masked_evidence(e) for e in prop.evidences], "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop), "confronto_documental": _document_comparison_view(prop)}
+
+
+def _document_comparison_view(prop: models.Property) -> list[dict]:
+    """Confronto matrícula × edital (determinístico, sem IA); trechos mascarados para exibição."""
+    from .document_comparison import compare_documents
+    rows = compare_documents(prop)
+    for row in rows:
+        for side in ("matricula", "edital"):
+            if row.get(side) and isinstance(row[side].get("trecho"), str):
+                row[side]["trecho"] = redact_pii(row[side]["trecho"], force=True)
+    return rows
 
 
 def _analysis_running_safe(db: Session, property_id: int) -> bool:

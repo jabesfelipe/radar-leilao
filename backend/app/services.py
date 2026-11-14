@@ -335,6 +335,12 @@ def is_unavailability_notice(result: dict, finding: dict) -> bool:
     return result.get("llm_used", True) is False and finding.get("kind") == "ausencia" and not finding.get("chunk_ids")
 
 
+# Itens que ``resolve_checklist_from_data`` responde por cálculo sobre dados cadastrados. A IA não os altera (v1.0.4):
+# na 1ª execução real o agente marcou LANCE_MENOR_50_AVALIACAO como CONFIRMADO com lance de 60% da avaliação —
+# "confirmou" os valores, não a pergunta. O cálculo determinístico é a fonte correta para esses itens.
+DETERMINISTIC_CHECKLIST_KEYS = frozenset({"LANCE_MENOR_50_AVALIACAO", "PRAZO_DOIS_ANOS", "COMPARAVEIS_SUFFICIENTES"})
+
+
 def resolve_checklist_from_data(db: Session, prop: models.Property, execution: models.ChecklistExecution | None) -> list[str]:
     """Resolve itens PENDENTES do checklist que os DADOS JÁ CADASTRADOS respondem sozinhos (sem IA).
 
@@ -354,6 +360,7 @@ def resolve_checklist_from_data(db: Session, prop: models.Property, execution: m
         result.answer = answer
         result.confidence = "MEDIA"
         result.interpretation = "Resolvido automaticamente a partir dos dados cadastrados (cálculo determinístico; não houve leitura de documento)."
+        result.resolution_origin = "REGRA_DETERMINISTICA"
         resolved.append(key)
 
     auction = current_auction(prop)
@@ -384,17 +391,99 @@ def resolve_checklist_from_data(db: Session, prop: models.Property, execution: m
     return resolved
 
 
+_AGENT_CATEGORY = {"documental": "DOCUMENTAL", "document_agent": "DOCUMENTAL", "document": "DOCUMENTAL",
+                   "juridico": "JURIDICO", "jurídico": "JURIDICO", "legal": "JURIDICO", "legal_agent": "JURIDICO"}
+# Origem quando a informação NÃO tem citação de documento válida (o snapshot que o agente recebe é cadastro ou cálculo).
+_SOURCE_ORIGIN = {"cadastro": "CADASTRO", "calculo": "CALCULO", "inferencia": "INFERENCIA_IA", "documento": "INFERENCIA_IA"}
+_AGENT_DEFAULT_ORIGIN = {"financeiro": "CALCULO", "mercado": "CALCULO"}
+
+
+def locate_cited_chunk(db: Session, finding: dict, property_id: int, allowed_chunk_ids=None):
+    """Chunk que contém o trecho literal citado (v1.0.4).
+
+    O modelo às vezes cita o chunk_id errado com o trecho certo (1ª execução real: trecho do edital no chunk 3 citado
+    como chunk 4; finding com chunk_ids [1, 3] e trecho do 3). Procura o trecho primeiro nos chunks citados e depois
+    nos demais chunks recuperados PARA ESTA ANÁLISE — sempre do mesmo imóvel (``resolve_cited_chunk``). Exige ao menos
+    um chunk citado válido do imóvel: finding que só cita chunk de outro imóvel continua descartado.
+    Retorna ``(chunk, version)`` ou ``(None, None)``.
+    """
+    from .citations import excerpt_in_text
+    cited = valid_chunk_ids(finding.get("chunk_ids", []))
+    first = None
+    for chunk_id in cited:
+        chunk, version = resolve_cited_chunk(db, [chunk_id], property_id, allowed_chunk_ids)
+        if chunk is None:
+            continue
+        if first is None:
+            first = (chunk, version)
+        excerpt = finding.get("evidence_excerpt")
+        if not excerpt or excerpt_in_text(excerpt, chunk.content):
+            return chunk, version
+    if first is None:
+        return None, None
+    excerpt = finding.get("evidence_excerpt")
+    if excerpt and allowed_chunk_ids:
+        for chunk_id in sorted(set(allowed_chunk_ids) - set(cited)):
+            chunk, version = resolve_cited_chunk(db, [chunk_id], property_id, allowed_chunk_ids)
+            if chunk is not None and excerpt_in_text(excerpt, chunk.content):
+                return chunk, version
+    return first
+
+
+def checklist_forbidden_texts(execution: models.ChecklistExecution | None) -> list[str]:
+    """Perguntas do checklist: nunca são trecho literal de documento."""
+    if not execution:
+        return []
+    return [result.item.question for result in execution.results if result.item is not None and result.item.question]
+
+
+def classify_finding_source(db: Session, prop: models.Property, agent_name: str, finding: dict, allowed_chunk_ids, forbidden: list[str]):
+    """Decide a ORIGEM da informação e a força da citação, sem confiar no que o modelo declarou.
+
+    Retorna ``(origin, chunk, version, assessment)``. Só há origem DOCUMENTO quando o chunk citado é do imóvel,
+    foi recuperado para esta análise e a citação é FORTE ou MODERADA (ver app/citations.py). Citação fraca ou
+    inválida nunca é apresentada como prova: a afirmação fica registrada como inferência (com a força avaliada),
+    e dados do snapshot (cadastro/cálculo) ficam com a sua origem real, sem documento.
+    """
+    from .citations import assess_citation
+    statement = finding.get("statement") or finding.get("descricao") or ""
+    declared = str(finding.get("source") or "").lower()
+    chunk, version = locate_cited_chunk(db, finding, prop.id, allowed_chunk_ids)
+    assessment = None
+    if chunk is not None and version is not None and declared not in ("cadastro", "calculo"):
+        assessment = assess_citation(statement, chunk.content, finding.get("evidence_excerpt"), forbidden)
+        if assessment.is_proof:
+            return "DOCUMENTO", chunk, version, assessment
+    if declared in _SOURCE_ORIGIN:
+        origin = _SOURCE_ORIGIN[declared]
+    elif finding.get("kind") in ("interpretacao", "hipotese"):
+        origin = "INFERENCIA_IA"
+    else:
+        origin = _AGENT_DEFAULT_ORIGIN.get(agent_name.lower(), "INFERENCIA_IA")
+    return origin, None, None, assessment
+
+
 def persist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, agent_results: list[dict]) -> list[int]:
-    """Converte findings estruturados em evidências rastreáveis e atualiza o checklist da execução."""
+    """Converte findings estruturados em evidências rastreáveis e atualiza o checklist da execução.
+
+    v1.0.4: toda citação é validada contra o conteúdo do chunk (``classify_finding_source``). Evidência com
+    documento só existe com citação FORTE/MODERADA e trecho literal da fonte; o restante fica com a origem real
+    (CADASTRO, CALCULO ou INFERENCIA_IA), sem documento e sem "trecho literal". O checklist só muda de estado com
+    evidência documental válida.
+    """
+    from .evidence import normalize_documentary_evidence
     evidence_ids: list[int] = []
     document_ids: set[int] = set()
     result_by_key = {result.item.canonical_key: result for result in execution.results} if execution else {}
+    forbidden = checklist_forbidden_texts(execution)
     for result in agent_results:
         agent_name = result.get("agent", "IA")
         allowed = set(valid_chunk_ids(result.get("retrieved_chunk_ids") or []))
         if agent_name.lower() in {"checklist", "checklist_agent"}:
             evidence_ids.extend(persist_checklist_agent_findings(db, prop, analysis, execution, result.get("facts", []), allowed_chunk_ids=allowed))
             continue
+        category = _AGENT_CATEGORY.get(agent_name.lower(), agent_name.upper())
+        is_documental = category == "DOCUMENTAL"
         for finding in result.get("facts", []):
             statement = finding.get("statement") or finding.get("descricao")
             if not statement:
@@ -403,33 +492,31 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 # "LLM não configurada", orçamento atingido etc.: é um AVISO de que o agente não rodou,
                 # não um fato sobre o imóvel. Nunca vira Evidence (nem conta para o veredito).
                 continue
-            chunk, version = resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed)
-            if chunk and version:
+            if is_documental and not resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed)[0]:
+                # Agente documental sem documento do imóvel citado: não há fato documental a registrar.
+                continue
+            origin, chunk, version, assessment = classify_finding_source(db, prop, agent_name, finding, allowed, forbidden)
+            strength = assessment.strength if assessment else None
+            if origin == "DOCUMENTO":
+                evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=chunk.id, category=category, fact=statement, confidence=finding.get("confidence", "MEDIA"), page=chunk.page, section=chunk.section or finding.get("section"), source_excerpt=assessment.excerpt, target_type="Analysis", target_id=analysis.id, origin=origin, strength=strength, agent=agent_name)
                 document_ids.add(version.document_id)
-            is_documental = agent_name.lower() in {"documental", "document_agent", "document"}
-            is_juridico = agent_name.lower() in {"juridico", "jurídico", "legal", "legal_agent"}
-            if is_documental:
-                if not chunk or not version:
-                    continue
-                from .evidence import normalize_documentary_evidence
-                evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=chunk.id, category="DOCUMENTAL", fact=statement, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page"), section=finding.get("section"), source_excerpt=finding.get("evidence_excerpt"), target_type="Analysis", target_id=analysis.id)
-                evidence_ids.append(evidence.id); document_ids.add(version.document_id)
-            elif is_juridico and chunk and version:
-                from .evidence import normalize_documentary_evidence
-                evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=chunk.id, category="JURIDICO", fact=statement, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page"), section=finding.get("section"), source_excerpt=finding.get("evidence_excerpt"), target_type="Analysis", target_id=analysis.id)
-                evidence_ids.append(evidence.id); document_ids.add(version.document_id)
             else:
-                evidence = models.Evidence(property_id=prop.id, document_version_id=version.id if version else None, chunk_id=chunk.id if chunk else None, category=agent_name.upper(), fact=statement, interpretation=statement if finding.get("kind") == "interpretacao" else None, hypothesis=statement if finding.get("kind") == "hipotese" else None, confidence=finding.get("confidence", "MEDIA"), page=finding.get("page") or (chunk.page if chunk else None), section=finding.get("section") or (chunk.section if chunk else None), source_excerpt=finding.get("evidence_excerpt") or (chunk.content[:1000] if chunk else None))
-                db.add(evidence); db.flush(); evidence_ids.append(evidence.id)
-                db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="SUSTENTA"))
+                kind = finding.get("kind")
+                # Sem documento: nenhuma página/seção/trecho "literal" (não há fonte documental a apontar).
+                evidence = models.Evidence(property_id=prop.id, document_version_id=None, chunk_id=None, category=category, fact=statement, interpretation=statement if kind == "interpretacao" else None, hypothesis=statement if kind == "hipotese" else None, confidence=finding.get("confidence", "MEDIA") if origin != "INFERENCIA_IA" else "BAIXA", page=None, section=None, source_excerpt=None, origin=origin, strength=strength, agent=agent_name)
+                db.add(evidence); db.flush()
+                db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="SUSTENTA" if origin != "INFERENCIA_IA" else "MENCIONA"))
+            evidence_ids.append(evidence.id)
             checklist_key = finding.get("checklist_key")
-            if checklist_key and checklist_key in result_by_key:
+            if checklist_key and checklist_key in result_by_key and origin == "DOCUMENTO" and checklist_key not in DETERMINISTIC_CHECKLIST_KEYS:
                 checklist_result = result_by_key[checklist_key]
                 new_state = finding.get("checklist_state") or checklist_result.state
                 checklist_result.state = new_state
                 checklist_result.answer = statement
                 checklist_result.confidence = finding.get("confidence", checklist_result.confidence)
                 checklist_result.interpretation = statement
+                if new_state not in ("PENDENTE", "EM_ANALISE"):
+                    checklist_result.resolution_origin = "DOCUMENTO"
                 db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
     analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
     analysis.documents_considered = sorted(set((analysis.documents_considered or []) + list(document_ids)))
@@ -442,6 +529,7 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
     if not execution:
         return []
     results_by_key = {result.item.canonical_key: result for result in execution.results}
+    forbidden = checklist_forbidden_texts(execution)
     evidence_ids: list[int] = []
     document_ids: set[int] = set()
     for finding in facts:
@@ -451,6 +539,8 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
         confidence = finding.get("confidence", "MEDIA")
         if not checklist_key or checklist_key not in results_by_key or not state or not statement:
             continue
+        if checklist_key in DETERMINISTIC_CHECKLIST_KEYS:
+            continue   # respondido pelo cálculo sobre os dados cadastrados, nunca pela IA
         if state not in CHECKLIST_STATES or confidence not in CHECKLIST_CONFIDENCES:
             continue
         checklist_result = results_by_key[checklist_key]
@@ -458,8 +548,14 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
             continue
         if state != "NAO_APLICAVEL" and not checklist_result.applicable:
             continue
-        chunk, version = resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed_chunk_ids)
+        chunk, version = locate_cited_chunk(db, finding, prop.id, allowed_chunk_ids)
         if not chunk or not version:
+            continue
+        # v1.0.4: o item só muda de estado com citação FORTE/MODERADA; a pergunta do checklist (ou qualquer outra)
+        # nunca vale como trecho literal. Sem evidência suficiente o item permanece como está (pendente).
+        from .citations import assess_citation
+        assessment = assess_citation(statement, chunk.content, finding.get("evidence_excerpt"), forbidden)
+        if not assessment.is_proof:
             continue
         document_ids.add(version.document_id)
         from .evidence import normalize_documentary_evidence
@@ -471,18 +567,29 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
             category="CHECKLIST",
             fact=statement,
             confidence=confidence,
-            page=finding.get("page"),
-            section=finding.get("section"),
-            source_excerpt=finding.get("evidence_excerpt"),
+            page=chunk.page,
+            section=chunk.section or finding.get("section"),
+            source_excerpt=assessment.excerpt,
             target_type="Analysis",
             target_id=analysis.id,
+            origin="DOCUMENTO",
+            strength=assessment.strength,
+            agent="checklist",
         )
         evidence_ids.append(evidence.id)
+        if state in ("PENDENTE", "EM_ANALISE") and checklist_result.state not in ("PENDENTE", "EM_ANALISE"):
+            # Nunca devolve à pendência um item já resolvido (regra determinística, outro agente ou usuário):
+            # a evidência fica vinculada, o estado e a resposta são preservados.
+            db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
+            continue
         checklist_result.state = state
         checklist_result.answer = statement
         checklist_result.confidence = confidence
         checklist_result.interpretation = statement if finding.get("kind") == "interpretacao" else checklist_result.interpretation
         checklist_result.risk = finding.get("risk") or checklist_result.risk
+        # Origem da RESOLUÇÃO só quando o item sai de pendente; evidência de item que segue pendente fica só vinculada.
+        if state not in ("PENDENTE", "EM_ANALISE"):
+            checklist_result.resolution_origin = "DOCUMENTO"
         db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
     analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
     analysis.documents_considered = sorted(set((analysis.documents_considered or []) + list(document_ids)))

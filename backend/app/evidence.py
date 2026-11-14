@@ -19,8 +19,14 @@ def normalize_documentary_evidence(
     target_type: str | None = None,
     target_id: int | None = None,
     relation: str = "SUSTENTA",
+    origin: str | None = "DOCUMENTO",
+    strength: str | None = None,
+    agent: str | None = None,
 ) -> models.Evidence:
-    """Cria uma Evidence documental normalizada sem interpretar seu conteúdo."""
+    """Cria uma Evidence documental normalizada sem interpretar seu conteúdo.
+
+    ``origin``/``strength``/``agent`` (v1.0.4) registram de onde vem a informação e quanto a citação sustenta a
+    afirmação (ver app/citations.py); quem chama é responsável por validar a citação antes."""
     prop = db.get(models.Property, property_id)
     version = db.get(models.DocumentVersion, document_version_id)
     if not prop: raise ValueError("Imóvel não encontrado")
@@ -33,7 +39,7 @@ def normalize_documentary_evidence(
             raise ValueError("DocumentChunk não pertence à DocumentVersion")
     if not fact or not str(fact).strip():
         raise ValueError("Fato da evidência é obrigatório")
-    evidence = models.Evidence(property_id=property_id, document_version_id=document_version_id, chunk_id=chunk.id if chunk else None, category=category, fact=fact, confidence=confidence, page=page if page is not None else (chunk.page if chunk else None), section=section if section is not None else (chunk.section if chunk else None), source_excerpt=source_excerpt if source_excerpt is not None else (chunk.content[:1000] if chunk else None))
+    evidence = models.Evidence(property_id=property_id, document_version_id=document_version_id, chunk_id=chunk.id if chunk else None, category=category, fact=fact, confidence=confidence, page=page if page is not None else (chunk.page if chunk else None), section=section if section is not None else (chunk.section if chunk else None), source_excerpt=source_excerpt if source_excerpt is not None else (chunk.content[:1000] if chunk else None), origin=origin, strength=strength, agent=agent)
     db.add(evidence); db.flush()
     if target_type is not None and target_id is not None:
         db.add(models.EvidenceLink(evidence_id=evidence.id, target_type=target_type, target_id=target_id, relation=relation))

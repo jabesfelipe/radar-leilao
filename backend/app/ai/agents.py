@@ -11,7 +11,7 @@ from ..privacy import minimize_party
 from ..privacy_context import aliaser_for_property
 from .budget import unavailable_reason
 from .gateway import LLMCall, LLMGateway, sanitize_error
-from .prompts import ANALYSIS_SYSTEM_PROMPT
+from .prompts import ANALYSIS_SYSTEM_PROMPT, DOCUMENT_REVIEW_POINTS, SOURCE_RULES
 
 @dataclass
 class AgentResult:
@@ -63,7 +63,7 @@ class RadarAgent:
         self._aliaser.learn_from_text(context)
         payload = {"imovel": self._property_snapshot(property_id), "contexto_rag": context, **(extra or {})}
         user_content = self._aliaser.apply(json.dumps(payload, ensure_ascii=False, default=str))
-        messages = [{"role": "system", "content": ANALYSIS_SYSTEM_PROMPT + "\nVocê é o agente " + self.name + ". " + instructions + "\nUse somente fatos presentes no contexto ou snapshot. Para cada finding, informe chunk_ids que sustentem a afirmação; se não houver evidência, use kind=ausencia ou hipotese. Nomes de pessoas físicas aparecem como papéis entre colchetes (ex.: [TITULAR]); mantenha-os assim."}, {"role": "user", "content": user_content}]
+        messages = [{"role": "system", "content": ANALYSIS_SYSTEM_PROMPT + "\nVocê é o agente " + self.name + ". " + instructions + "\n" + SOURCE_RULES}, {"role": "user", "content": user_content}]
         call = self.gateway.structured_chat(AgentResponse, messages)
         if call.status != "CONCLUIDO":
             return AgentResult(self.name, [], [], "", [call.error_message or "Falha na execução do agente"], False, call.model, call, retrieved_chunk_ids)
@@ -85,7 +85,7 @@ class RadarAgent:
 class DocumentAgent(RadarAgent):
     name = "documental"
     def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
-        return self._run_llm(property_id, context, "Extraia somente fatos documentais, ausência de informação e interpretações documentais estritamente suportadas pelo trecho. Não produza risco, avaliação de compra, veredito, conclusão jurídica, validade, nulidade ou regularidade.", retrieved_chunk_ids or [])
+        return self._run_llm(property_id, context, "Extraia somente fatos documentais, ausência de informação e interpretações documentais estritamente suportadas pelo trecho. Não produza risco, avaliação de compra, veredito, conclusão jurídica, validade, nulidade ou regularidade. " + DOCUMENT_REVIEW_POINTS, retrieved_chunk_ids or [])
 
 class LegalAgent(RadarAgent):
     name = "juridico"
@@ -223,7 +223,13 @@ class ChecklistAgent(RadarAgent):
             "interpretação, hipótese e ausência. Só indique NAO_APLICAVEL quando houver evidência "
             "suficiente; caso contrário mantenha a pendência. Toda resposta baseada em documento deve "
             "informar chunk_ids, page, section e evidence_excerpt. Sem evidência suficiente, registre "
-            "ausência ou pendência sem inventar resultado."
+            "ausência ou pendência sem inventar resultado. "
+            "Significado dos estados quando HÁ trecho do documento que responde à PERGUNTA do item: "
+            "CONFIRMADO = a resposta à pergunta é SIM (não basta o documento conter os valores citados na pergunta); "
+            "NAO_IDENTIFICADO = a resposta à pergunta é NÃO; RISCO_IDENTIFICADO = o documento mostra um risco (ônus, "
+            "penhora, indisponibilidade, ação); ATENCAO = ponto que exige cuidado ou custo (ocupação, débitos por conta do "
+            "arrematante). Use PENDENTE apenas quando o contexto não responde à pergunta; nesse caso use kind=ausencia sem "
+            "chunk_ids. Não avalie itens calculados pelo Radar (LANCE_MENOR_50_AVALIACAO, PRAZO_DOIS_ANOS, COMPARAVEIS_SUFFICIENTES)."
         )
         return self._run_llm(
             property_id,

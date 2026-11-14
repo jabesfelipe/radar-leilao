@@ -72,12 +72,35 @@ export type VerdictEvidence = {
   confidence?: string | null
   chunk_id?: number | null
   tem_trecho_documento?: boolean
+  // v1.0.4: de onde vem a informação e quanto o trecho citado a sustenta (ausentes em registros anteriores).
+  origin?: 'DOCUMENTO' | 'CADASTRO' | 'CALCULO' | 'PESQUISA_JUDICIAL' | 'INFERENCIA_IA' | 'REGRA_DETERMINISTICA' | string | null
+  strength?: 'FORTE' | 'MODERADA' | 'FRACA' | 'INVALIDA' | string | null
+  agent?: string | null
+}
+
+// Confronto matrícula × edital (v1.0.4): determinístico, com as duas fontes e o trecho literal de cada uma.
+export type ComparisonSide = {
+  valor?: string | null
+  valor_texto?: string | null
+  documento?: string | null
+  pagina?: number | null
+  chunk_id?: number | null
+  trecho?: string | null
+}
+
+export type DocumentComparison = {
+  informacao: string
+  matricula?: ComparisonSide | null
+  edital?: ComparisonSide | null
+  resultado: 'CONFERE' | 'DIVERGENCIA' | 'NAO_COMPARAVEL' | string
+  observacao?: string | null
 }
 
 export type Assessment = {
   risks: Risk[]
   verdict: Verdict | null
   evidences: VerdictEvidence[]
+  comparisons: DocumentComparison[]
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
@@ -99,6 +122,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getAssessment(propertyId: number): Promise<Assessment> {
-  const payload = await request<{ riscos?: Risk[]; veredito?: Verdict | null; veredito_evidencias?: VerdictEvidence[] }>(`/api/imoveis/${propertyId}`)
-  return { risks: payload.riscos ?? [], verdict: payload.veredito ?? null, evidences: payload.veredito_evidencias ?? [] }
+  const payload = await request<{ riscos?: Risk[]; veredito?: Verdict | null; veredito_evidencias?: VerdictEvidence[]; confronto_documental?: DocumentComparison[] }>(`/api/imoveis/${propertyId}`)
+  return { risks: payload.riscos ?? [], verdict: payload.veredito ?? null, evidences: payload.veredito_evidencias ?? [], comparisons: payload.confronto_documental ?? [] }
 }

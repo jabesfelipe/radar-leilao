@@ -70,6 +70,43 @@ describe('VerdictSection', () => {
     expect(screen.queryByText('#202, #203')).not.toBeInTheDocument()
   })
 
+  it('mostra o confronto matrícula × edital com as duas fontes e alerta a divergência', async () => {
+    const confronto_documental = [
+      { informacao: 'Área privativa (m²)', resultado: 'DIVERGENCIA', observacao: 'Confirmar a área registral.',
+        matricula: { valor: '62.00', valor_texto: '62,00', documento: 'matricula.txt', trecho: 'área privativa de 62,00 m²' },
+        edital: { valor: '68.00', valor_texto: '68,00', documento: 'edital.txt', trecho: 'Área privativa de 68,00 m²' } },
+      { informacao: 'Número da matrícula', resultado: 'CONFERE', matricula: { valor: '99901', valor_texto: '99.901', documento: 'matricula.txt' }, edital: { valor: '99901', valor_texto: '99.901', documento: 'edital.txt' } },
+    ]
+    vi.mocked(fetch).mockReturnValueOnce(response({ imovel: { id: 5 }, riscos: [], veredito: verdict, veredito_evidencias: [], confronto_documental }))
+    render(<VerdictSection propertyId={5} />)
+
+    expect(await screen.findByText('CONFRONTO DOCUMENTAL (MATRÍCULA × EDITAL)')).toBeInTheDocument()
+    expect(screen.getByText('1 divergência entre documentos')).toBeInTheDocument()
+    expect(screen.getByText('Divergência')).toBeInTheDocument()
+    expect(screen.getByText('62,00')).toBeInTheDocument()
+    expect(screen.getByText('68,00')).toBeInTheDocument()
+    expect(screen.getByText('Confere')).toBeInTheDocument()
+  })
+
+  it('separa fato comprovado por documento, cálculo do Radar e inferência da IA', async () => {
+    const evidencias = [
+      { id: 401, documento: 'edital.txt', version: 1, category: 'DOCUMENTAL', fact: 'Imóvel ocupado.', source_excerpt: 'o imóvel encontra-se OCUPADO', origin: 'DOCUMENTO', strength: 'FORTE' },
+      { id: 402, category: 'FINANCEIRO', fact: 'Resultado líquido de R$ -26.550,00.', origin: 'CALCULO' },
+      { id: 403, category: 'JURIDICO', fact: 'Pode haver atraso no registro.', origin: 'INFERENCIA_IA', strength: 'FRACA' },
+    ]
+    vi.mocked(fetch).mockReturnValueOnce(detail(verdict, evidencias))
+    render(<VerdictSection propertyId={5} />)
+
+    expect(await screen.findByText('Imóvel ocupado.')).toBeInTheDocument()
+    expect(screen.getByText('Fato do documento')).toBeInTheDocument()
+    expect(screen.getByText('Evidência forte')).toBeInTheDocument()
+    // cálculo e inferência nunca aparecem como trecho de documento
+    expect(screen.getByText('Resultado do cálculo determinístico — não é trecho de documento.')).toBeInTheDocument()
+    expect(screen.getByText('Inferência da IA — não comprovada por documento; validar antes de decidir.')).toBeInTheDocument()
+    expect(screen.getByText('Citação fraca — não comprova')).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Trecho literal do documento')).toHaveLength(1)
+  })
+
   it('mostra o fato e, separado, o trecho literal (já mascarado) do documento citado', async () => {
     const evidencias = [{ id: 301, documento: 'matricula.txt', version: 1, category: 'JURIDICO', page: 1, section: 'AV.3', fact: 'Penhora trabalhista averbada.', source_excerpt: 'AV.3/99.901 — PENHORA ... proprietário CPF [CPF].', tem_trecho_documento: true }]
     vi.mocked(fetch).mockReturnValueOnce(detail(verdict, evidencias))

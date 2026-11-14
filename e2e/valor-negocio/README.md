@@ -7,6 +7,10 @@ Responde, com dados fictícios, à pergunta do investidor: **"vale a pena compra
   `results/valor-negocio/<data>/relatorio.{json,md}` (ignorado pelo Git).
 - `test_scoring.py`: autoteste das regras de pontuação (sem API, sem custo).
 
+Desde a v1.0.4 o relatório traz também a seção "Rastreabilidade" (origem e força de cada evidência, pergunta do checklist
+usada como trecho, valor da afirmação ausente do documento citado), a situação de cada campo da extração estruturada e a
+origem da resolução de cada item do checklist (vínculos lidos de `checklist_evidences`). O gabarito não muda.
+
 Regras: fato só pontua com evidência ligada a trecho do documento do próprio imóvel que contenha os termos do fato;
 menção sem evidência vale zero. Heurísticas de alucinação (T1–T6) exigem revisão humana. O relatório mascara CPF.
 
