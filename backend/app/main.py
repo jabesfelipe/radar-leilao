@@ -16,6 +16,7 @@ from . import models, schemas, secrets_crypto
 from .parameters import parameter_snapshot
 from .ai.agents import ChecklistAgent, DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
 from .ai.gateway import build_gateway, sanitize_error
+from .ai.analysis_status import consolidate_status, is_running as is_analysis_running, runs_for_status
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
 from .documents.readiness import property_documents_summary, version_processing
@@ -685,7 +686,24 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
     juridico = juridical_overview(db, prop)
     checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
-    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop))}
+    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop)}
+
+
+def _analysis_running_safe(db: Session, property_id: int) -> bool:
+    """Há análise em andamento? (lock advisory retido). Indicador opcional: nunca derruba a leitura do imóvel."""
+    try:
+        return is_analysis_running(db, property_id)
+    except Exception:
+        return False
+
+
+def _last_analysis_state(prop: models.Property) -> dict | None:
+    """Status honesto da última análise finalizada (persistido em ``token_usage``); ``legado`` se anterior à correção."""
+    last = max(prop.analyses, key=lambda a: a.version, default=None)
+    if last is None:
+        return None
+    usage = last.token_usage or {}
+    return {"versao": last.version, "status": usage.get("status") or "legado", "mensagem": usage.get("status_mensagem"), "avisos": usage.get("avisos", [])}
 
 # ============================================================================
 # TASK 75.2 — Helpers de CRUD cadastral com histórico/evento.
@@ -1226,15 +1244,20 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     evidence_ids = persist_agent_findings(db, prop, analysis, execution, orchestration.get("agent_results", []))
     llm_runs = persist_llm_runs(db, prop, analysis, orchestration.get("llm_runs", []))
     analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
+    # Status HONESTO: calculado das chamadas reais dos agentes e da prontidão dos documentos
+    # (antes era sempre "concluida", mesmo com todos os agentes falhando).
+    status_info = consolidate_status(runs_for_status(orchestration), property_documents_summary(db, property_id))
+    analysis.token_usage = {**analysis.token_usage, "status": status_info["status"], "status_codigo": status_info["codigo"], "status_mensagem": status_info["mensagem"], "avisos": status_info["avisos"]}
     finance = build_finance(prop)
     db.add(models.FinancialAnalysis(property_id=prop.id, analysis_version=analysis.version, inputs={"domains": domains, "chunks": orchestration.get("retrieved_chunk_ids", [])}, outputs=serialize(finance)))
     recalculate_risks(db, prop, analysis.version)
     verdict = create_verdict(db, prop, analysis, orchestration.get("verdict"))
     db.commit()
-    log.info("analise concluida: property_id=%s versao=%s agentes=%s llm_usada=%s modelo=%s chunks=%d evidencias=%d veredito=%s",
-             property_id, analysis.version, agents, orchestration.get("llm_used", False), analysis.model,
+    log.info("analise finalizada: property_id=%s versao=%s status=%s codigo=%s agentes=%s agentes_ok=%d llm_usada=%s modelo=%s chunks=%d evidencias=%d veredito=%s",
+             property_id, analysis.version, status_info["status"], status_info["codigo"], agents, status_info["agentes_ok"], orchestration.get("llm_used", False), analysis.model,
              len(orchestration.get("retrieved_chunk_ids", [])), len(evidence_ids), verdict.overall)
-    return {"versao": analysis.version, "agentes": agents, "llm_usada": orchestration.get("llm_used", False), "modelo": analysis.model, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", []), "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "financeiro": serialize(verdict.financial), "veredito": verdict.overall, "status": "concluida"}
+    return {"versao": analysis.version, "agentes": agents, "llm_usada": orchestration.get("llm_used", False), "modelo": analysis.model, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", []), "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "financeiro": serialize(verdict.financial), "veredito": verdict.overall, "status": status_info["status"], "status_detalhe": {k: status_info[k] for k in ("codigo", "mensagem", "avisos", "agentes", "agentes_ok", "agentes_total", "ia_disponivel", "documentos_prontos", "documentos_total")}}
+
 
 @app.get("/api/imoveis/{property_id}/historico")
 def history(property_id: int, db: Session = Depends(get_db)):

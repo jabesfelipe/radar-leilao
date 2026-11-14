@@ -321,15 +321,18 @@ def _fake_orchestration():
                 "facts": [],
                 "evidence_ids": [],
                 "pending": [],
-                "llm_used": False,
+                "llm_used": True,
                 "model": "modelo-teste",
                 "retrieved_chunk_ids": [],
             }
         ],
         "evidence_ids": [],
         "retrieved_chunk_ids": [],
-        "llm_runs": [],
-        "llm_used": False,
+        # Uma chamada de agente BEM-SUCEDIDA. Antes este payload tinha ``llm_runs: []`` e
+        # ``llm_used: False`` (nenhuma IA executou) e o teste esperava "concluida" — o bug
+        # de status falso corrigido na homologação v1.0.2 (ver tests/test_analysis_status.py).
+        "llm_runs": [{"agent": "documental", "provider": "openai", "model": "modelo-teste", "status": "CONCLUIDO"}],
+        "llm_used": True,
         "model": "modelo-teste",
         "verdict": None,
     }
