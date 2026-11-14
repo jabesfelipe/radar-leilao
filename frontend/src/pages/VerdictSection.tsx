@@ -1,7 +1,38 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BadgeCheck, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section } from '../components/ui'
-import { getAssessment, type Verdict, type VerdictEvidence } from '../services/assessment'
+import { getAssessment, verdictDecision, type Verdict, type VerdictEvidence, type VerdictGround } from '../services/assessment'
+
+// Natureza de cada fundamento: o investidor precisa distinguir risco jurídico, pendência documental
+// e inviabilidade financeira (e saber quando a leitura automática simplesmente não rodou).
+const groundGroups: { tipo: string; titulo: string; tone: 'danger' | 'warning' | 'info' | 'success' | 'neutral' }[] = [
+  { tipo: 'INVIABILIDADE_FINANCEIRA', titulo: 'Inviabilidade financeira', tone: 'danger' },
+  { tipo: 'RISCO_JURIDICO', titulo: 'Risco jurídico', tone: 'danger' },
+  { tipo: 'RISCO_OPERACIONAL', titulo: 'Risco operacional', tone: 'warning' },
+  { tipo: 'VIABILIDADE_FINANCEIRA', titulo: 'Viabilidade financeira', tone: 'success' },
+  { tipo: 'PENDENCIA_FINANCEIRA', titulo: 'Dados financeiros pendentes', tone: 'warning' },
+  { tipo: 'PENDENCIA_DOCUMENTAL', titulo: 'Pendências documentais', tone: 'info' },
+  { tipo: 'ANALISE_AUTOMATICA_INDISPONIVEL', titulo: 'Leitura automática dos documentos', tone: 'neutral' },
+]
+
+const recommendationTone: Record<string, 'danger' | 'warning' | 'success' | 'info'> = {
+  NAO_ARREMATAR: 'danger',
+  ARREMATAR_SOMENTE_APOS_RESOLVER_RISCOS: 'warning',
+  ARREMATAR_ATE_PRECO_MAXIMO: 'success',
+  COMPLETAR_ANALISE: 'info',
+}
+
+const recommendationTitle: Record<string, string> = {
+  NAO_ARREMATAR: 'Não arrematar por este lance',
+  ARREMATAR_SOMENTE_APOS_RESOLVER_RISCOS: 'Arrematar só após resolver os riscos',
+  ARREMATAR_ATE_PRECO_MAXIMO: 'Arrematar até o preço máximo',
+  COMPLETAR_ANALISE: 'Análise incompleta',
+}
+
+function formatBRL(value?: number | null) {
+  if (value == null || Number.isNaN(Number(value))) return null
+  return Number(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 })
+}
 
 const categoryLabels: Record<string, string> = {
   DOCUMENTAL: 'Documental',
@@ -85,6 +116,8 @@ export function VerdictSection({ propertyId }: VerdictSectionProps) {
             <Badge tone={overallTone[verdict.overall ?? 'PENDENTE'] ?? 'neutral'} size="md" className="verdict-badge">{overallLabel(verdict.overall)}</Badge>
           </Card>
 
+          <RecommendationBlock verdict={verdict} />
+
           <div className="verdict-grid">
             {verdict.what_is_known && (
               <Card padding="lg" className="verdict-block">
@@ -133,20 +166,65 @@ export function VerdictSection({ propertyId }: VerdictSectionProps) {
   )
 }
 
+function RecommendationBlock({ verdict }: { verdict: Verdict }) {
+  const decision = verdictDecision(verdict)
+  const recommendation = decision?.recomendacao
+  if (!recommendation) return null
+  const tone = recommendationTone[recommendation.codigo] ?? 'info'
+  const maxBid = formatBRL(recommendation.lance_maximo)
+  const intendedBid = formatBRL(recommendation.lance_pretendido)
+  const grounds = decision?.fundamentos ?? []
+  return (
+    <Card padding="lg" className="verdict-block verdict-recommendation">
+      <p className="eyebrow">RECOMENDAÇÃO AO INVESTIDOR</p>
+      <Alert tone={tone} title={recommendationTitle[recommendation.codigo] ?? recommendation.codigo}>{recommendation.texto}</Alert>
+      {(intendedBid || maxBid) && (
+        <dl className="dossier-facts verdict-facts">
+          {intendedBid && <Fact label="Lance pretendido" value={intendedBid} />}
+          {maxBid && <Fact label={recommendation.lance_maximo_definitivo ? 'Preço máximo (meta)' : 'Preço máximo (provisório)'} value={maxBid} />}
+        </dl>
+      )}
+      {grounds.length > 0 && (
+        <div className="verdict-grounds">
+          {groundGroups.map((group) => {
+            const items = grounds.filter((ground: VerdictGround) => ground.tipo === group.tipo)
+            if (items.length === 0) return null
+            return (
+              <div key={group.tipo} className="verdict-ground-group">
+                <p className="verdict-ground-title"><Badge tone={group.tone} size="sm">{group.titulo}</Badge> <span className="verdict-ground-count">{items.length}</span></p>
+                <ul className="verdict-pending">
+                  {items.slice(0, 8).map((ground, index) => <li key={index}>{ground.descricao}</li>)}
+                  {items.length > 8 && <li>… e mais {items.length - 8}</li>}
+                </ul>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function EvidenceItem({ evidence }: { evidence: VerdictEvidence }) {
   const title = evidence.documento ?? (evidence.chunk_id != null ? `Trecho #${evidence.chunk_id}` : `Evidência #${evidence.id}`)
   const meta: string[] = []
   const category = categoryLabel(evidence.category)
   if (category) meta.push(category)
   if (evidence.version != null) meta.push(`versão ${evidence.version}`)
-  if (evidence.page != null) meta.push(`Página ${evidence.page}`)
-  if (evidence.section) meta.push(evidence.section)
-  const description = evidence.fact ?? evidence.source_excerpt ?? evidence.interpretation ?? null
+  meta.push(evidence.page != null ? `Página ${evidence.page}` : 'Página não informada')
+  meta.push(evidence.section ? `Seção ${evidence.section}` : 'Seção não informada')
+  const statement = evidence.fact ?? evidence.interpretation ?? null
+  const excerpt = evidence.source_excerpt ?? null
   return (
     <li className="verdict-evidence">
       <p className="verdict-evidence-title">📄 {title}</p>
-      {meta.length > 0 && <p className="verdict-evidence-meta">{meta.join(' · ')}</p>}
-      {description && <p className="verdict-evidence-desc">{description}</p>}
+      <p className="verdict-evidence-meta">{meta.join(' · ')}</p>
+      {statement && <p className="verdict-evidence-desc">{statement}</p>}
+      {excerpt && statement !== excerpt ? (
+        <blockquote className="verdict-evidence-excerpt" aria-label="Trecho literal do documento">“{excerpt}”</blockquote>
+      ) : !excerpt ? (
+        <p className="verdict-evidence-meta">Sem trecho de documento vinculado.</p>
+      ) : null}
     </li>
   )
 }
