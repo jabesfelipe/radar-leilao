@@ -11,7 +11,10 @@ class FakeDb:
         self.prop = prop
         self.history = history or []
         self.added = []
-    def get(self, model, identifier): return self.prop
+    def get(self, model, identifier):
+        # Evidência citada pertence ao imóvel do teste (o endpoint confere a posse desde a v1.0.4).
+        if model is models.Evidence: return models.Evidence(id=identifier, property_id=1, fact="Evidência do teste")
+        return self.prop
     def add(self, item):
         if isinstance(item, models.OccupancyAnalysis) and item.id is None:
             item.id = len([x for x in self.added if isinstance(x, models.OccupancyAnalysis)]) + 1

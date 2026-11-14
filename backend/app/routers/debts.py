@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from .. import models, schemas, debts_service, debt_query_service, estimates_service
 from ..database import get_db
 from ..services import record_event, record_history, serialize, reflect_due_diligence_signals, upsert_due_diligence_front
-from .deps import property_or_404
+from .deps import ensure_evidence_of_property, property_or_404
 
 router = APIRouter(tags=["debitos"])
 
@@ -107,6 +107,7 @@ def estimate_condominium(property_id: int, data: schemas.CondominiumEstimateRequ
     condomínio/financiamento são contexto; inadimplência é parâmetro explícito. Também
     devolve os alertas de idade parametrizáveis (que respeitam a qualidade da info)."""
     prop = property_or_404(db, property_id)
+    ensure_evidence_of_property(db, property_id, data.evidence_id)
     computed = estimates_service.compute_condominium_estimate(
         db, monthly_reference=data.monthly_reference, months_delinquent=data.months_delinquent,
         safety_margin_pct=data.safety_margin_pct, municipality_id=data.municipality_id,
@@ -144,6 +145,7 @@ def create_property_debt(property_id: int, data: schemas.PropertyDebtCreate, db:
     """Registro MANUAL de débito/despesa normalizado. Valida tipo/natureza/status/
     confiabilidade (ESTIMADO nunca vira CONFIRMADO). Gera evento + histórico."""
     prop = property_or_404(db, property_id)
+    ensure_evidence_of_property(db, property_id, data.evidence_id)
     try:
         payload = debts_service.normalize_debt_payload(db, data.model_dump())
     except ValueError as exc:
@@ -166,6 +168,7 @@ def update_property_debt(property_id: int, debt_id: int, data: schemas.PropertyD
     if not item or item.property_id != property_id:
         raise HTTPException(404, "Débito não encontrado para o imóvel")
     changes = data.model_dump(exclude_unset=True)
+    ensure_evidence_of_property(db, property_id, changes.get("evidence_id"))
     # Revalida natureza/status/confiabilidade quando alterados (mantém invariantes).
     merged = {**{"debt_type_code": item.debt_type_code, "nature": item.nature, "status": item.status, "reliability": item.reliability}, **changes}
     try:

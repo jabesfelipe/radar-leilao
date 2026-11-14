@@ -8,7 +8,10 @@ from backend.app.services import build_finance
 class FakeDb:
     def __init__(self, prop=None, costs=None, debts=None, history=None):
         self.prop=prop; self.costs=costs or []; self.debts=debts or []; self.history=history or []; self.added=[]; self.calls=0
-    def get(self, model, identifier): return self.prop
+    def get(self, model, identifier):
+        # Evidência citada pertence ao imóvel do teste (o endpoint confere a posse desde a v1.0.4).
+        if model is models.Evidence: return models.Evidence(id=identifier, property_id=1, fact="Evidência do teste")
+        return self.prop
     def add(self, item):
         if isinstance(item, (models.Cost, models.Debt)) and item.id is None: item.id=len([x for x in self.added if isinstance(x, type(item))])+1
         self.added.append(item)

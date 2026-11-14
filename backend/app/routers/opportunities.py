@@ -16,6 +16,7 @@ from ..auth import get_current_user
 from ..authz import require_permission, PERM_ANALYSIS_WRITE
 from ..database import get_db
 from ..services import serialize
+from .deps import ensure_evidence_of_property
 
 router = APIRouter(prefix="/api/oportunidades", tags=["oportunidades"])
 
@@ -174,6 +175,7 @@ def reevaluate(opportunity_id: int, db: Session = Depends(get_db), user: models.
 @router.post("/{opportunity_id}/modalidade/classificar")
 def classify_modality(opportunity_id: int, data: schemas.ModalityClassifyRequest, db: Session = Depends(get_db), user: models.User = Depends(authorized_writer)):
     opp = _opp_or_404(db, opportunity_id)
+    ensure_evidence_of_property(db, opp.property_id, data.evidence_id)
     out = wf.classify_and_apply_modality(
         db, opp, signals_text=data.signals_text, origin=data.origin,
         evidence_id=data.evidence_id, confirm=data.confirm, actor=_actor(user),
@@ -185,6 +187,7 @@ def classify_modality(opportunity_id: int, data: schemas.ModalityClassifyRequest
 @router.post("/{opportunity_id}/modalidade/corrigir")
 def correct_modality(opportunity_id: int, data: schemas.ModalityCorrectRequest, db: Session = Depends(get_db), user: models.User = Depends(authorized_writer)):
     opp = _opp_or_404(db, opportunity_id)
+    ensure_evidence_of_property(db, opp.property_id, data.evidence_id)
     out = wf.correct_modality(db, opp, modality=data.modality, justification=data.justification, evidence_id=data.evidence_id, actor=_actor(user))
     db.commit()
     return serialize(out)

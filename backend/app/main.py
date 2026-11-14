@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from .config import settings
@@ -68,7 +68,7 @@ from .routers import health as health_router  # noqa: E402
 from .routers import hubs as hubs_router  # noqa: E402
 from .routers import legal_central as legal_central_router  # noqa: E402
 from .routers import market as market_router  # noqa: E402
-from .routers.deps import property_or_404  # noqa: E402  (fonte única; reusado abaixo)
+from .routers.deps import ensure_evidence_of_property, property_or_404  # noqa: E402  (fonte única; reusado abaixo)
 from .routers.market import get_market  # noqa: E402,F401  (compat: testes importam get_market de main)
 from .routers import admin as admin_router  # noqa: E402
 from .routers import debts as debts_router  # noqa: E402
@@ -383,6 +383,7 @@ def analyze_financial(property_id: int, db: Session = Depends(get_db)):
 @app.post("/api/imoveis/{property_id}/ocupacao")
 def create_occupancy(property_id: int, data: schemas.OccupancyCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
+    ensure_evidence_of_property(db, property_id, data.evidence_id)
     occupancy = models.OccupancyAnalysis(property_id=property_id, **data.model_dump())
     db.add(occupancy); db.flush()
     payload = data.model_dump(mode="json")
@@ -402,6 +403,7 @@ def get_occupancy(property_id: int, db: Session = Depends(get_db)):
 @app.post("/api/imoveis/{property_id}/matricula")
 def create_registration(property_id: int, data: schemas.RegistrationCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
+    ensure_evidence_of_property(db, property_id, data.evidence_id)
     item = models.PropertyRegistration(property_id=property_id, **data.model_dump())
     db.add(item); db.flush(); payload = data.model_dump(mode="json")
     event = record_event(db, prop, "MATRICULA_CADASTRADA", "PropertyRegistration", item.id, payload, ["juridico", "checklist"])
@@ -436,6 +438,7 @@ def update_registration(property_id: int, registration_id: int, data: schemas.Re
 @app.post("/api/imoveis/{property_id}/edital")
 def create_notice(property_id: int, data: schemas.AuctionNoticeCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
+    ensure_evidence_of_property(db, property_id, data.evidence_id)
     item = models.AuctionNotice(property_id=property_id, **data.model_dump())
     db.add(item); db.flush(); payload = data.model_dump(mode="json")
     event = record_event(db, prop, "EDITAL_CADASTRADO", "AuctionNotice", item.id, payload, ["documental", "juridico", "financeiro", "checklist"])
@@ -709,7 +712,14 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
     juridico = juridical_overview(db, prop)
     checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk, "resolution_origin": r.resolution_origin, "evidence_ids": sorted(link.evidence_id for link in r.evidence_links)} for r in (execution.results if execution else [])]
-    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": [masked_evidence(e) for e in prop.evidences], "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop), "confronto_documental": _document_comparison_view(prop)}
+    return {"imovel": _property_columns(prop), "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": [masked_evidence(e) for e in prop.evidences], "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop), "confronto_documental": _document_comparison_view(prop)}
+
+
+def _property_columns(prop: models.Property) -> dict:
+    """Só as colunas do imóvel. Devolver o objeto ORM fazia o jsonable_encoder serializar todo relacionamento já
+    carregado na requisição (documentos, chunks com texto bruto e embedding, caminho de armazenamento, evidências sem
+    máscara): vazamento de dados e HTTP 500 quando os chunks tinham embedding (1ª execução real v1.0.4)."""
+    return {attr.key: getattr(prop, attr.key) for attr in sa_inspect(prop).mapper.column_attrs}
 
 
 def _document_comparison_view(prop: models.Property) -> list[dict]:
@@ -854,6 +864,7 @@ def delete_cost(property_id: int, cost_id: int, db: Session = Depends(get_db)):
 @app.post("/api/imoveis/{property_id}/dividas")
 def add_debt(property_id: int, data: schemas.DebtCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
+    ensure_evidence_of_property(db, property_id, data.evidence_id)
     item = models.Debt(property_id=property_id, **data.model_dump())
     db.add(item); db.flush()
     payload = data.model_dump(mode="json")
@@ -879,6 +890,7 @@ def update_debt(property_id: int, debt_id: int, data: schemas.DebtUpdate, db: Se
         raise HTTPException(404, "Dívida não encontrada para o imóvel")
     before = _snapshot(item, DEBT_FIELDS)
     changes = data.model_dump(exclude_unset=True)
+    ensure_evidence_of_property(db, property_id, changes.get("evidence_id"))
     _apply_updates(item, changes)
     db.flush()
     after = _snapshot(item, DEBT_FIELDS)
@@ -956,6 +968,7 @@ def delete_comparable(property_id: int, comparable_id: int, db: Session = Depend
 @app.post("/api/imoveis/{property_id}/processos")
 def add_process(property_id: int, data: schemas.ProcessCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
+    ensure_evidence_of_property(db, property_id, data.evidence_id)
     item = models.LegalProcess(property_id=property_id, **data.model_dump())
     db.add(item); db.flush()
     payload = data.model_dump(mode="json")
