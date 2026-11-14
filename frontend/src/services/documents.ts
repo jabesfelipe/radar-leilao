@@ -1,12 +1,28 @@
 import { PropertiesServiceError } from './properties'
 
+export type ProcessingStage = {
+  etapa: 'upload' | 'ocr' | 'extracao' | 'chunking' | 'embedding' | 'indexacao' | string
+  estado: 'concluida' | 'parcial' | 'pendente' | 'falhou' | 'indisponivel' | 'nao_aplicavel' | string
+  detalhe: string
+}
+
+/** Prontidão derivada no backend (documents/readiness.py): etapas explícitas e se o documento pode ser analisado. */
+export type VersionProcessing = {
+  estado: string
+  mensagem: string
+  pronto_para_analise: boolean
+  nivel_indexacao: 'vetorial' | 'parcial' | 'texto' | 'nenhum' | string
+  chunks: number
+  chunks_com_embedding: number
+  etapas: ProcessingStage[]
+}
+
 export type DocumentVersion = {
   id: number
   version: number
   content_hash: string
-  original_path?: string | null
-  normalized_path?: string | null
   status: string
+  processamento?: VersionProcessing | null
   created_at?: string
 }
 

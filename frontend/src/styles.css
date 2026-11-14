@@ -524,12 +524,12 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 }
 
 /* Seção de histórico */
-.history-groups { display: grid; gap: 1.75rem; }
-.history-group { display: grid; gap: .85rem; }
+.history-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+.history-group { display: grid; grid-template-columns: minmax(0, 1fr); gap: .85rem; min-width: 0; }
 .history-group-title { display: flex; align-items: center; gap: .5rem; margin: 0; color: var(--color-text); font-size: var(--font-size-sm); font-weight: 800; }
 .history-group-title svg { color: var(--color-accent-strong); }
-.history-timeline { display: grid; gap: .75rem; }
-.history-timeline-item { position: relative; display: flex; align-items: flex-start; gap: .85rem; }
+.history-timeline { display: grid; grid-template-columns: minmax(0, 1fr); gap: .75rem; }
+.history-timeline-item { position: relative; display: flex; align-items: flex-start; gap: .85rem; min-width: 0; }
 .history-timeline-dot { width: 9px; height: 9px; flex-shrink: 0; margin-top: 1.15rem; border-radius: 50%; background: var(--color-accent); }
 .history-card { flex: 1; min-width: 0; display: grid; gap: .55rem; }
 .history-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
@@ -537,6 +537,9 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .history-time { color: var(--color-text-soft); font-size: var(--font-size-xs); white-space: nowrap; }
 .history-card-meta { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; color: var(--color-text-soft); font-size: var(--font-size-xs); }
 .history-changes { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
+
+/* Badges com lista longa (ex.: domínios da análise, sem espaços) quebram em vez de estourar a tela. */
+.history-card .ui-badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; border-radius: var(--radius-md); }
 
 @media (max-width: 680px) {
   .history-card-head { flex-direction: column; gap: .25rem; }
@@ -677,3 +680,52 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .opp-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .opp-detail { margin-top: 16px; border: 1px solid var(--border, #e2e8f0); }
 .opp-detail .admin-form-title { margin-top: 14px; }
+
+/* ==========================================================================
+   Correções de layout mobile/tablet — homologação v1.0.2 (rodada P0/P1)
+   Medidas com Chrome real em 375/390/412/768 px (e2e/tests/mobile*.spec.ts).
+   Causa raiz: contêineres `display:grid` sem coluna explícita crescem até o
+   min-content do maior filho (texto longo, linha de histórico, bloco jurídico),
+   ultrapassando a viewport; `overflow-x:hidden` esconde o corte em vez de evitá-lo.
+   ========================================================================== */
+.property-detail, .dossier-section, .dossier-current, .history-groups, .history-group,
+.history-timeline, .detail-placeholder, .dossier-error, .properties-list-section { grid-template-columns: minmax(0, 1fr); }
+.property-detail > *, .dossier-section > *, .dossier-current > *, .history-groups > *,
+.history-group > *, .history-timeline > *, .ui-section, .ui-card, .detail-section { min-width: 0; max-width: 100%; }
+.dossier-current-head { flex-wrap: wrap; }
+.dossier-current-head > * { min-width: 0; }
+.legal-provision, .legal-official, .legal-practical, .legal-official p, .legal-practical p,
+.history-changes, .wizard-muted, .dossier-facts dd, .detail-description p { overflow-wrap: anywhere; }
+.dd-checklist, .dd-checklist * { min-width: 0; }
+.dossier-form-actions { flex-wrap: wrap; }
+/* Cartões em grid (Due Diligence, Financeiro...): a faixa implícita `auto` crescia até o conteúdo
+   (242px dentro de 175px úteis) e vazava do cartão; a faixa passa a ser limitada pelo cartão. */
+.finance-card, .dd-front-card, .finance-card-head { grid-template-columns: minmax(0, 1fr); }
+.finance-card > *, .dd-front-card > * { min-width: 0; max-width: 100%; }
+/* Com o menu lateral fixo (681–980px) sobram ~550px: duas colunas de cartões ficam apertadas demais. */
+@media (max-width: 980px) {
+  .finance-list { grid-template-columns: minmax(0, 1fr); }
+}
+/* Filtros e selects administrativos: nunca mais largos que o cartão. */
+.admin-field { min-width: 0; max-width: 100%; }
+.admin-field select, .admin-field input, .opp-filters select, .opp-filters input { width: 100%; max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+.opp-filters > * { min-width: 0; flex: 1 1 180px; }
+/* Tabelas administrativas sem contêiner próprio: rolagem horizontal DENTRO da tabela em telas estreitas. */
+@media (max-width: 980px) {
+  .admin-table { display: block; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+}
+/* iOS dá zoom ao focar campo com fonte < 16 px; em telas touch/estreitas usamos 16 px.
+   Alvos de toque com no mínimo 44 px (WCAG 2.5.5 / HIG). */
+@media (max-width: 680px), (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea,
+  .ui-input, .ui-select, .ui-textarea, .auction-link-select, .admin-field select { font-size: 16px; }
+  .ui-button, .ui-button-sm, .ui-icon-button-sm, .detail-nav-item, .admin-tab, .wizard-step { min-height: 44px; }
+}
+/* Resultado da análise: avisos por agente/documento legíveis no celular. */
+.analysis-summary, .analysis-status-message { margin: 0 0 .4rem; overflow-wrap: anywhere; }
+.analysis-agent-list, .analysis-warning-list { margin: .25rem 0 0; padding-left: 1.1rem; overflow-wrap: anywhere; }
+.document-processing { display: grid; gap: .75rem; margin-bottom: .75rem; }
+.document-stages { display: grid; gap: .5rem; margin: 0; padding: 0; list-style: none; }
+.document-stage { padding: .55rem .7rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface-subtle); min-width: 0; }
+.document-stage-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+.document-stage-detail { margin: .3rem 0 0; color: var(--color-text-muted); font-size: var(--font-size-xs); overflow-wrap: anywhere; }

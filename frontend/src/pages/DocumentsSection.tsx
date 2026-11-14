@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ChevronDown, ChevronRight, FileText, Layers, RefreshCw, Upload } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
 import { latestVersion, listDocuments, uploadDocument, type PropertyDocument } from '../services/documents'
+import { documentStateLabel, documentStateTone, stageName, stageStateLabel, stageTone } from '../services/analysisStatus'
 
 type DocumentsSectionProps = {
   propertyId: number
@@ -24,6 +25,7 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [notReadyMessage, setNotReadyMessage] = useState('')
   const [expanded, setExpanded] = useState<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -52,6 +54,7 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
   const openForm = () => {
     resetForm()
     setSuccessMessage('')
+    setNotReadyMessage('')
     setFormOpen(true)
   }
 
@@ -69,6 +72,13 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
       setDocuments((current) => [...current, created])
       setFormOpen(false)
       resetForm()
+      const processing = latestVersion(created)?.processamento
+      if (processing && !processing.pronto_para_analise) {
+        // Upload aceito, mas o documento NÃO pode ser analisado (sem texto/OCR): não é "sucesso" pleno.
+        setNotReadyMessage(`O arquivo foi recebido, mas ainda não pode ser analisado. ${processing.mensagem}`)
+      } else {
+        setNotReadyMessage('')
+      }
       setSuccessMessage('Documento original enviado e pipeline iniciado.')
     } catch (cause) {
       setUploadError(cause instanceof Error ? cause.message : 'Não foi possível enviar o documento.')
@@ -80,6 +90,7 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
   return (
     <Section title="Documentos" description="Originais preservados, versões e processamento com rastreabilidade." className="documents-section" actions={<Button onClick={openForm}><Upload size={16} /> Enviar documento</Button>}>
       {successMessage && <Alert tone="success" title="Envio concluído" className="documents-feedback">{successMessage}</Alert>}
+      {successMessage && notReadyMessage && <Alert tone="danger" title="Documento não pronto para análise" className="documents-feedback">{notReadyMessage}</Alert>}
 
       {formOpen && (
         <Card variant="elevated" padding="lg" className="document-form-card">
@@ -124,7 +135,11 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
                   <div className="document-item-meta">
                     <Badge tone="neutral" size="sm"><Layers size={12} /> {document.versions.length} {document.versions.length === 1 ? 'versão' : 'versões'}</Badge>
                     {latest && <Badge tone="info" size="sm">v{latest.version} · {latest.status}</Badge>}
-                    <Badge tone={document.status === 'RECEBIDO' ? 'warning' : 'neutral'} size="sm">{document.status.split('_').join(' ')}</Badge>
+                    {latest?.processamento ? (
+                      <Badge tone={documentStateTone(latest.processamento.estado)} size="sm" title={latest.processamento.mensagem}>{documentStateLabel(latest.processamento.estado)}</Badge>
+                    ) : (
+                      <Badge tone={document.status === 'RECEBIDO' ? 'warning' : 'neutral'} size="sm">{document.status.split('_').join(' ')}</Badge>
+                    )}
                     {isOpen ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                   </div>
                 </button>
@@ -139,10 +154,26 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
                             <strong>Versão {version.version}</strong>
                             <Badge tone="neutral" size="sm">{version.status.split('_').join(' ')}</Badge>
                           </div>
+                          {version.processamento && (
+                            <div className="document-processing">
+                              <Alert tone={version.processamento.pronto_para_analise ? (version.processamento.nivel_indexacao === 'vetorial' ? 'success' : 'warning') : 'danger'} title={version.processamento.pronto_para_analise ? 'Pronto para análise' : 'Não está pronto para análise'}>
+                                {version.processamento.mensagem}
+                              </Alert>
+                              <ol className="document-stages" aria-label={`Etapas de processamento da versão ${version.version}`}>
+                                {version.processamento.etapas.map((stage) => (
+                                  <li key={stage.etapa} className="document-stage">
+                                    <div className="document-stage-head">
+                                      <strong>{stageName(stage.etapa)}</strong>
+                                      <Badge tone={stageTone(stage.estado)} size="sm">{stageStateLabel(stage.estado)}</Badge>
+                                    </div>
+                                    {stage.detalhe && <p className="document-stage-detail">{stage.detalhe}</p>}
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          )}
                           <dl className="document-version-facts">
                             <div><dt>Hash</dt><dd className="document-hash">{version.content_hash}</dd></div>
-                            {version.original_path && <div><dt>Caminho original</dt><dd>{version.original_path}</dd></div>}
-                            {version.normalized_path && <div><dt>Caminho normalizado</dt><dd>{version.normalized_path}</dd></div>}
                             <div><dt>Data</dt><dd>{formatDate(version.created_at)}</dd></div>
                           </dl>
                         </div>

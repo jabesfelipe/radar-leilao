@@ -23,6 +23,7 @@ export type AnalysisRecord = {
   changes?: string | null
   model?: string | null
   prompt_version?: string | null
+  token_usage?: { status?: string; status_mensagem?: string; avisos?: string[] } | null
   created_at?: string
 }
 

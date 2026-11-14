@@ -286,3 +286,73 @@ describe('PropertyDetailPage — fluxo completo de análise', () => {
     await waitFor(() => expect(screen.getByText('Análise concluída')).toBeInTheDocument())
   })
 })
+
+describe('PropertyDetailPage — status honesto da análise (homologação v1.0.2)', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    globalThis.fetch = vi.fn()
+  })
+
+  const detalheDepois = response({ imovel: { ...property, status: 'EM_ANALISE' } })
+  const base = { versao: 2, agentes: ['documental', 'juridico', 'financeiro', 'mercado', 'checklist'], llm_usada: false, chunks_recuperados: [], evidencias: [], veredito: 'INCONCLUSIVO' }
+
+  async function executar(resultado: unknown) {
+    vi.mocked(fetch)
+      .mockReturnValueOnce(response({ imovel: property }))
+      .mockReturnValueOnce(response(resultado))
+      .mockReturnValueOnce(detalheDepois)
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    await screen.findByRole('heading', { name: 'Apartamento Centro' })
+    fireEvent.click(screen.getByRole('button', { name: /Executar análise completa/ }))
+  }
+
+  it('NÃO mostra "Análise concluída" quando todos os agentes falharam (IA indisponível)', async () => {
+    await executar({
+      ...base, status: 'falha',
+      status_detalhe: {
+        codigo: 'IA_INDISPONIVEL', mensagem: 'A IA não está disponível (chave da OpenAI não configurada). Nenhum agente analisou o imóvel; o veredito usa só as regras determinísticas.',
+        avisos: [], agentes: base.agentes.map((agente) => ({ agente, status: 'SEM_CHAVE', erro: 'LLM não configurada' })), agentes_ok: 0, agentes_total: 5, ia_disponivel: false, documentos_prontos: 0, documentos_total: 0,
+      },
+    })
+    expect(await screen.findByText('Análise sem resultado da IA')).toBeInTheDocument()
+    expect(screen.queryByText('Análise concluída')).not.toBeInTheDocument()
+    expect(screen.getByText(/A IA não está disponível/)).toBeInTheDocument()
+    expect(screen.getByText(/documental/, { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getAllByText(/IA indisponível \(chave não configurada\)/).length).toBe(5)
+    expect(document.querySelector('.ui-alert-danger')).not.toBeNull()
+  })
+
+  it('mostra "Análise parcial" e quais agentes falharam', async () => {
+    await executar({
+      ...base, llm_usada: true, status: 'parcial',
+      status_detalhe: {
+        codigo: 'AGENTES_PARCIAIS', mensagem: '4 de 5 agentes executaram. Falharam: juridico.', avisos: ["Documento 'mat.pdf' não está pronto para análise (OCR_NECESSARIO): sem texto"],
+        agentes: [{ agente: 'documental', status: 'CONCLUIDO' }, { agente: 'juridico', status: 'ERRO', erro: 'timeout' }], agentes_ok: 4, agentes_total: 5, ia_disponivel: true, documentos_prontos: 0, documentos_total: 1,
+      },
+    })
+    expect(await screen.findByText('Análise parcial')).toBeInTheDocument()
+    expect(screen.getByText('4 de 5 agentes executaram. Falharam: juridico.')).toBeInTheDocument()
+    expect(screen.getByText(/mat\.pdf/)).toBeInTheDocument()
+    expect(document.querySelector('.ui-alert-warning')).not.toBeNull()
+  })
+
+  it('"Análise concluída" continua existindo quando todos os agentes executaram', async () => {
+    await executar({ ...base, llm_usada: true, status: 'concluida' })
+    expect(await screen.findByText('Análise concluída')).toBeInTheDocument()
+    expect(document.querySelector('.ui-alert-success')).not.toBeNull()
+  })
+
+  it('ao reabrir o imóvel, avisa que a última análise falhou (sem rodar nada)', async () => {
+    vi.mocked(fetch).mockReturnValueOnce(response({ imovel: property, analise_em_processamento: false, analise_ultima: { versao: 4, status: 'falha', mensagem: 'A IA não está disponível.', avisos: [] } }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    expect(await screen.findByText('Última análise (v4): falha')).toBeInTheDocument()
+    expect(screen.getByText('A IA não está disponível.')).toBeInTheDocument()
+  })
+
+  it('mostra que há análise em processamento mesmo sem ter sido iniciada nesta tela', async () => {
+    vi.mocked(fetch).mockReturnValueOnce(response({ imovel: property, analise_em_processamento: true, analise_ultima: null }))
+    render(<PropertyDetailPage propertyId={7} onBack={vi.fn()} />)
+    expect(await screen.findByText('Análise em processamento')).toBeInTheDocument()
+    expect(screen.getByText(/iniciada nesta ou em outra sessão/)).toBeInTheDocument()
+  })
+})

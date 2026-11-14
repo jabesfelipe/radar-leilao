@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Activity, History, PencilLine, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section } from '../components/ui'
 import { getHistory, type AnalysisRecord, type DomainEvent, type EntityChange } from '../services/history'
+import { analysisLabel, analysisTone } from '../services/analysisStatus'
 
 type HistorySectionProps = {
   propertyId: number
@@ -69,9 +70,13 @@ export function HistorySection({ propertyId }: HistorySectionProps) {
                         <span className="history-time">{formatDateTime(analysis.created_at)}</span>
                       </div>
                       <div className="history-card-meta">
+                        {analysis.token_usage?.status && <Badge tone={analysisTone(analysis.token_usage.status)} size="sm">{analysisLabel(analysis.token_usage.status)}</Badge>}
                         {analysis.scope && <Badge tone="info" size="sm">{analysis.scope}</Badge>}
                         {analysis.agents_executed && analysis.agents_executed.length > 0 && <span>{analysis.agents_executed.length} agente(s)</span>}
                       </div>
+                      {analysis.token_usage?.status && analysis.token_usage.status !== 'concluida' && analysis.token_usage.status_mensagem && (
+                        <p className="history-changes">{analysis.token_usage.status_mensagem}</p>
+                      )}
                       {analysis.changes && <p className="history-changes">{analysis.changes}</p>}
                     </Card>
                   </div>
