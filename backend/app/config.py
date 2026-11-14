@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Teto de uma ÚNICA análise (soma dos agentes). Impede que uma análise estoure o mês por dentro e
     # limita o excesso de análises simultâneas. Vale também para a checagem durante a execução dos agentes.
     llm_budget_usd_per_analysis: float | None = None
+    # Política de falha segura (v1.0.4): com True, sem LLM_BUDGET_USD_MONTH E LLM_BUDGET_USD_PER_ANALYSIS definidos
+    # nenhuma chamada paga é feita (agentes, extração, embeddings: todos passam por build_gateway). Padrão False no
+    # desenvolvimento/testes; o docker-compose.prod.yml liga por padrão (LLM_REQUIRE_BUDGET=true).
+    llm_require_budget: bool = False
     # Preço de referência de embeddings (USD por 1M tokens) usado só para ESTIMAR o custo
     # em log/telemetria (não há linha em llm_pricing). Confirmar na página de preços da OpenAI.
     embedding_price_per_1m_usd: float = 0.02

@@ -59,15 +59,35 @@ def month_status(db: Session | None = None) -> dict[str, Any]:
     return {"limite_usd": float(limit), "gasto_usd": round(spent_f, 6), "excedido": spent_f >= float(limit), "sem_preco": sem_preco}
 
 
+def pricing_missing(db: Session | None = None) -> bool:
+    """O modelo de chat configurado NÃO tem preço ativo em ``llm_pricing``.
+
+    Com qualquer teto configurado (mensal OU por análise) isso precisa falhar FECHADO: sem preço o custo de cada
+    chamada é desconhecido (None) e nenhum teto dispararia — gasto ilimitado por ausência de preço."""
+    from .costs import resolve_pricing
+    own = db is None
+    if own:
+        from ..database import SessionLocal
+        db = SessionLocal()
+    try:
+        return resolve_pricing(db, settings.llm_provider, settings.llm_model) is None
+    finally:
+        if own:
+            db.close()
+
+
 def unavailable_reason(db: Session | None = None) -> tuple[str, str]:
     """Por que o LLM não está disponível: (status do LLMCall, mensagem pública)."""
     if not settings.effective_llm_api_key:
         return "SEM_CHAVE", "LLM não configurada; análise deste domínio aguarda OPENAI_API_KEY"
+    if settings.llm_require_budget and (settings.llm_budget_usd_month is None or settings.llm_budget_usd_per_analysis is None):
+        from .gateway import MISSING_BUDGET_MESSAGE
+        return "ORCAMENTO_EXCEDIDO", MISSING_BUDGET_MESSAGE
     try:
         status = month_status(db)
         if status["excedido"]:
             return "ORCAMENTO_EXCEDIDO", "Orçamento mensal de IA atingido; nenhuma chamada foi feita ao provider"
-        if status.get("sem_preco"):
+        if status.get("sem_preco") or (settings.llm_budget_usd_per_analysis is not None and pricing_missing(db)):
             return "ORCAMENTO_EXCEDIDO", "Modelo sem preço em llm_pricing: o orçamento não pode ser aplicado; nenhuma chamada foi feita"
     except Exception:
         pass

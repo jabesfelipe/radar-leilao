@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Protocol
@@ -20,7 +21,7 @@ def sanitize_error(message: str) -> str:
 
 # Categorias de falha do provider (sem depender do SDK: classificação pelo nome da
 # classe da exceção e do status HTTP, quando disponível).
-ERROR_CATEGORIES = ("AUTENTICACAO", "RATE_LIMIT", "TIMEOUT", "CONEXAO", "REQUISICAO_INVALIDA", "PROVEDOR", "ORCAMENTO", "DESCONHECIDO")
+ERROR_CATEGORIES = ("AUTENTICACAO", "RATE_LIMIT", "TIMEOUT", "CONEXAO", "REQUISICAO_INVALIDA", "PROVEDOR", "ORCAMENTO", "LIMITE_DE_SAIDA", "DESCONHECIDO")
 
 
 class ProviderResponseInvalid(Exception):
@@ -38,6 +39,9 @@ def classify_provider_error(exc: BaseException) -> str:
     status = getattr(exc, "status_code", None)
     if "budgetexceeded" in name:
         return "ORCAMENTO"
+    if "lengthfinishreason" in name or "length limit was reached" in str(exc).lower():
+        # Resposta truncada por LLM_MAX_OUTPUT_TOKENS: a chamada foi cobrada e descartada (v1.0.4).
+        return "LIMITE_DE_SAIDA"
     if "authentication" in name or "permissiondenied" in name or status in (401, 403):
         return "AUTENTICACAO"
     if "ratelimit" in name or status == 429:
@@ -51,6 +55,27 @@ def classify_provider_error(exc: BaseException) -> str:
     if "internalserver" in name or "apistatus" in name or (isinstance(status, int) and status >= 500):
         return "PROVEDOR"
     return "DESCONHECIDO"
+
+
+_USAGE_RE = re.compile(r"completion_tokens=(\d+).*?prompt_tokens=(\d+)", re.S)
+
+
+def _billed_tokens(exc: BaseException) -> tuple[int | None, int | None]:
+    """Tokens já cobrados de uma chamada que falhou DEPOIS da resposta (v1.0.4).
+
+    ``ProviderResponseInvalid`` traz ``input_tokens``/``output_tokens``; a resposta truncada por limite de saída
+    (``LengthFinishReasonError`` do SDK) traz ``completion.usage`` — e a mesma informação na mensagem quando a
+    exceção chega embrulhada. Sem isso o custo da chamada truncada ficava fora de llm_runs e do orçamento."""
+    input_tokens, output_tokens = getattr(exc, "input_tokens", None), getattr(exc, "output_tokens", None)
+    if input_tokens is not None or output_tokens is not None:
+        return input_tokens, output_tokens
+    usage = getattr(getattr(exc, "completion", None), "usage", None)
+    if usage is not None and getattr(usage, "prompt_tokens", None) is not None:
+        return usage.prompt_tokens, getattr(usage, "completion_tokens", None)
+    match = _USAGE_RE.search(str(exc))
+    if match:
+        return int(match.group(2)), int(match.group(1))
+    return None, None
 
 
 class ChatProvider(Protocol):
@@ -127,7 +152,8 @@ class LLMGateway:
                         self.provider_name, self.model, elapsed, type(exc).__name__, category, sanitize_error(str(exc)))
             # Uma resposta recebida mas inválida (ex.: JSON fora do schema) JÁ foi cobrada: os tokens vêm
             # anexados à exceção pelo provider e entram em llm_runs/orçamento mesmo com status ERRO.
-            return LLMCall(provider=self.provider_name, model=self.model, input_tokens=getattr(exc, "input_tokens", None), output_tokens=getattr(exc, "output_tokens", None), duration_ms=elapsed, request_id=getattr(exc, "request_id", None), status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)), error_category=category)
+            billed_in, billed_out = _billed_tokens(exc)
+            return LLMCall(provider=self.provider_name, model=self.model, input_tokens=billed_in, output_tokens=billed_out, duration_ms=elapsed, request_id=getattr(exc, "request_id", None), status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)), error_category=category)
 
     # Ponto ÚNICO de saída para o provider externo: dados pessoais são mascarados aqui
     # (minimização), de modo que nenhum agente/serviço precise lembrar de fazê-lo.
@@ -161,7 +187,13 @@ class BudgetExceeded(RuntimeError):
     ser tratada pelos chamadores como 'LLM indisponível' (sem chamada ao provider)."""
 
 
+MISSING_BUDGET_MESSAGE = ("Limites de orçamento de IA obrigatórios não configurados (LLM_BUDGET_USD_MONTH e "
+                          "LLM_BUDGET_USD_PER_ANALYSIS); nenhuma chamada foi feita ao provider")
+
+
 def build_gateway() -> LLMGateway:
+    if settings.llm_require_budget and (settings.llm_budget_usd_month is None or settings.llm_budget_usd_per_analysis is None):
+        raise BudgetExceeded(MISSING_BUDGET_MESSAGE)
     if settings.llm_budget_usd_month is not None:
         from .budget import month_status
         status = month_status()
@@ -170,6 +202,12 @@ def build_gateway() -> LLMGateway:
         if status.get("sem_preco"):
             # Sem preço em llm_pricing o custo da chamada é desconhecido (None) e o orçamento nunca
             # dispararia: falha FECHADA em vez de gastar sem contabilizar.
+            raise BudgetExceeded("Modelo sem preço cadastrado em llm_pricing: o orçamento não pode ser aplicado")
+    elif settings.llm_budget_usd_per_analysis is not None:
+        # Só o teto POR ANÁLISE configurado: a mesma regra de falha fechada vale (v1.0.4 — antes, sem teto mensal,
+        # a ausência de preço não era verificada e o teto por análise nunca disparava).
+        from .budget import pricing_missing
+        if pricing_missing():
             raise BudgetExceeded("Modelo sem preço cadastrado em llm_pricing: o orçamento não pode ser aplicado")
     provider = settings.llm_provider.lower()
     if provider == "openai":
