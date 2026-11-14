@@ -683,6 +683,12 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .topbar-user { display: inline-flex; align-items: center; gap: 8px; }
 .topbar-user-meta { display: flex; flex-direction: column; line-height: 1.1; }
 .topbar-user-meta small { color: var(--text-muted, #64748b); font-size: 0.72rem; }
+/* Celular: o nome/perfil espremia a marca e o título da topbar (360px mostrava "C…").
+   O selo com as iniciais continua visível e o title mantém e-mail e perfil. */
+@media (max-width: 680px) {
+  .topbar-user-meta { display: none; }
+  .opp-filters select { min-height: 44px; }
+}
 
 /* --- Oportunidades / Workflow (Onda 2) --- */
 .opp-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
