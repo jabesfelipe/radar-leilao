@@ -12,8 +12,19 @@ def checklist(state="PENDENTE", question="Pergunta pendente", applicable=True):
     return SimpleNamespace(state=state, applicable=applicable, item=SimpleNamespace(question=question))
 
 
+# Financeiro VIÁVEL e completo (formato de finance.calculate_financial). Desde a correção do veredito
+# orientado à decisão, FAVORÁVEL exige viabilidade financeira comprovada no lance pretendido.
+VIAVEL = {
+    "valor_aquisicao": 100000, "valor_mercado": 200000, "custo_total": 120000, "resultado_liquido": 60000,
+    "margem_liquida": 0.3, "roi_operacao": 0.5, "resultado_completo": True,
+    "preco_maximo": 150000, "preco_maximo_definitivo": True,
+    "preco_maximo_detalhe": {"razao": "DEFINITIVO", "premissas_utilizadas": {"meta": {"tipo": "MARGEM_MINIMA", "valor": 0.2}}},
+    "pendencias": [],
+}
+
+
 def test_nenhum_risco_pendencia_e_evidencia_suficiente_favoravel():
-    result = VerdictEngine().evaluate(1, 2, evidence_ids=[8], financial={"custo_total": 100})
+    result = VerdictEngine().evaluate(1, 2, evidence_ids=[8], financial=VIAVEL)
     assert result.overall == "FAVORAVEL"
     assert result.risk_ids == []
     assert result.evidence_ids == [8]
@@ -50,10 +61,11 @@ def test_ids_financeiro_pendencias_e_versionamento_sao_preservados():
     assert result.evidence_ids == [10, 11]
     assert result.pending_items == ["pendência formal", "preço máximo pendente"]
     assert result.financial["custo_total"] == 100
+    assert result.financial["decisao"]["recomendacao"]["codigo"]   # decisão anexada ao financeiro
 
 
 def test_nao_aplicavel_e_risco_inativo_nao_degradam_veredito():
-    result = VerdictEngine().evaluate(1, 2, risks=[risk("CRITICA", status="INATIVO")], checklist_results=[checklist("NAO_APLICAVEL", applicable=False)], evidence_ids=[8])
+    result = VerdictEngine().evaluate(1, 2, risks=[risk("CRITICA", status="INATIVO")], checklist_results=[checklist("NAO_APLICAVEL", applicable=False)], evidence_ids=[8], financial=VIAVEL)
     assert result.overall == "FAVORAVEL"
 
 

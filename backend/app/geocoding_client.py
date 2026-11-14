@@ -77,6 +77,10 @@ class GeocodingClient:
             raise GeocodingUnavailable("NAO_CONFIGURADO")
         if not (address or "").strip():
             raise GeocodingError("Endereço vazio não pode ser geocodificado.")
+        # Minimização: só o endereço vai ao Google. Se o texto (que pode vir digitado pelo usuário) contiver
+        # identificadores pessoais (CPF, e-mail, telefone...), eles são removidos antes do envio.
+        from .privacy import redact_pii
+        address = redact_pii(address.strip(), force=True)[:300]
         params = {"address": address, "key": self._api_key, "language": "pt-BR", "region": "br"}
         try:
             resp = self._get(params)

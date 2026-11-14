@@ -76,7 +76,9 @@ def test_persistencia_checklist_valida_chave_estado_e_evidence(monkeypatch):
         def __init__(self):
             self.added = []
             self.chunk = models.DocumentChunk(id=4, document_version_id=3, page=2, section="Edital", content="edital lido")
-            self.version = models.DocumentVersion(id=3, document_id=8)
+            # O documento da versão pertence ao imóvel 1: a persistência agora VALIDA o isolamento por imóvel
+            # (chunk citado pelo LLM de outro imóvel é descartado; ver tests/test_rag_isolation.py).
+            self.version = models.DocumentVersion(id=3, document_id=8, document=models.Document(id=8, property_id=1))
 
         def get(self, model, identifier):
             if model is models.DocumentChunk and identifier == 4:

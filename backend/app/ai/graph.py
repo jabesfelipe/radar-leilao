@@ -14,6 +14,9 @@ from ..consolidation import consolidate_agent_results
 
 log = get_logger("langgraph")
 
+# Consulta padrão da análise quando o usuário não informa foco (ver AnalysisOrchestrator).
+DEFAULT_RAG_QUERY = "análise documental do imóvel"
+
 
 class AnalysisState(TypedDict, total=False):
     property_id: int
@@ -63,11 +66,15 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
     def retrieve_rag(state: AnalysisState) -> dict[str, Any]:
         property_id = state["property_id"]
         domains = state.get("domains", [])
-        query = state.get("query") or "análise documental do imóvel"
+        query = state.get("query") or DEFAULT_RAG_QUERY
         selected = _rag_filter(domains)
         filters = RetrieverFilters(property_id=property_id, category=selected.category)
+        # Consulta genérica (padrão): busca ampla (OR + contingência posicional). Foco explícito do
+        # usuário (``query``) continua estrito: não inventa contexto sem correspondência.
+        broad = query == DEFAULT_RAG_QUERY
         try:
-            retrieval = RAGService(db).retrieve_context(query, property_id=property_id, filters=filters)
+            extra = {"broad": True} if broad else {}  # consulta explícita: chamada idêntica à anterior (estrita)
+            retrieval = RAGService(db).retrieve_context(query, property_id=property_id, filters=filters, **extra)
         except Exception as exc:
             message = f"Falha no RAG: {type(exc).__name__}: {sanitize_error(str(exc))[:300]}"
             return {

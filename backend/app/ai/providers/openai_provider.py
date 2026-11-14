@@ -1,6 +1,6 @@
 from typing import Any
 from ...config import settings
-from ..gateway import ProviderResponse
+from ..gateway import ProviderResponse, ProviderResponseInvalid
 
 
 class OpenAIProvider:
@@ -55,10 +55,11 @@ class OpenAIProvider:
 
     def structured_chat(self, schema: Any, messages: list[dict[str, str]], **kwargs: Any) -> ProviderResponse:
         result = self.chat_model.with_structured_output(schema, include_raw=True).invoke(self._messages(messages), **kwargs)
-        if result.get("parsing_error"):
-            raise result["parsing_error"]
         raw = result.get("raw")
         input_tokens, output_tokens, request_id = self._usage(raw)
+        if result.get("parsing_error"):
+            # A OpenAI já cobrou esta chamada: leva os tokens junto para llm_runs/orçamento.
+            raise ProviderResponseInvalid(str(result["parsing_error"]), input_tokens, output_tokens, request_id) from result["parsing_error"]
         return ProviderResponse(content=result.get("parsed"), input_tokens=input_tokens, output_tokens=output_tokens, request_id=request_id, metadata=getattr(raw, "response_metadata", {}) or {})
 
     def embed(self, texts: list[str]) -> list[list[float]]:

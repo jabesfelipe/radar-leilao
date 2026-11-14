@@ -253,6 +253,9 @@ export type PropertyDetail = {
   edital: NoticeSummary | null
   matricula: RegistrationSummary | null
   fontes: PropertySource[]
+  /** Há análise em andamento (lock da operação retido), mesmo iniciada em outra sessão. */
+  analise_em_processamento?: boolean
+  analise_ultima?: LastAnalysis | null
 }
 
 export async function getProperty(id: number): Promise<Property> {
@@ -272,8 +275,25 @@ export type AnalysisResult = {
   chunks_recuperados: number[]
   evidencias: number[]
   veredito?: string | null
+  /** concluida | parcial | falha (calculado pelo backend a partir dos agentes e documentos). */
   status: string
+  status_detalhe?: AnalysisStatusDetail
 }
+
+export type AnalysisStatusDetail = {
+  codigo: string
+  mensagem: string
+  avisos: string[]
+  agentes: { agente: string; status: string; erro?: string | null }[]
+  agentes_ok: number
+  agentes_total: number
+  ia_disponivel: boolean
+  documentos_prontos: number
+  documentos_total: number
+}
+
+/** Última análise finalizada, com o status honesto calculado no backend (``legado`` = anterior à correção). */
+export type LastAnalysis = { versao: number; status: string; mensagem?: string | null; avisos: string[] }
 
 export function analyzeProperty(id: number): Promise<AnalysisResult> {
   return request<AnalysisResult>(`/api/imoveis/${id}/analisar`, {

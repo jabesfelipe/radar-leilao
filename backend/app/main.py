@@ -16,8 +16,10 @@ from . import models, schemas, secrets_crypto
 from .parameters import parameter_snapshot
 from .ai.agents import ChecklistAgent, DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
 from .ai.gateway import build_gateway, sanitize_error
+from .ai.analysis_status import consolidate_status, is_running as is_analysis_running, runs_for_status
 from .ai.orchestrator import AnalysisOrchestrator
 from .documents.pipeline import DocumentPipeline
+from .documents.readiness import property_documents_summary, version_processing
 from .extraction import extract_document, persist_extraction
 from .incremental import IncrementalAnalysisService
 from .judicial_client import JudicialApiError, JudicialApiUnavailable
@@ -28,6 +30,8 @@ from .rag.retriever import RetrieverFilters
 from . import legal_service
 from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary, due_diligence_overview, location_out, ensure_property_location, get_property_location, validate_location_checklist, upsert_due_diligence_front, get_due_diligence_front, reflect_due_diligence_signals)
 
+from .https_guard import HttpsGuardMiddleware
+from .privacy import redact_pii
 from .locks import operation_lock
 from .request_context import CorrelationIdMiddleware, get_correlation_id, public_error
 from .security import security_gate
@@ -38,6 +42,7 @@ log = get_logger("api")
 # Segurança (default-deny): TODAS as rotas passam por ``security_gate`` — só /health e o
 # login são públicos; o restante exige JWT + permissão (ver security.py).
 app = FastAPI(title=settings.app_name, version="0.2.0", dependencies=[Depends(security_gate)])
+app.add_middleware(HttpsGuardMiddleware)  # mais interno: respostas 426/HSTS também passam por CORS e X-Request-ID
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(CorrelationIdMiddleware)  # mais externo: todo response (inclusive preflight/CORS) leva X-Request-ID
 
@@ -493,7 +498,7 @@ def run_document_agent(property_id: int, analysis_id: int, db: Session = Depends
     prop = property_or_404(db, property_id)
     analysis = db.get(models.Analysis, analysis_id)
     if not analysis or analysis.property_id != property_id: raise HTTPException(404, "Análise não encontrada para este imóvel")
-    retrieval = RAGService(db).retrieve_context("fatos documentais matrícula edital", property_id)
+    retrieval = RAGService(db).retrieve_context("fatos documentais matrícula edital", property_id, filters=RetrieverFilters(property_id=property_id, category="documental"), broad=True)
     try:
         gateway = build_gateway()
     except RuntimeError as exc:
@@ -520,6 +525,7 @@ def run_legal_agent(property_id: int, analysis_id: int, db: Session = Depends(ge
         "matrícula edital processos consolidação registros averbações",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="juridico"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -555,6 +561,7 @@ def run_financial_agent(property_id: int, analysis_id: int, db: Session = Depend
         "custos dívidas aquisição desconto margem aluguel yield valor de mercado financeiro",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="financeiro"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -584,6 +591,7 @@ def run_market_agent(property_id: int, analysis_id: int, db: Session = Depends(g
         "comparáveis preço médio mediano preço por metro quadrado aluguel mercado região liquidez",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="mercado"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -623,6 +631,7 @@ def run_checklist_agent(property_id: int, analysis_id: int, db: Session = Depend
         "evidências matrícula edital processos documentos checklist regra pergunta",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="checklist"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -667,6 +676,21 @@ def verdict_evidences_view(db: Session, evidence_ids: list[int] | None) -> list[
             value = getattr(evidence, field, None)
             if value is not None and value != "":
                 item[field] = value
+        # Trecho LITERAL do documento citado: o excerto gravado ou, na falta dele, o próprio chunk.
+        if "source_excerpt" not in item and evidence.chunk_id is not None:
+            chunk = db.get(models.DocumentChunk, evidence.chunk_id)
+            if chunk is not None and chunk.content:
+                item["source_excerpt"] = chunk.content[:1000]
+                if "page" not in item and chunk.page is not None:
+                    item["page"] = chunk.page
+                if "section" not in item and chunk.section:
+                    item["section"] = chunk.section
+        item["tem_trecho_documento"] = evidence.chunk_id is not None and bool(item.get("source_excerpt"))
+        # Apresentação protege dados pessoais: CPF, RG, e-mail, telefone e dados bancários mascarados
+        # (o documento original no armazenamento não é alterado).
+        for field in ("fact", "source_excerpt", "interpretation", "hypothesis"):
+            if isinstance(item.get(field), str):
+                item[field] = redact_pii(item[field], force=True)
         view.append(item)
     return view
 
@@ -680,7 +704,24 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
     juridico = juridical_overview(db, prop)
     checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk} for r in (execution.results if execution else [])]
-    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status, "normalized_path": v.normalized_path} for v in d.versions]} for d in prop.documents], "evidencias": prop.evidences, "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop))}
+    return {"imovel": prop, "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": [masked_evidence(e) for e in prop.evidences], "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop)}
+
+
+def _analysis_running_safe(db: Session, property_id: int) -> bool:
+    """Há análise em andamento? (lock advisory retido). Indicador opcional: nunca derruba a leitura do imóvel."""
+    try:
+        return is_analysis_running(db, property_id)
+    except Exception:
+        return False
+
+
+def _last_analysis_state(prop: models.Property) -> dict | None:
+    """Status honesto da última análise finalizada (persistido em ``token_usage``); ``legado`` se anterior à correção."""
+    last = max(prop.analyses, key=lambda a: a.version, default=None)
+    if last is None:
+        return None
+    usage = last.token_usage or {}
+    return {"versao": last.version, "status": usage.get("status") or "legado", "mensagem": usage.get("status_mensagem"), "avisos": usage.get("avisos", [])}
 
 # ============================================================================
 # TASK 75.2 — Helpers de CRUD cadastral com histórico/evento.
@@ -1077,7 +1118,26 @@ def document_or_404(db: Session, document_id: int) -> models.Document:
 
 
 def document_snapshot(document: models.Document) -> dict:
-    return {"id": document.id, "property_id": document.property_id, "name": document.name, "document_type": document.document_type, "source": document.source, "status": document.status, "created_at": document.created_at, "updated_at": document.updated_at, "versions": [{"id": version.id, "version": version.version, "content_hash": version.content_hash, "original_path": version.original_path, "normalized_path": version.normalized_path, "extraction_metadata": version.extraction_metadata, "status": version.status, "created_at": version.created_at, "updated_at": version.updated_at} for version in document.versions]}
+    return {"id": document.id, "property_id": document.property_id, "name": document.name, "document_type": document.document_type, "source": document.source, "status": document.status, "created_at": document.created_at, "updated_at": document.updated_at, "versions": [{"id": version.id, "version": version.version, "content_hash": version.content_hash, "extraction_metadata": _public_extraction_metadata(version.extraction_metadata), "status": version.status, "processamento": _version_processing(version), "created_at": version.created_at, "updated_at": version.updated_at} for version in document.versions]}
+
+
+def _public_extraction_metadata(meta: dict | None) -> dict:
+    """Metadados de extração SEM detalhes internos (caminhos do servidor, mensagens brutas de erro)."""
+    hidden = {"fallback_reason", "ocr_error", "embedding_last_error", "embedding_lease_owner"}
+    return {k: v for k, v in (meta or {}).items() if k not in hidden and not k.startswith("embedding_lease")}
+
+
+def _version_processing(version: models.DocumentVersion) -> dict | None:
+    """Etapas de processamento/prontidão da versão (None fora de uma sessão de banco, ex.: testes com fakes)."""
+    from sqlalchemy.orm import object_session
+    session = object_session(version)
+    if session is None:
+        return None
+    try:
+        return version_processing(session, version)
+    except Exception:
+        log.warning("prontidao do documento indisponivel: version_id=%s", getattr(version, "id", "?"))
+        return None
 
 
 async def process_document_upload(document: models.Document, file: UploadFile, db: Session):
@@ -1145,6 +1205,7 @@ def create_evidence(property_id: int, data: schemas.EvidenceCreate, db: Session 
     if data.chunk_id is not None:
         chunk = db.get(models.DocumentChunk, data.chunk_id)
         if not chunk or chunk.document_version.document.property_id != property_id: raise HTTPException(400, "DocumentChunk não pertence ao imóvel")
+        if data.document_version_id is not None and chunk.document_version_id != data.document_version_id: raise HTTPException(400, "DocumentChunk não pertence à DocumentVersion informada")
     evidence = models.Evidence(property_id=property_id, **data.model_dump())
     db.add(evidence); db.flush(); payload = data.model_dump(mode="json")
     event = record_event(db, prop, "EVIDENCIA_REGISTRADA", "Evidence", evidence.id, payload, ["checklist", "juridico", "documental"])
@@ -1153,14 +1214,53 @@ def create_evidence(property_id: int, data: schemas.EvidenceCreate, db: Session 
 
 @app.get("/api/imoveis/{property_id}/evidencias")
 def list_evidence(property_id: int, db: Session = Depends(get_db)):
-    property_or_404(db, property_id); return db.scalars(select(models.Evidence).where(models.Evidence.property_id == property_id).order_by(models.Evidence.created_at.desc())).all()
+    property_or_404(db, property_id)
+    return [masked_evidence(e) for e in db.scalars(select(models.Evidence).where(models.Evidence.property_id == property_id).order_by(models.Evidence.created_at.desc())).all()]
 
 @app.get("/api/imoveis/{property_id}/evidencias/{evidence_id}")
 def get_evidence(property_id: int, evidence_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id)
     evidence = db.get(models.Evidence, evidence_id)
     if not evidence or evidence.property_id != property_id: raise HTTPException(404, "Evidência não encontrada")
-    return {"evidencia": evidence, "document_version": evidence.document_version, "chunk": db.get(models.DocumentChunk, evidence.chunk_id) if evidence.chunk_id else None, "links": evidence.links}
+    chunk = db.get(models.DocumentChunk, evidence.chunk_id) if evidence.chunk_id else None
+    return {"evidencia": masked_evidence(evidence), "document_version": masked_version(evidence.document_version), "chunk": masked_chunk(chunk), "links": evidence.links}
+
+
+def masked_version(version: models.DocumentVersion | None) -> dict | None:
+    """Versão do documento para resposta: texto normalizado mascarado; caminhos internos do servidor omitidos
+    (mesma regra de ``document_snapshot``) e metadados de extração sem detalhes internos."""
+    if version is None:
+        return None
+    hidden = {"original_path", "normalized_path"}
+    data = {column.name: getattr(version, column.name) for column in models.DocumentVersion.__table__.columns if column.name not in hidden}
+    if isinstance(data.get("normalized_markdown"), str):
+        data["normalized_markdown"] = redact_pii(data["normalized_markdown"], force=True)
+    data["extraction_metadata"] = _public_extraction_metadata(data.get("extraction_metadata"))
+    return data
+
+
+_EVIDENCE_TEXT_FIELDS = ("fact", "interpretation", "hypothesis", "source_excerpt")
+
+
+def masked_evidence(evidence: models.Evidence) -> dict:
+    """Evidência para RESPOSTA de API: mesmas colunas, com CPF/RG/e-mail/telefone/dados bancários mascarados
+    nos campos de texto. Documento, versão, chunk, página, seção e o restante do trecho literal são mantidos
+    (rastreabilidade). Trabalha numa cópia: o registro no banco não é alterado."""
+    data = {column.name: getattr(evidence, column.name) for column in models.Evidence.__table__.columns}
+    for field in _EVIDENCE_TEXT_FIELDS:
+        if isinstance(data.get(field), str):
+            data[field] = redact_pii(data[field], force=True)
+    return data
+
+
+def masked_chunk(chunk: models.DocumentChunk | None) -> dict | None:
+    """Chunk citado, com o conteúdo mascarado. O vetor de embedding não é devolvido (não é informação de leitura)."""
+    if chunk is None:
+        return None
+    data = {column.name: getattr(chunk, column.name) for column in models.DocumentChunk.__table__.columns if column.name != "embedding"}
+    if isinstance(data.get("content"), str):
+        data["content"] = redact_pii(data["content"], force=True)
+    return data
 
 @app.post("/api/imoveis/{property_id}/evidencias/{evidence_id}/links")
 def link_evidence(property_id: int, evidence_id: int, data: schemas.EvidenceLinkCreate, db: Session = Depends(get_db)):
@@ -1201,15 +1301,24 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     evidence_ids = persist_agent_findings(db, prop, analysis, execution, orchestration.get("agent_results", []))
     llm_runs = persist_llm_runs(db, prop, analysis, orchestration.get("llm_runs", []))
     analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
+    # Status HONESTO: calculado das chamadas reais dos agentes e da prontidão dos documentos
+    # (antes era sempre "concluida", mesmo com todos os agentes falhando).
+    status_info = consolidate_status(runs_for_status(orchestration), property_documents_summary(db, property_id))
+    analysis.token_usage = {**analysis.token_usage, "status": status_info["status"], "status_codigo": status_info["codigo"], "status_mensagem": status_info["mensagem"], "avisos": status_info["avisos"]}
     finance = build_finance(prop)
     db.add(models.FinancialAnalysis(property_id=prop.id, analysis_version=analysis.version, inputs={"domains": domains, "chunks": orchestration.get("retrieved_chunk_ids", [])}, outputs=serialize(finance)))
+    # Itens do checklist que os dados cadastrados já respondem (ex.: 2º leilão x avaliação) deixam de ser
+    # pendência sem depender de IA; só itens ainda PENDENTES são tocados.
+    from .services import resolve_checklist_from_data
+    resolve_checklist_from_data(db, prop, execution)
     recalculate_risks(db, prop, analysis.version)
-    verdict = create_verdict(db, prop, analysis, orchestration.get("verdict"))
+    verdict = create_verdict(db, prop, analysis, orchestration.get("verdict"), automated_analysis_available=bool(status_info.get("ia_disponivel")))
     db.commit()
-    log.info("analise concluida: property_id=%s versao=%s agentes=%s llm_usada=%s modelo=%s chunks=%d evidencias=%d veredito=%s",
-             property_id, analysis.version, agents, orchestration.get("llm_used", False), analysis.model,
+    log.info("analise finalizada: property_id=%s versao=%s status=%s codigo=%s agentes=%s agentes_ok=%d llm_usada=%s modelo=%s chunks=%d evidencias=%d veredito=%s",
+             property_id, analysis.version, status_info["status"], status_info["codigo"], agents, status_info["agentes_ok"], orchestration.get("llm_used", False), analysis.model,
              len(orchestration.get("retrieved_chunk_ids", [])), len(evidence_ids), verdict.overall)
-    return {"versao": analysis.version, "agentes": agents, "llm_usada": orchestration.get("llm_used", False), "modelo": analysis.model, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", []), "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "financeiro": serialize(verdict.financial), "veredito": verdict.overall, "status": "concluida"}
+    return {"versao": analysis.version, "agentes": agents, "llm_usada": orchestration.get("llm_used", False), "modelo": analysis.model, "chunks_recuperados": orchestration.get("retrieved_chunk_ids", []), "evidencias": evidence_ids, "llm_usage": analysis.token_usage, "financeiro": serialize(verdict.financial), "veredito": verdict.overall, "status": status_info["status"], "status_detalhe": {k: status_info[k] for k in ("codigo", "mensagem", "avisos", "agentes", "agentes_ok", "agentes_total", "ia_disponivel", "documentos_prontos", "documentos_total")}}
+
 
 @app.get("/api/imoveis/{property_id}/historico")
 def history(property_id: int, db: Session = Depends(get_db)):

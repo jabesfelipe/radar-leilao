@@ -28,6 +28,34 @@ export type Verdict = {
   evidence_ids?: number[] | null
 }
 
+/** Recomendação e fundamentos do veredito (motor determinístico; vem em `veredito.financial.decisao`). */
+export type VerdictRecommendation = {
+  codigo: 'NAO_ARREMATAR' | 'ARREMATAR_SOMENTE_APOS_RESOLVER_RISCOS' | 'ARREMATAR_ATE_PRECO_MAXIMO' | 'COMPLETAR_ANALISE' | string
+  texto: string
+  lance_maximo?: number | null
+  lance_maximo_definitivo?: boolean
+  lance_pretendido?: number | null
+}
+
+export type VerdictGround = {
+  tipo: 'RISCO_JURIDICO' | 'RISCO_OPERACIONAL' | 'INVIABILIDADE_FINANCEIRA' | 'VIABILIDADE_FINANCEIRA' | 'PENDENCIA_DOCUMENTAL' | 'PENDENCIA_FINANCEIRA' | 'ANALISE_AUTOMATICA_INDISPONIVEL' | string
+  descricao: string
+  gravidade?: string | null
+  categoria?: string | null
+}
+
+export type VerdictDecisionDetail = {
+  recomendacao?: VerdictRecommendation | null
+  fundamentos?: VerdictGround[] | null
+  avaliacao_financeira?: { status?: 'VIAVEL' | 'INVIAVEL' | 'INDETERMINADO' | string; motivos?: string[]; faltantes?: string[] } | null
+  analise_automatica_disponivel?: boolean | null
+}
+
+export function verdictDecision(verdict: Verdict | null | undefined): VerdictDecisionDetail | null {
+  const decisao = (verdict?.financial as { decisao?: VerdictDecisionDetail } | null | undefined)?.decisao
+  return decisao && typeof decisao === 'object' ? decisao : null
+}
+
 export type VerdictEvidence = {
   id: number
   documento?: string | null
@@ -43,6 +71,7 @@ export type VerdictEvidence = {
   hypothesis?: string | null
   confidence?: string | null
   chunk_id?: number | null
+  tem_trecho_documento?: boolean
 }
 
 export type Assessment = {

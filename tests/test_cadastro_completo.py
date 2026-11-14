@@ -198,7 +198,10 @@ def test_cadastro_completo_habilita_analise_e_gera_versao(client):
     assert resposta.status_code == 200, resposta.text
     corpo = resposta.json()
     assert corpo["versao"] >= 1
-    assert corpo["status"] == "concluida"
+    # Sem chave da OpenAI neste ambiente, nenhum agente executa: o status NÃO pode ser "concluida"
+    # (antes este teste afirmava "concluida" — o falso sucesso corrigido na homologação v1.0.2).
+    assert corpo["status"] == "falha"
+    assert corpo["status_detalhe"]["codigo"] == "IA_INDISPONIVEL"
 
     # o histórico registra a análise
     historico = client.get(f"/api/imoveis/{property_id}/historico").json()

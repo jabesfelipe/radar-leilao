@@ -23,6 +23,7 @@ class RAGResult:
     vector_search: bool
     text_fallback: bool
     reason: str | None = None
+    positional_fallback: bool = False
 
 
 class RAGService:
@@ -30,7 +31,7 @@ class RAGService:
         self.db = db
         self.retriever = HybridRetriever(db)
 
-    def retrieve_context(self, query: str, property_id: int | None = None, limit: int | None = None, filters: RetrieverFilters | None = None) -> RAGResult:
+    def retrieve_context(self, query: str, property_id: int | None = None, limit: int | None = None, filters: RetrieverFilters | None = None, broad: bool = False) -> RAGResult:
         effective_filters = filters or RetrieverFilters(property_id=property_id)
         embedding = None
         text_fallback = False
@@ -52,13 +53,20 @@ class RAGService:
         log.info("rag busca iniciada: property_id=%s categoria=%s vetorial=%s fallback_texto=%s%s",
                  property_id, effective_filters.category, embedding is not None, text_fallback,
                  f" motivo={reason}" if reason else "")
-        chunks = self.retriever.search(query=query, embedding=embedding, property_id=property_id, limit=clamp_limit(limit), filters=effective_filters)
+        chunks = self.retriever.search(query=query, embedding=embedding, property_id=property_id, limit=clamp_limit(limit), filters=effective_filters, broad=broad)
         context = "\n\n".join(self._format_chunk(chunk) for chunk in chunks)
         log.info("rag busca concluida: property_id=%s chunks_recuperados=%d", property_id, len(chunks))
-        return RAGResult(context=context, chunks=chunks, chunk_ids=[chunk["chunk_id"] for chunk in chunks], count=len(chunks), context_found=bool(chunks), vector_search=embedding is not None, text_fallback=text_fallback, reason="evidência insuficiente" if not chunks else None)
+        positional = bool(chunks) and all(chunk.get("match_type") == "posicional" for chunk in chunks)
+        if not chunks:
+            final_reason: str | None = "evidência insuficiente"
+        elif positional:
+            final_reason = "sem correspondência textual e sem busca vetorial: contexto de contingência (primeiros trechos dos documentos prontos), não é resultado de relevância"
+        else:
+            final_reason = None
+        return RAGResult(context=context, chunks=chunks, chunk_ids=[chunk["chunk_id"] for chunk in chunks], count=len(chunks), context_found=bool(chunks), vector_search=embedding is not None, text_fallback=text_fallback, reason=final_reason, positional_fallback=positional)
 
-    def context_text(self, query: str, property_id: int | None = None, limit: int | None = None, filters: RetrieverFilters | None = None) -> RAGResult:
-        return self.retrieve_context(query=query, property_id=property_id, limit=limit, filters=filters)
+    def context_text(self, query: str, property_id: int | None = None, limit: int | None = None, filters: RetrieverFilters | None = None, broad: bool = False) -> RAGResult:
+        return self.retrieve_context(query=query, property_id=property_id, limit=limit, filters=filters, broad=broad)
 
     @staticmethod
     def _format_chunk(chunk: dict[str, Any]) -> str:

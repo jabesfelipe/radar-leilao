@@ -66,7 +66,7 @@ LOCK_TIMEOUT_MS_DEFAULT = 5000
 
 # Falhas que não indicam problema do documento: credencial, limite de taxa, timeout,
 # rede e indisponibilidade do provider. Não consomem as tentativas definitivas.
-TRANSIENT_ERROR_CATEGORIES = frozenset({"AUTENTICACAO", "RATE_LIMIT", "TIMEOUT", "CONEXAO", "PROVEDOR"})
+TRANSIENT_ERROR_CATEGORIES = frozenset({"AUTENTICACAO", "RATE_LIMIT", "TIMEOUT", "CONEXAO", "PROVEDOR", "ORCAMENTO"})
 BASE_BACKOFF_SECONDS = 60
 MAX_BACKOFF_SECONDS = 900
 
@@ -174,9 +174,12 @@ def _give_back_attempt(db: Session, version_id: int, owner: str, lock_timeout_ms
 
 
 def _pending_ids(db: Session) -> list[int]:
+    # Versões sem texto utilizável (SEM_TEXTO/OCR_*/ERRO) ficam fora da fila: vetorizar texto
+    # lixo gastaria crédito e as marcaria como indexadas.
     stmt = (
         select(models.DocumentChunk.document_version_id)
-        .where(models.DocumentChunk.embedding.is_(None))
+        .join(models.DocumentVersion, models.DocumentVersion.id == models.DocumentChunk.document_version_id)
+        .where(models.DocumentChunk.embedding.is_(None), models.DocumentVersion.status.not_in(sorted(states.NOT_READY_STATES - {states.ERRO})))
         .group_by(models.DocumentChunk.document_version_id)
         .order_by(models.DocumentChunk.document_version_id)
     )

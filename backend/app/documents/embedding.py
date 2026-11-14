@@ -19,6 +19,7 @@ from .. import models
 from ..ai.gateway import build_gateway, classify_provider_error, sanitize_error
 from ..config import settings
 from ..logging_config import get_logger
+from ..privacy_context import aliaser_for_property
 
 log = get_logger("documentos")
 
@@ -38,6 +39,8 @@ def embed_pending_chunks(db: Session, version_id: int) -> dict[str, int | bool]:
         "embeddings_falhos": 0,
         "provider_disponivel": bool(settings.effective_llm_api_key),
         "dimensao": 0,
+        "tokens_estimados": 0,
+        "custo_estimado_usd": 0.0,
     }
 
     if not settings.effective_llm_api_key:
@@ -58,8 +61,24 @@ def embed_pending_chunks(db: Session, version_id: int) -> dict[str, int | bool]:
         return telemetry
 
     telemetry["embeddings_solicitados"] = len(chunks)
+    # Estimativa de custo (sem chamada extra): ~4 caracteres por token x preço de referência.
+    # Só para log/telemetria; o custo real deve ser conferido no painel da OpenAI.
+    estimated_tokens = sum(len(chunk.content or "") for chunk in chunks) // 4
+    telemetry["tokens_estimados"] = estimated_tokens
+    telemetry["custo_estimado_usd"] = round(estimated_tokens * settings.embedding_price_per_1m_usd / 1_000_000, 6)
     try:
-        vectors = build_gateway().embed([chunk.content for chunk in chunks])
+        texts = [chunk.content for chunk in chunks]
+        try:
+            # Pseudonimização de pessoas físicas conhecidas do imóvel (titular, partes, ocupantes + nomes após
+            # rótulos jurídicos) ANTES do envio ao provider. O texto armazenado no banco não é alterado.
+            document = chunks[0].document_version.document
+            aliaser = aliaser_for_property(db, document.property_id)
+            for text in texts:
+                aliaser.learn_from_text(text)
+            texts = [aliaser.apply(text) for text in texts]
+        except Exception:
+            texts = [chunk.content for chunk in chunks]   # o gateway ainda mascara identificadores
+        vectors = build_gateway().embed(texts)
     except Exception as exc:  # falha do provider não pode quebrar a ingestão
         telemetry["embeddings_falhos"] = len(chunks)
         # Registra a causa (sanitizada) na telemetria para o chamador persistir em
@@ -94,7 +113,7 @@ def embed_pending_chunks(db: Session, version_id: int) -> dict[str, int | bool]:
     if persisted:
         db.flush()
     log.info(
-        "embeddings de chunks: version_id=%s pendentes=%d solicitados=%d executados=%d persistidos=%d falhos=%d dimensao=%d modelo=%s",
+        "embeddings de chunks: version_id=%s pendentes=%d solicitados=%d executados=%d persistidos=%d falhos=%d dimensao=%d modelo=%s tokens_est=%d custo_est_usd=%s",
         version_id,
         telemetry["embeddings_pendentes"],
         telemetry["embeddings_solicitados"],
@@ -103,5 +122,7 @@ def embed_pending_chunks(db: Session, version_id: int) -> dict[str, int | bool]:
         telemetry["embeddings_falhos"],
         telemetry["dimensao"],
         settings.embedding_model,
+        telemetry["tokens_estimados"],
+        telemetry["custo_estimado_usd"],
     )
     return telemetry

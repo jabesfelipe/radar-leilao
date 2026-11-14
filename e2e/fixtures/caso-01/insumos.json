@@ -1,0 +1,50 @@
+{
+  "aviso": "Insumos MANUAIS do caso-01 (a extração do edital ainda não alimenta o financeiro). Valores fictícios. Campos no formato exato da API (schemas.py).",
+  "imovel": {
+    "title": "CASO-01 FICTICIO Apto 45 Aurora",
+    "address": "Rua das Acacias Ficticias, 123, apto 45",
+    "neighborhood": "Jardim Teste", "city": "Sao Paulo", "state": "SP",
+    "property_type": "Apartamento", "area_m2": 62, "bedrooms": 2, "parking_spots": 1,
+    "description": "Imovel ficticio do caso-01 de validacao de negocio."
+  },
+  "matricula": {"registration_number": "99.901", "registry_office": "Registro de Imoveis Ficticio", "holder": "Carlos Eduardo Teste Silva"},
+  "leilao": {
+    "auction_stage": "2º leilão", "appraisal_value": 400000,
+    "first_auction_value": 400000, "second_auction_value": 240000,
+    "bid_value": 240000, "commission_percent": 5, "auctioneer": "Leiloeiro Oficial Ficticio"
+  },
+  "processos": [
+    {"number": "0001234-56.2020.5.02.0001", "court": "1ª Vara do Trabalho de São Paulo", "nature": "Trabalhista", "polo_active": "Reclamante Ficticio da Silva", "polo_passive": "Carlos Eduardo Teste Silva", "status": "Penhora averbada (AV.3)"},
+    {"number": "0009876-54.2021.8.26.0100", "nature": "Cível", "polo_active": "Credor Ficticio Ltda.", "polo_passive": "Carlos Eduardo Teste Silva", "status": "Indisponibilidade CNIB (AV.4)"}
+  ],
+  "ocupacao": {"status": "OCUPADO", "occupant_profile": "Ex-proprietário (fictício)", "estimated_cost": 15000, "estimated_months": 6},
+  "custos": [
+    {"category": "ITBI", "description": "3% sobre R$ 395.000 (valor atribuído na AV.5)", "amount": 11850},
+    {"category": "Registro", "description": "Escritura e registro (estimativa)", "amount": 4000},
+    {"category": "Reforma", "description": "Reforma estimada sem visitação", "amount": 25000}
+  ],
+  "dividas": [
+    {"category": "CONDOMINIO", "creditor": "Condominio Aurora Ficticio", "amount": 21600, "status": "PENDENTE"},
+    {"category": "IPTU", "creditor": "Prefeitura (ficticio)", "amount": 4800, "status": "PENDENTE"}
+  ],
+  "nota_dividas": "Valores apurados MANUALMENTE pelo investidor; NÃO constam do edital nem da matrícula (armadilha T1 para a IA).",
+  "comparaveis": [
+    {"kind": "VENDA", "area_m2": 60, "price": 330000, "source": "anuncio ficticio A"},
+    {"kind": "VENDA", "area_m2": 65, "price": 351000, "source": "anuncio ficticio B"},
+    {"kind": "VENDA", "area_m2": 58, "price": 307400, "source": "anuncio ficticio C"}
+  ],
+  "premissas_financeiras": {
+    "valor_venda_estimado": 335000, "corretagem_pct": 0.06, "tributo_pct": 0.15, "tax_base": "GANHO",
+    "prazo_meses": 8, "carregamento_mensal": 900,
+    "goal_kind": "MARGEM_MINIMA", "goal_value": 0.20
+  },
+  "conta_de_referencia": {
+    "formula": "Mesma do finance.py: custo_total = lance + comissão + ITBI + registro + reforma + desocupação + débitos + carregamento; resultado = V - corretagem - tributo_sobre_ganho - custo_total; margem = resultado / V; preço máximo (margem ≥ 20%, tributo sobre ganho): A = [(1-t)V - corretagem - 0,2V - (1-t)F] / [(1-t)(1+comissão)].",
+    "custos_fixos_F_brl": 89450,
+    "custo_total_no_lance_minimo_brl": 341450,
+    "resultado_no_lance_minimo_brl": -26550,
+    "margem_no_lance_minimo": -0.0793,
+    "preco_maximo_margem_20pct_brl": 136266,
+    "leitura": "No lance mínimo do 2º leilão (R$ 240.000) a operação dá PREJUÍZO de ~R$ 26,5 mil; para margem de 20% o lance não pode passar de ~R$ 136 mil."
+  }
+}

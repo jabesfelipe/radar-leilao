@@ -25,6 +25,9 @@ _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(?i)((?:api[_\-]?key|secret(?:[_\-]?key)?|password|passwd|senha|token|x-admin-token|x-portal-admin-token)\s*[=:]\s*)[^\s,;&'\"]+"), r"\1[REDACTED]"),
     # Chaves OpenAI (sk-..., sk-proj-...) e variações comuns.
     (re.compile(r"\bsk-[A-Za-z0-9_\-*.]{3,}"), "[REDACTED]"),
+    # Chaves Google (Maps/Geocoding: AIza...) e o parâmetro de URL ``key=`` (usado pela API do Google).
+    (re.compile(r"\bAIza[0-9A-Za-z_\-]{20,}"), "[REDACTED]"),
+    (re.compile(r"(?i)([?&]key=)[^\s&'\"]+"), r"\1[REDACTED]"),
     # JWT (três segmentos base64url começando com eyJ).
     (re.compile(r"\beyJ[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}\.[A-Za-z0-9_\-]{5,}"), "[REDACTED_JWT]"),
 )

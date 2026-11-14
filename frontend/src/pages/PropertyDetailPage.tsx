@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowLeft, Building2, MapPin, PlayCircle, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, LoadingState, Section } from '../components/ui'
 import { analyzeProperty, getPropertyDetail, type AnalysisResult, type PropertyDetail } from '../services/properties'
+import { analysisLabel, analysisTitle, analysisTone } from '../services/analysisStatus'
 import { DocumentsSection } from './DocumentsSection'
 import { RegistrationSection } from './RegistrationSection'
 import { AuctionNoticeSection } from './AuctionNoticeSection'
@@ -66,6 +67,15 @@ function formatDateTime(value: string | null | undefined) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('pt-BR')
 }
 
+function agentStatusText(status: string) {
+  switch (status) {
+    case 'SEM_CHAVE': return 'IA indisponível (chave não configurada)'
+    case 'ORCAMENTO_EXCEDIDO': return 'orçamento mensal de IA atingido'
+    case 'ERRO': return 'falhou'
+    default: return status.split('_').join(' ').toLowerCase()
+  }
+}
+
 function orNotInformed(value: string | number | null | undefined) {
   if (value === undefined || value === null || value === '') return 'Não informado'
   return String(value)
@@ -81,7 +91,6 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
   const [analysisError, setAnalysisError] = useState('')
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [refreshKey, setRefreshKey] = useState(0)
-
   const loadProperty = useCallback(async () => {
     setLoading(true)
     setError('')
@@ -111,6 +120,17 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
   }, [propertyId])
 
   useEffect(() => { void loadProperty() }, [loadProperty])
+
+  // Se houver análise em andamento (ex.: o usuário recarregou a página no celular), acompanha até terminar.
+  const running = !!detail?.analise_em_processamento
+  useEffect(() => {
+    if (!running || analyzing) return
+    const timer = window.setInterval(() => {
+      getPropertyDetail(propertyId).then((next) => { setDetail(next); if (!next.analise_em_processamento) setRefreshKey((value) => value + 1) }).catch(() => undefined)
+    }, 5000)
+    return () => window.clearInterval(timer)
+  }, [running, analyzing, propertyId])
+  const lastAnalysis = detail?.analise_ultima ?? null
 
   return (
     <Section className="property-detail">
@@ -154,10 +174,39 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
             </Card>
           )}
 
+          {running && !analyzing && (
+            <Alert tone="info" title="Análise em processamento">
+              Há uma análise em andamento para este imóvel (iniciada nesta ou em outra sessão). Esta tela atualiza sozinha quando ela terminar.
+            </Alert>
+          )}
+
           {analysisResult && !analyzing && !analysisError && (
-            <Alert tone="success" title="Análise concluída">
-              Versão {analysisResult.versao} gerada com {analysisResult.agentes.length} agente(s).
-              {analysisResult.veredito ? ` Veredito: ${analysisResult.veredito}.` : ''} Os dados do dossiê foram atualizados.
+            <Alert tone={analysisTone(analysisResult.status)} title={analysisTitle(analysisResult.status)}>
+              <p className="analysis-summary">
+                Versão {analysisResult.versao} gerada com {analysisResult.agentes.length} agente(s).
+                {analysisResult.veredito ? ` Veredito: ${analysisResult.veredito}.` : ''} Os dados do dossiê foram atualizados.
+              </p>
+              {analysisResult.status_detalhe && analysisResult.status !== 'concluida' && (
+                <p className="analysis-status-message">{analysisResult.status_detalhe.mensagem}</p>
+              )}
+              {analysisResult.status_detalhe && analysisResult.status !== 'concluida' && (
+                <ul className="analysis-agent-list">
+                  {analysisResult.status_detalhe.agentes.filter((agent) => agent.status !== 'CONCLUIDO').map((agent) => (
+                    <li key={agent.agente}><strong>{agent.agente}</strong>: {agentStatusText(agent.status)}</li>
+                  ))}
+                </ul>
+              )}
+              {analysisResult.status_detalhe && analysisResult.status_detalhe.avisos.length > 0 && (
+                <ul className="analysis-warning-list">
+                  {analysisResult.status_detalhe.avisos.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              )}
+            </Alert>
+          )}
+
+          {!analysisResult && !analyzing && !running && lastAnalysis && ['parcial', 'falha'].includes(lastAnalysis.status) && (
+            <Alert tone={analysisTone(lastAnalysis.status)} title={`Última análise (v${lastAnalysis.versao}): ${analysisLabel(lastAnalysis.status).toLowerCase()}`}>
+              {lastAnalysis.mensagem ?? 'A IA não concluiu todos os agentes nesta análise.'}
             </Alert>
           )}
 

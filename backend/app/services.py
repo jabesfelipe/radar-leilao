@@ -271,7 +271,7 @@ def recalculate_risks(db: Session, prop: models.Property, analysis_version: int)
     return persisted
 
 
-def build_verdict_decision(db: Session, prop: models.Property, analysis_version: int, evidence_ids: list[int] | None):
+def build_verdict_decision(db: Session, prop: models.Property, analysis_version: int, evidence_ids: list[int] | None, automated_analysis_available: bool | None = None):
     """Constrói a VerdictDecision determinística de uma versão, sem persistir.
 
     Fonte de verdade: a ChecklistExecution da própria analysis_version (consultada
@@ -288,17 +288,100 @@ def build_verdict_decision(db: Session, prop: models.Property, analysis_version:
         checklist_results=execution.results if execution else [],
         evidence_ids=evidence_ids or [],
         financial=serialize(build_finance(prop)),
+        automated_analysis_available=automated_analysis_available,
     )
 
 
-def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None):
+def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis, synthesis: dict | None = None, automated_analysis_available: bool | None = None):
     # Usa a execução do Checklist correspondente à versão desta análise, para o
     # Veredito não ser contaminado por uma execução de outra versão. Passamos `db`
     # para que a seleção consulte o banco (fonte de verdade) e encontre a execução
     # recém-criada no mesmo request, mesmo que a relationship esteja desatualizada.
-    decision = build_verdict_decision(db, prop, analysis.version, analysis.evidence_ids)
+    # ``automated_analysis_available``: a leitura automática dos documentos rodou? Só informa os
+    # fundamentos do veredito (nunca é tratada como inviabilidade financeira).
+    decision = build_verdict_decision(db, prop, analysis.version, analysis.evidence_ids, automated_analysis_available)
     verdict = models.Verdict(**decision.to_dict())
     db.add(verdict); db.flush(); return verdict
+
+
+def resolve_cited_chunk(db: Session, raw_chunk_ids, property_id: int, allowed_chunk_ids=None):
+    """Resolve o ``chunk_id`` citado pelo LLM — que é entrada NÃO CONFIÁVEL — com isolamento por imóvel.
+
+    Só devolve (chunk, versão) se o chunk pertence a um documento DO MESMO imóvel e, quando o conjunto
+    recuperado pelo RAG é conhecido, se foi de fato recuperado para esta análise. Um chunk de outro
+    imóvel (alucinação ou prompt injection) é descartado: nunca vira Evidence nem entra em
+    ``documents_considered``. Retorna ``(None, None)`` quando a citação não é válida.
+    """
+    for chunk_id in valid_chunk_ids(raw_chunk_ids):
+        if allowed_chunk_ids and chunk_id not in allowed_chunk_ids:
+            continue
+        chunk = db.get(models.DocumentChunk, chunk_id)
+        if chunk is None:
+            continue
+        version = db.get(models.DocumentVersion, chunk.document_version_id)
+        document = version.document if version is not None else None
+        if document is None or document.property_id != property_id:
+            continue
+        return chunk, version
+    return None, None
+
+
+def is_unavailability_notice(result: dict, finding: dict) -> bool:
+    """Finding de "ausência" produzido quando o agente NÃO executou (sem chave, orçamento, provider fora).
+
+    Critério estrito: o agente declarou ``llm_used=False`` E o finding é ``kind="ausencia"`` sem chunk citado.
+    Resultados sem a chave ``llm_used`` (legado/testes) são tratados como executados.
+    """
+    return result.get("llm_used", True) is False and finding.get("kind") == "ausencia" and not finding.get("chunk_ids")
+
+
+def resolve_checklist_from_data(db: Session, prop: models.Property, execution: models.ChecklistExecution | None) -> list[str]:
+    """Resolve itens PENDENTES do checklist que os DADOS JÁ CADASTRADOS respondem sozinhos (sem IA).
+
+    Só age quando os dados necessários existem; nunca supõe valor ausente e nunca sobrescreve item que
+    já saiu de PENDENTE (decisão de agente ou do usuário prevalece). Retorna as chaves resolvidas.
+    """
+    if not execution:
+        return []
+    by_key = {result.item.canonical_key: result for result in execution.results if result.item is not None}
+    resolved: list[str] = []
+
+    def apply(key: str, state: str, answer: str) -> None:
+        result = by_key.get(key)
+        if result is None or result.state != "PENDENTE" or not result.applicable:
+            return
+        result.state = state
+        result.answer = answer
+        result.confidence = "MEDIA"
+        result.interpretation = "Resolvido automaticamente a partir dos dados cadastrados (cálculo determinístico; não houve leitura de documento)."
+        resolved.append(key)
+
+    auction = current_auction(prop)
+    if auction is not None:
+        segunda = auction.second_auction_value
+        avaliacao = auction.appraisal_value
+        if segunda not in (None, 0) and avaliacao not in (None, 0):
+            ratio = Decimal(str(segunda)) / Decimal(str(avaliacao))
+            texto = f"2º leilão por R$ {Decimal(str(segunda)):,.2f} sobre avaliação de R$ {Decimal(str(avaliacao)):,.2f} = {ratio * 100:.1f}% da avaliação.".replace(",", "X").replace(".", ",").replace("X", ".")
+            if ratio < Decimal("0.5"):
+                apply("LANCE_MENOR_50_AVALIACAO", "ATENCAO", "Sim. " + texto + " Abaixo de 50%: avaliar risco de questionamento por preço vil.")
+            else:
+                apply("LANCE_MENOR_50_AVALIACAO", "NAO_IDENTIFICADO", "Não. " + texto)
+        prazo = (auction.financial_assumptions or {}).get("prazo_meses")
+        if prazo not in (None, ""):
+            meses = int(prazo)
+            if meses >= 24:
+                apply("PRAZO_DOIS_ANOS", "ATENCAO", f"Sim. Prazo projetado de {meses} meses até a venda (≥ 24 meses).")
+            else:
+                apply("PRAZO_DOIS_ANOS", "NAO_IDENTIFICADO", f"Não. Prazo projetado de {meses} meses até a venda (< 24 meses).")
+    vendas = sum(1 for c in prop.comparables if str(c.kind or "").upper() == "VENDA")
+    alugueis = sum(1 for c in prop.comparables if str(c.kind or "").upper() == "ALUGUEL")
+    if vendas >= 7 and alugueis >= 7:
+        # Só a resposta POSITIVA é conclusiva: poucos comparáveis cadastrados não provam que não existam.
+        apply("COMPARAVEIS_SUFFICIENTES", "CONFIRMADO", f"Sim. {vendas} comparáveis de venda e {alugueis} de aluguel cadastrados.")
+    if resolved:
+        db.flush()
+    return resolved
 
 
 def persist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, agent_results: list[dict]) -> list[int]:
@@ -308,16 +391,19 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     result_by_key = {result.item.canonical_key: result for result in execution.results} if execution else {}
     for result in agent_results:
         agent_name = result.get("agent", "IA")
+        allowed = set(valid_chunk_ids(result.get("retrieved_chunk_ids") or []))
         if agent_name.lower() in {"checklist", "checklist_agent"}:
-            evidence_ids.extend(persist_checklist_agent_findings(db, prop, analysis, execution, result.get("facts", [])))
+            evidence_ids.extend(persist_checklist_agent_findings(db, prop, analysis, execution, result.get("facts", []), allowed_chunk_ids=allowed))
             continue
         for finding in result.get("facts", []):
             statement = finding.get("statement") or finding.get("descricao")
             if not statement:
                 continue
-            chunk_ids = valid_chunk_ids(finding.get("chunk_ids", []))
-            chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
-            version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
+            if is_unavailability_notice(result, finding):
+                # "LLM não configurada", orçamento atingido etc.: é um AVISO de que o agente não rodou,
+                # não um fato sobre o imóvel. Nunca vira Evidence (nem conta para o veredito).
+                continue
+            chunk, version = resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed)
             if chunk and version:
                 document_ids.add(version.document_id)
             is_documental = agent_name.lower() in {"documental", "document_agent", "document"}
@@ -351,7 +437,7 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     return evidence_ids
 
 
-def persist_checklist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, facts: list[dict]) -> list[int]:
+def persist_checklist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, facts: list[dict], allowed_chunk_ids=None) -> list[int]:
     """Valida e aplica somente findings do Checklist Agent em uma nova execução."""
     if not execution:
         return []
@@ -372,9 +458,7 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
             continue
         if state != "NAO_APLICAVEL" and not checklist_result.applicable:
             continue
-        chunk_ids = valid_chunk_ids(finding.get("chunk_ids", []))
-        chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
-        version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
+        chunk, version = resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed_chunk_ids)
         if not chunk or not version:
             continue
         document_ids.add(version.document_id)
