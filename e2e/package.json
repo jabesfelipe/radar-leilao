@@ -1,0 +1,17 @@
+{
+  "name": "radar-leilao-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Testes E2E de homologacao (Playwright). Isolado do frontend: nao altera o produto.",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:mobile": "playwright test mobile.spec.ts",
+    "test:fluxo": "playwright test fluxo.spec.ts",
+    "test:ia-real": "playwright test ia-real.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1",
+    "@types/node": "22.10.5"
+  }
+}
