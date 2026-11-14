@@ -200,7 +200,23 @@ def redact_pii(text: Any, *, force: bool = False) -> Any:
     out = text
     for pattern, replacement in _PII_PATTERNS:
         out = pattern.sub(replacement, out)
-    return out
+    return _BARE_CPF.sub(lambda m: "[CPF]" if _valid_cpf(m.group(0)) else m.group(0), out)
+
+
+# CPF só com dígitos e sem rótulo (v1.0.4): mascarado apenas se os dígitos verificadores forem válidos, para não
+# atingir outros números de 11 dígitos (protocolos, matrícula, inscrição imobiliária) usados na análise.
+_BARE_CPF = re.compile(r"(?<![\d/\-])(?<!\d\.)\d{11}(?![\d/\-])(?!\.\d)")
+
+
+def _valid_cpf(digits: str) -> bool:
+    if len(digits) != 11 or len(set(digits)) == 1:
+        return False
+    for size in (9, 10):
+        total = sum(int(d) * w for d, w in zip(digits[:size], range(size + 1, 1, -1)))
+        check = (total * 10) % 11 % 10
+        if check != int(digits[size]):
+            return False
+    return True
 
 
 def sanitize_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
