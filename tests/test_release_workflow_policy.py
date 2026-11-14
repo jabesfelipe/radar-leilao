@@ -61,6 +61,13 @@ def test_deploy_depende_de_validacao_ci_e_publicacao():
     assert "needs: [validate-tag, publish]" in _job_block(text, "deploy")
 
 
+def test_deploy_na_vps_exige_liberacao_explicita():
+    """v1.0.4: sem HTTPS/backup/rollback conferidos na VPS, a tag publica imagens mas não implanta.
+    O deploy só roda com a variável de repositório DEPLOY_ENABLED=true."""
+    deploy = _job_block(_read("release.yml"), "deploy")
+    assert re.search(r"^    if: \$\{\{ vars\.DEPLOY_ENABLED == 'true' \}\}$", deploy, re.M)
+
+
 def test_deploy_serializado_e_sem_cancelar():
     deploy = _job_block(_read("release.yml"), "deploy")
     assert "group: deploy-production" in deploy
