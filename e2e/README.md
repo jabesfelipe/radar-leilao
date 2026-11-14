@@ -42,9 +42,10 @@ Resultados: `results/report.json` (relatório do Playwright), `results/artifacts
 
 | Arquivo | O que prova | Precisa de OpenAI? |
 |---|---|---|
-| `mobile.spec.ts` | 14 rotas + detalhe nos 7 viewports de `tests/helpers.ts` (360×800, 375×812, 390×844, 412×915, 430×932, 768×1024, 1366×768): overflow real (ignorando `overflow-x:hidden`), tabelas sem rolagem, fonte de input < 16px, login pela interface | Não |
-| `mobile-detalhe.spec.ts` | As 18 seções do imóvel com dados semeados e o wizard de cadastro, nos 7 viewports | Não |
-| `correcoes.spec.ts` | Status honesto da análise, estados de documento (API real) e layout corrigido nos 7 viewports | Não |
+| `mobile.spec.ts` | 14 rotas + detalhe nos 8 viewports de `tests/helpers.ts` (360×800, 375×812, 390×844, 412×915, 430×932, 768×1024, 1366×768, 1920×1080): overflow real (ignorando `overflow-x:hidden`), tabelas sem rolagem, fonte de input < 16px, login pela interface | Não |
+| `mobile-detalhe.spec.ts` | As 18 seções do imóvel com dados semeados e o wizard de cadastro, nos 8 viewports | Não |
+| `correcoes.spec.ts` | Status honesto da análise, estados de documento (API real) e layout corrigido nos 8 viewports | Não |
+| `release.spec.ts` | Evidências de release em `results/release/`: dashboard, menu aberto (inteiro na tela), imóveis, wizard e as seções Visão geral, Documentos, Checklist, Financeiro e Veredito, em 360×800, 390×844, 412×915 e 1366×768; falha se houver rolagem horizontal involuntária | Não |
 | `fluxo.spec.ts` | Cadastro → upload → processamento → análise sem chave → leitura mobile; verifica a transparência quando não há IA | Não |
 | `ia-real.spec.ts` | Embeddings reais, `/analisar` com LLM, os 5 agentes, registro de tokens/custo | **Sim** (gated) |
 
