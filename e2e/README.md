@@ -26,6 +26,18 @@ $env:RADAR_E2E_PASSWORD  = "<senha do ambiente de teste>"
 npx playwright test mobile.spec.ts mobile-detalhe.spec.ts fluxo.spec.ts
 ```
 
+Outras formas de execução (mesmas variáveis de ambiente):
+
+```powershell
+npm test                                   # todas as suítes (= npx playwright test); ia-real é pulada sem as flags abaixo
+npx playwright test fluxo.spec.ts          # um arquivo
+npx playwright test -g "<trecho do nome>"  # um teste pelo nome
+```
+
+Resultados: `results/report.json` (relatório do Playwright), `results/artifacts/` (saída por teste) e
+`results/<suíte>/` (JSON e screenshots de medição). Tudo em `results/` e `node_modules/` é ignorado por
+`e2e/.gitignore`; apague ou mantenha localmente, não versione.
+
 ## Suítes
 
 | Arquivo | O que prova | Precisa de OpenAI? |
