@@ -2,6 +2,18 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
+## v1.0.5 — 2026-11-14
+
+Release operacional: primeira implantação na VPS com a IA (OpenAI) ativada. O código da aplicação é o da v1.0.4.
+
+- VPS de homologação (`13.140.151.74`, HTTP) atualizada de v1.0.3 para v1.0.5 pelo `release.yml`, com backup do banco e
+  dos documentos e a migration `0025_evidencia_origem_forca`.
+- IA no `.env.prod` da VPS: `gpt-4o-mini`, `text-embedding-3-small`, teto mensal de US$ 0,50, teto por análise de
+  US$ 0,10, 1.500 tokens de saída, `LLM_REQUIRE_BUDGET=true`, `LLM_REDACT_PII=true`. A chave fica só no `.env.prod`.
+- `REQUIRE_HTTPS=false` mantido temporariamente: **só dados sintéticos ou documentos sanitizados** nesse ambiente.
+- Rollback: `alembic downgrade 0024_analysis_version_unique` e `scripts/prod/rollback.sh` (volta para a v1.0.3), ou o
+  backup gerado pelo deploy em `/opt/radar-backups`.
+
 ## v1.0.4 — 2026-11-14
 
 Qualidade da análise por IA, rastreabilidade das evidências e homologação mobile.
