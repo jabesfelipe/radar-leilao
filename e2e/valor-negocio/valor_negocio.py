@@ -305,6 +305,58 @@ def avaliar_ia(evidencias: list[dict[str, Any]], checklist: list[dict[str, Any]]
     }
 
 
+def _numeros(texto: str) -> set[str]:
+    """Números com 2+ dígitos (sem percentuais), normalizados para dígitos e vírgula decimal."""
+    t = norm(texto)
+    out = set()
+    for m in re.finditer(r"\d[\d\.,]*", t):
+        if t[m.end():m.end() + 2].lstrip().startswith("%"):
+            continue
+        bruto = m.group(0).strip(".,")
+        if sum(ch.isdigit() for ch in bruto) < 2:
+            continue
+        if "," in bruto:                                   # 240.000,00 · 62,00
+            inteiro, _, dec = bruto.rpartition(",")
+            texto_num = inteiro.replace(".", "") + "." + dec
+        elif re.fullmatch(r"\d{1,3}(\.\d{3})+", bruto):    # 99.901 · 240.000
+            texto_num = bruto.replace(".", "")
+        else:
+            texto_num = bruto
+        try:
+            out.add(repr(float(texto_num)))
+        except ValueError:
+            continue
+    return out
+
+
+def avaliar_rastreabilidade(evidencias: list[dict[str, Any]], chunks: dict[int, dict[str, Any]], perguntas: list[str | None]) -> dict[str, Any]:
+    """Critérios 2-5 da homologação v1.0.4 (independentes do validador do produto):
+    origem/força das evidências, pergunta do checklist como trecho e valor ausente do documento citado."""
+    perguntas_n = {norm(p).strip(" ?.") for p in perguntas if p}
+    por_origem: dict[str, int] = {}
+    por_forca: dict[str, int] = {}
+    pergunta_como_trecho, valor_ausente, doc_fraca = [], [], []
+    for ev in evidencias:
+        origem = ev.get("origin") or "NAO_REGISTRADA"
+        por_origem[origem] = por_origem.get(origem, 0) + 1
+        if ev.get("strength"):
+            por_forca[ev["strength"]] = por_forca.get(ev["strength"], 0) + 1
+        trecho = norm(ev.get("source_excerpt")).strip(" ?.")
+        if trecho and trecho in perguntas_n:
+            pergunta_como_trecho.append(ev.get("id"))
+        chunk = chunks.get(ev.get("chunk_id")) if ev.get("chunk_id") else None
+        if chunk:
+            faltando = _numeros(ev.get("fact") or "") - _numeros(chunk["content"])
+            if faltando:
+                valor_ausente.append({"id": ev.get("id"), "valores": sorted(faltando)[:3]})
+            if ev.get("strength") in ("FRACA", "INVALIDA"):
+                doc_fraca.append(ev.get("id"))
+    return {"por_origem": por_origem, "por_forca": por_forca,
+            "pergunta_do_checklist_como_trecho": pergunta_como_trecho,
+            "valor_ausente_do_documento_citado": valor_ausente,
+            "evidencia_documental_com_citacao_fraca_ou_invalida": doc_fraca}
+
+
 def evidencias_view(evidencias: list[dict[str, Any]], versoes: dict[int, str]) -> list[dict[str, Any]]:
     out = []
     for ev in evidencias:
@@ -420,10 +472,18 @@ def main() -> int:
     estados: dict[str, int] = {}
     for item in ck:
         estados[item.get("state") or "?"] = estados.get(item.get("state") or "?", 0) + 1
-    links = db.rows("SELECT l.target_id FROM evidence_links l JOIN evidences e ON e.id = l.evidence_id WHERE e.property_id = %s AND l.target_type ILIKE %s", (a["id"], "checklist%"))
-    alvos_com_ev = {r[0] for r in links}
+    # Vínculo item ↔ evidência fica em checklist_evidences (a versão anterior deste roteiro procurava em
+    # evidence_links com target_type 'checklist%', que o produto não usa: contava sempre 0).
+    links = db.rows("SELECT ce.checklist_result_id, e.origin, e.strength FROM checklist_evidences ce JOIN evidences e ON e.id = ce.evidence_id WHERE e.property_id = %s", (a["id"],))
+    ev_por_item: dict[int, list[str]] = {}
+    for rid, origem, forca in links:
+        ev_por_item.setdefault(rid, []).append(f"{origem or '?'}/{forca or '?'}")
     checklist = {"itens": len(ck), "por_estado": estados,
-                 "fora_de_pendente": [{"chave": i.get("canonical_key"), "estado": i.get("state"), "com_evidencia": i.get("id") in alvos_com_ev, "resposta": mask(i.get("answer"))[:160]} for i in ck if i.get("state") not in (None, "PENDENTE")]}
+                 "fora_de_pendente": [{"chave": i.get("canonical_key"), "estado": i.get("state"), "com_evidencia": i.get("id") in ev_por_item,
+                                       "evidencias": ev_por_item.get(i.get("id"), []), "origem_resolucao": i.get("resolution_origin"),
+                                       "resposta": mask(i.get("answer"))[:160]} for i in ck if i.get("state") not in (None, "PENDENTE")]}
+    checklist["resolvidos_com_origem_rastreavel"] = sum(1 for i in checklist["fora_de_pendente"] if i["com_evidencia"] or i["origem_resolucao"] == "REGRA_DETERMINISTICA")
+    rastreabilidade = avaliar_rastreabilidade(ev_analise_a, chunks_a, [i.get("question") for i in ck])
 
     # Privacidade
     cpf_alvo = gab["privacidade"]["nunca_no_registro_ou_log"]
@@ -481,6 +541,8 @@ def main() -> int:
         "status_analise": analise_a.get("status"), "codigo": st.get("codigo"), "mensagem": mask(st.get("mensagem")),
         "agentes_ok": st.get("agentes_ok"), "agentes_total": st.get("agentes_total"), "ia_disponivel": ia_disponivel,
         "llm_usada": analise_a.get("llm_usada"), "extracao": {k: {"http": v["http"], "status": v["corpo"].get("status") if isinstance(v["corpo"], dict) else None,
+                             "status_extracao": v["corpo"].get("status_extracao") if isinstance(v["corpo"], dict) else None,
+                             "campos": {c: (i.get("status"), i.get("motivo")) for c, i in ((v["corpo"].get("campos") or {}) if isinstance(v["corpo"], dict) else {}).items()},
                              "erro": (v["corpo"].get("erro") or v["corpo"].get("detail")) if isinstance(v["corpo"], dict) else None} for k, v in extracoes.items()},
         "documentos": documentos_estado,
     }
@@ -517,7 +579,7 @@ def main() -> int:
             "o_radar_responde": "SIM" if financeiro["criterios"]["Q5_recomendacao_clara_de_nao_comprar"]["ok"] and financeiro["criterios"]["Q4_compara_lance_com_preco_maximo"]["ok"] else "NAO",
         },
         "linha_de_base": linha_base, "disponibilidade_ia": disponibilidade, "financeiro": financeiro, "veredito": veredito_info,
-        "ia": ia, "evidencias_A": evidencias_view(ev_analise_a, vers_a), "checklist": checklist,
+        "ia": ia, "rastreabilidade": rastreabilidade, "evidencias_A": evidencias_view(ev_analise_a, vers_a), "checklist": checklist,
         "privacidade": privacidade, "isolamento": isolamento, "custo_e_chamadas": sem_custo, "llm_runs": llm_runs,
         "tempos": {"total_ms": round((time.perf_counter() - t0) * 1000), "analisar_A_ms": dur_a, "etapas": api.timings},
         "erros": erros,
@@ -587,9 +649,16 @@ def markdown(r: dict[str, Any]) -> str:
         L += [f"| {e['id']} | {e['documento'] or '—'} | {e['pagina'] or '—'} | {e['secao'] or '—'} | {e['fato'][:90]} | {(e['trecho_literal'] or '—')[:90]} |" for e in r["evidencias_A"][:20]]
     else:
         L.append("Nenhuma evidência gerada pela análise.")
+    rt = r.get("rastreabilidade") or {}
+    L += ["", "## Rastreabilidade das evidências", "",
+          f"- Por origem: {json.dumps(rt.get('por_origem') or {}, ensure_ascii=False)} · por força: {json.dumps(rt.get('por_forca') or {}, ensure_ascii=False)}",
+          f"- Pergunta do checklist como trecho literal: {rt.get('pergunta_do_checklist_como_trecho') or 'nenhuma'}",
+          f"- Valor da afirmação ausente do documento citado: {rt.get('valor_ausente_do_documento_citado') or 'nenhum'}",
+          f"- Evidência com documento e citação fraca/inválida: {rt.get('evidencia_documental_com_citacao_fraca_ou_invalida') or 'nenhuma'}"]
     c = r["checklist"]
     L += ["", "## Checklist", "", f"- Itens: {c['itens']} · por estado: {json.dumps(c['por_estado'], ensure_ascii=False)}",
-          f"- Fora de PENDENTE: {len(c['fora_de_pendente'])} (com evidência: {sum(1 for i in c['fora_de_pendente'] if i['com_evidencia'])})"]
+          f"- Fora de PENDENTE: {len(c['fora_de_pendente'])} (com evidência: {sum(1 for i in c['fora_de_pendente'] if i['com_evidencia'])} · com origem rastreável: {c.get('resolvidos_com_origem_rastreavel', '—')})"]
+    L += [f"  - {i['chave']}: {i['estado']} · origem {i.get('origem_resolucao') or '—'} · evidências {', '.join(i.get('evidencias') or []) or '—'}" for i in c["fora_de_pendente"]]
     L += ["", "## Privacidade", "", f"- CPF em llm_runs/registro da análise: {sim(pv['cpf_em_llm_runs_ou_registro_de_analise'])}",
           f"- CPF no log do backend (trecho desta execução): {sim(pv['cpf_no_log_do_backend'])} · segredo no log: {sim(pv['segredo_no_log'])} · log verificado: {sim(pv['log_verificado'])}",
           f"- CPF no trecho literal das evidências: {sim(pv['cpf_em_trecho_de_evidencia'])} — {pv['nota_trecho']}"]
