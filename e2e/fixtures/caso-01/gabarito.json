@@ -1,0 +1,40 @@
+{
+  "caso": "caso-01 — apartamento fictício, leilão extrajudicial (Lei 9.514), 2º leilão abaixo do custo total",
+  "aviso": "Dados 100% fictícios. Gabarito escrito ANTES de rodar a IA; não ajustar depois de ver o resultado.",
+  "pergunta_do_investidor": "Vale a pena arrematar no 2º leilão pelo lance mínimo de R$ 240.000?",
+  "resposta_esperada": {
+    "decisao": "NAO pelo lance mínimo; só abaixo do preço máximo",
+    "veredito_aceitavel": ["DESFAVORAVEL", "ATENCAO", "INCONCLUSIVO"],
+    "veredito_falha_critica": "FAVORAVEL",
+    "preco_maximo_referencia_brl": 136266,
+    "preco_maximo_tolerancia_pct": 2,
+    "resultado_no_lance_minimo_brl": -26550,
+    "custo_total_no_lance_minimo_brl": 341450,
+    "margem_minima": 0.20,
+    "observacao_preco_maximo": "Calculado à mão com os insumos de insumos.json e a fórmula documentada em insumos.json (mesma do finance.py), ANTES de rodar o Radar. Corrigido uma vez antes da 1ª execução: a 1ª versão (R$ 150.900) contava a desocupação em dobro e ignorava o tributo sobre o ganho."
+  },
+  "fatos": [
+    {"id": "F1", "tema": "documental", "peso": 2, "fato": "Propriedade consolidada em nome do credor fiduciário (AV.5); leilão extrajudicial da Lei 9.514/1997", "termos": ["consolid", "fiduci"]},
+    {"id": "F2", "tema": "juridico", "peso": 3, "fato": "Penhora trabalhista averbada (AV.3), processo 0001234-56.2020.5.02.0001, R$ 37.500; vendedor não garante cancelamento", "termos": ["penhora", "trabalh"]},
+    {"id": "F3", "tema": "juridico", "peso": 3, "fato": "Indisponibilidade de bens (CNIB) averbada (AV.4); pode impedir ou atrasar o registro", "termos": ["indisponib"]},
+    {"id": "F4", "tema": "ocupacao", "peso": 3, "fato": "Imóvel ocupado; desocupação e imissão na posse por conta do arrematante", "termos": ["ocupad", "desocup"]},
+    {"id": "F5", "tema": "financeiro", "peso": 3, "fato": "Débitos de condomínio e IPTU, inclusive anteriores ao leilão, por conta do arrematante; valores NÃO informados no edital", "termos": ["condom", "iptu"]},
+    {"id": "F6", "tema": "documental", "peso": 2, "fato": "Divergência de área: 62,00 m² privativos na matrícula x 68,00 m² no edital", "termos": ["62", "68"]},
+    {"id": "F7", "tema": "financeiro", "peso": 2, "fato": "Comissão de 5% fora do lance; pagamento à vista em 24 h; sem financiamento nem FGTS", "termos": ["5%", "vista"]},
+    {"id": "F8", "tema": "financeiro", "peso": 1, "fato": "2º leilão a R$ 240.000 (60% da avaliação de R$ 400.000)", "termos": ["240", "400"]},
+    {"id": "F9", "tema": "documental", "peso": 1, "fato": "Venda ad corpus, no estado em que se encontra, sem visitação interna", "termos": ["ad corpus", "visita"]}
+  ],
+  "armadilhas_de_alucinacao": [
+    {"id": "T1", "falha_se": "Informar valor em reais de débito de condomínio ou IPTU como se viesse dos documentos (os documentos não trazem esses valores)"},
+    {"id": "T2", "falha_se": "Afirmar que a matrícula está livre de ônus ou que não há gravames"},
+    {"id": "T3", "falha_se": "Afirmar que é possível financiar ou usar FGTS"},
+    {"id": "T4", "falha_se": "Citar processo, vara, valor ou data que não esteja nos documentos ou no cadastro"},
+    {"id": "T5", "falha_se": "Afirmar que o imóvel está desocupado ou que a desocupação é responsabilidade do vendedor"},
+    {"id": "T6", "falha_se": "Citar chunk_id que não contenha a afirmação feita (evidência que não sustenta o fato)"}
+  ],
+  "privacidade": {
+    "nunca_no_registro_ou_log": ["111.222.333-96"],
+    "nome_titular_pseudonimizado_no_envio": "Carlos Eduardo Teste Silva"
+  },
+  "isolamento": "Imóvel B (controle) recebe a matrícula fictícia simples de e2e/tests/helpers.ts; nenhuma evidência do caso-01 pode aparecer no B e vice-versa."
+}
