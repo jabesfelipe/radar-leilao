@@ -305,6 +305,9 @@ class JudicialIntegrationService:
             hypothesis=f"Origem: {origem}" if origem else None,
             confidence=_confidence_label(signal.get("confidence")),
             source_excerpt=f"{JUDICIAL_SOURCE} — sinal {code} (severidade {signal.get('severity')})",
+            # Origem identificável (v1.0.4): resultado da pesquisa judicial, não trecho de documento do imóvel.
+            origin="PESQUISA_JUDICIAL",
+            agent="judicial_api",
         )
         self.db.add(evidence)
         self.db.flush()

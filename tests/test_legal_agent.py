@@ -81,7 +81,8 @@ def test_persistencia_juridica_normaliza_evidence_e_checklist(monkeypatch):
     class FakeDb:
         def __init__(self):
             self.added = []
-            self.chunk = models.DocumentChunk(id=4, document_version_id=3, page=2, section="Registro", content="trecho jurídico")
+            # v1.0.4: a citação é conferida contra o conteúdo do chunk; o trecho precisa sustentar a afirmação.
+            self.chunk = models.DocumentChunk(id=4, document_version_id=3, page=2, section="Registro", content="AV.3 — Processo ativo em trâmite na 1ª Vara Cível.")
             # O documento da versão pertence ao imóvel 1 (a persistência valida o isolamento por imóvel).
             self.version = models.DocumentVersion(id=3, document_id=8, document=models.Document(id=8, property_id=1))
 

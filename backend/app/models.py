@@ -186,6 +186,12 @@ class Evidence(TimestampMixin, Base):
     page: Mapped[int | None] = mapped_column(Integer)
     section: Mapped[str | None] = mapped_column(String(240))
     source_excerpt: Mapped[str | None] = mapped_column(Text)
+    # Rastreabilidade (v1.0.4, migration 0025). NULL = registro anterior, origem não registrada.
+    # origin: DOCUMENTO | CADASTRO | CALCULO | PESQUISA_JUDICIAL | INFERENCIA_IA | REGRA_DETERMINISTICA
+    # strength: FORTE | MODERADA | FRACA | INVALIDA (força da citação de documento; ver app/citations.py)
+    origin: Mapped[str | None] = mapped_column(String(30))
+    strength: Mapped[str | None] = mapped_column(String(20))
+    agent: Mapped[str | None] = mapped_column(String(40))
     property: Mapped[Property] = relationship(back_populates="evidences")
     document_version: Mapped[DocumentVersion | None] = relationship(back_populates="evidences")
     links: Mapped[list["EvidenceLink"]] = relationship(back_populates="evidence", cascade="all, delete-orphan")
@@ -247,6 +253,9 @@ class ChecklistResult(TimestampMixin, Base):
     confidence: Mapped[str] = mapped_column(String(20), default="MEDIA")
     interpretation: Mapped[str | None] = mapped_column(Text)
     risk: Mapped[str | None] = mapped_column(Text)
+    # Como o item saiu de PENDENTE (v1.0.4): DOCUMENTO (evidência validada) | REGRA_DETERMINISTICA (dados
+    # cadastrados) | NULL (pendente, manual ou registro anterior).
+    resolution_origin: Mapped[str | None] = mapped_column(String(30))
     execution: Mapped[ChecklistExecution] = relationship(back_populates="results")
     item: Mapped[ChecklistItem] = relationship(back_populates="executions")
     previous_result: Mapped["ChecklistResult | None"] = relationship(remote_side="ChecklistResult.id", uselist=False)

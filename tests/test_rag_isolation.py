@@ -195,11 +195,13 @@ def test_chunk_do_proprio_imovel_mas_fora_do_contexto_recuperado_e_descartado(db
 def test_controle_positivo_chunk_valido_do_imovel_e_do_contexto_gera_evidencia(db, dois):
     chunk_a = _chunks(db, dois["ver_a"])[0]
     analise, execucao = _execucao(db, dois["a"])
-    ok = {"agent": "documental", "retrieved_chunk_ids": [chunk_a.id], "facts": [{"kind": "fato", "statement": "fato documentado", "confidence": "ALTA", "chunk_ids": [chunk_a.id]}]}
+    # v1.0.4: a afirmação precisa ser sustentada pelo trecho do chunk citado (ver tests/test_citations.py).
+    ok = {"agent": "documental", "retrieved_chunk_ids": [chunk_a.id], "facts": [{"kind": "fato", "statement": "Consolidação da propriedade fiduciária registrada", "confidence": "ALTA", "chunk_ids": [chunk_a.id]}]}
     ids = persist_agent_findings(db, dois["a"], analise, execucao, [ok])
     assert len(ids) == 1
     ev = db.get(models.Evidence, ids[0])
     assert ev.chunk_id == chunk_a.id and ev.property_id == dois["a"].id
+    assert ev.origin == "DOCUMENTO" and ev.strength in ("FORTE", "MODERADA") and "ALFAUNICO" in (ev.source_excerpt or "")
     assert dois["doc_a"].id in analise.documents_considered
 
 

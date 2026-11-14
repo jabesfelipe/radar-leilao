@@ -358,7 +358,8 @@ def test_banco_novo_e_banco_existente_na_0023_com_alembic_real(banco_descartavel
         conn.execute(text("DELETE FROM analyses WHERE id = :i"), {"i": duplicada}); conn.commit()
         sem_duplicata = _rows(conn)
 
-    ok = _alembic(url, "upgrade", "head")
+    # Alvo explícito: depois da 0024 existem migrations posteriores (0025+); este teste é da 0024.
+    ok = _alembic(url, "upgrade", "0024_analysis_version_unique")
     assert ok.returncode == 0, ok.stderr[-800:]
     with engine.connect() as conn:
         assert _rows(conn) == sem_duplicata                                   # dados preservados

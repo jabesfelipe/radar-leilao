@@ -26,10 +26,11 @@ def version_for(property_id=1):
     document=models.Document(id=2,property_id=property_id,name="doc.txt",document_type="MATRICULA")
     return models.DocumentVersion(id=3,document_id=2,version=1,content_hash="a"*64,original_path="doc.txt",document=document)
 
-def fake_rag(monkeypatch):
+def fake_rag(monkeypatch, content="Matrícula 123", chunks=None):
     class Retrieval:
-        context="[chunk_id=9] Matrícula 123"
-        chunks=[{"chunk_id":9,"page":2,"section":"AV-1","content":"Matrícula 123"}]
+        pass
+    Retrieval.chunks = chunks if chunks is not None else [{"chunk_id":9,"page":2,"section":"AV-1","content":content}]
+    Retrieval.context = "\n\n".join(f"[chunk_id={c['chunk_id']}] {c['content']}" for c in Retrieval.chunks)
     class FakeRag:
         def __init__(self, db): pass
         def retrieve_context(self,*args,**kwargs): return Retrieval()
@@ -41,9 +42,11 @@ def test_extrai_matricula_estruturada(monkeypatch):
     assert result.success and result.output.registration_number=="123" and result.call.input_tokens==10
 
 def test_extrai_edital_com_decimais_e_datas():
-    output=NoticeExtraction(identifier="E-1",appraisal_value=Decimal("300.50"),notice_date=date(2026,1,1),references=[{"field":"identifier","value":"E-1"},{"field":"appraisal_value","value":"300.50"},{"field":"notice_date","value":"2026-01-01"}])
+    # v1.0.4: valores tipados (Decimal/date) são conferidos no texto em grafia brasileira (R$ 300,50; 01/01/2026).
+    output=NoticeExtraction(identifier="E-1",appraisal_value=Decimal("300.50"),notice_date=date(2026,1,1),references=[{"field":"identifier","value":"E-1"},{"field":"appraisal_value","value":"R$ 300,50"},{"field":"notice_date","value":"01/01/2026"}])
     class Retrieval:
-        context="edital"; chunks=[]
+        context="[chunk_id=5] Edital E-1, de 01/01/2026. Avaliação: R$ 300,50."
+        chunks=[{"chunk_id":5,"page":None,"section":None,"content":"Edital E-1, de 01/01/2026. Avaliação: R$ 300,50."}]
     class FakeRag:
         def __init__(self,db): pass
         def retrieve_context(self,*args,**kwargs): return Retrieval()
@@ -54,8 +57,9 @@ def test_extrai_edital_com_decimais_e_datas():
         assert result.output.appraisal_value==Decimal("300.50") and result.output.notice_date==date(2026,1,1)
     finally: module.RAGService=original
 
-def test_resposta_invalida_e_campo_ausente():
-    fake_rag(pytest.MonkeyPatch()); output={"registration_number": {"valor_invalido": True}}
+def test_resposta_invalida_e_campo_ausente(monkeypatch):
+    # fixture monkeypatch (desfeito ao final): um MonkeyPatch avulso vazava o RAG falso para os testes seguintes.
+    fake_rag(monkeypatch); output={"registration_number": {"valor_invalido": True}}
     result=extract_document(FakeDb(version_for()),1,3,"MATRICULA",LLMGateway(FakeProvider(output),"fake","modelo"))
     assert result.call.status=="ERRO"
 
@@ -76,7 +80,7 @@ def test_persistencia_cria_registro_e_evidencia_rastreavel(monkeypatch):
 
 
 def test_campo_preenchido_com_referencia_correspondente_sucesso(monkeypatch):
-    fake_rag(monkeypatch)
+    fake_rag(monkeypatch, "MATRÍCULA Nº 123456 — FICHA 01")
     output = RegistrationExtraction(registration_number="123456", references=[{"field":"registration_number","value":"123456"}])
     result = extract_document(FakeDb(version_for()), 1, 3, "MATRICULA", LLMGateway(FakeProvider(output), "fake", "modelo"))
     assert result.success is True
