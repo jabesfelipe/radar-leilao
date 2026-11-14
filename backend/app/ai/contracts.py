@@ -54,7 +54,11 @@ class Finding(BaseModel):
                    # "Pendente"/"não identificado" = informação ausente do documento: nunca conta como fato.
                    "pendente": "ausencia", "pending": "ausencia", "missing": "ausencia",
                    "nao identificado": "ausencia", "nao_identificado": "ausencia", "nao encontrado": "ausencia",
-                   "nao_encontrado": "ausencia", "nao consta": "ausencia"}
+                   "nao_encontrado": "ausencia", "nao consta": "ausencia",
+                   # 1ª execução na VPS (v1.0.5, agente checklist): kind='risco' (eco do estado RISCO_IDENTIFICADO)
+                   # invalidou a resposta inteira. Risco é leitura/avaliação, nunca fato documental.
+                   "risco": "interpretacao", "risk": "interpretacao", "risco_identificado": "interpretacao",
+                   "risco identificado": "interpretacao", "atencao": "interpretacao", "alerta": "interpretacao"}
         return aliases.get(text, text) if text else value
 
     @field_validator("confidence", mode="before")

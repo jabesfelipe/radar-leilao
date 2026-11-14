@@ -33,6 +33,17 @@ def test_kind_pendente_vira_ausencia_e_nao_derruba_o_agente():
     assert [f.kind for f in resp.findings] == ["ausencia", "fato"]
 
 
+def test_kind_risco_vira_interpretacao_e_nao_derruba_o_agente():
+    # 1ª execução na VPS (v1.0.5): o agente checklist devolveu kind='risco' em 2 findings e perdeu a resposta inteira.
+    for valor in ("risco", "Risco", "RISCO_IDENTIFICADO", "risco identificado", "risk", "atenção", "alerta"):
+        assert Finding(kind=valor, statement="x").kind == "interpretacao"
+    resp = AgentResponse.model_validate({"findings": [
+        {"kind": "risco", "statement": "Penhora averbada pode atrasar o registro"},
+        {"kind": "fato", "statement": "Matrícula informa penhora na AV.3"},
+    ]})
+    assert [f.kind for f in resp.findings] == ["interpretacao", "fato"]
+
+
 def test_conteudo_invalido_continua_rejeitado():
     with pytest.raises(ValidationError):
         Finding(kind="opiniao_livre", statement="x")
