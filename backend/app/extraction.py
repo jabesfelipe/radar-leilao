@@ -7,8 +7,10 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from . import models
-from .ai.gateway import LLMCall, LLMGateway, build_gateway, sanitize_error
+from .ai.gateway import BudgetExceeded, LLMCall, LLMGateway, build_gateway, sanitize_error
+from .config import settings
 from .evidence import normalize_documentary_evidence
+from .privacy_context import aliaser_for_property
 from .rag.retriever import RetrieverFilters
 from .rag.service import RAGService
 from .services import persist_llm_runs, record_event, record_history
@@ -75,11 +77,18 @@ def extract_document(db, property_id: int, document_version_id: int, document_ty
     if gateway_override is not None: gateway = gateway_override
     else:
         try: gateway = build_gateway()
-        except RuntimeError as exc: return ExtractionResult(document_type, document_version_id, LLMCall.unavailable("openai", "desconhecido", str(exc)), None, retrieval.chunks)
-    call = gateway.structured_chat(schema, _prompt(document_type, retrieval.context))
+        except RuntimeError as exc:
+            # Orçamento atingido não pode ser mascarado como "sem chave" (e o modelo real deve constar do registro).
+            status = "ORCAMENTO_EXCEDIDO" if isinstance(exc, BudgetExceeded) else "SEM_CHAVE"
+            return ExtractionResult(document_type, document_version_id, LLMCall.unavailable(settings.llm_provider, settings.llm_model, str(exc), status=status), None, retrieval.chunks)
+    # Pseudonimização de pessoas físicas conhecidas antes do envio; a resposta é restaurada localmente.
+    aliaser = aliaser_for_property(db, property_id)
+    aliaser.learn_from_text(retrieval.context)
+    call = gateway.structured_chat(schema, _prompt(document_type, aliaser.apply(retrieval.context)))
     if call.status != "CONCLUIDO": return ExtractionResult(document_type, document_version_id, call, None, retrieval.chunks)
     try:
         output = call.content if isinstance(call.content, schema) else schema.model_validate(call.content)
+        output = schema.model_validate(aliaser.restore_obj(output.model_dump(mode="python")))
         validate_extraction_references(output)
     except Exception as exc:
         call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = sanitize_error(str(exc)); return ExtractionResult(document_type, document_version_id, call, None, retrieval.chunks)

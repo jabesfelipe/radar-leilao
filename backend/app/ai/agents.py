@@ -7,6 +7,9 @@ from ..config import settings
 from ..market import calculate_market
 from ..services import build_finance, latest_execution, serialize
 from .contracts import AgentResponse
+from ..privacy import minimize_party
+from ..privacy_context import aliaser_for_property
+from .budget import unavailable_reason
 from .gateway import LLMCall, LLMGateway, sanitize_error
 from .prompts import ANALYSIS_SYSTEM_PROMPT
 
@@ -33,6 +36,15 @@ class RadarAgent:
         self.db = db
         self.gateway = gateway
 
+    _aliaser = None  # NameAliaser do imóvel em análise (definido em _run_llm)
+    unavailable_override: tuple[str, str] | None = None  # (status, mensagem) imposto pelo orçamento da análise
+
+    def _party(self, name: str | None, role: str) -> str | None:
+        """Parte de processo: apelido consistente quando há aliaser; senão, pseudonimização simples."""
+        if self._aliaser is not None:
+            return self._aliaser.alias_for(name, role)
+        return minimize_party(name, role)
+
     def _property_snapshot(self, property_id: int) -> dict[str, Any]:
         prop = self.db.get(models.Property, property_id)
         if not prop: return {}
@@ -40,17 +52,27 @@ class RadarAgent:
 
     def _run_llm(self, property_id: int, context: str, instructions: str, retrieved_chunk_ids: list[int], extra: dict[str, Any] | None = None) -> AgentResult:
         if not self.gateway:
-            call = LLMCall.unavailable(settings.llm_provider, settings.llm_model, "LLM não configurada; análise deste domínio aguarda OPENAI_API_KEY")
-            return AgentResult(self.name, [{"kind": "ausencia", "statement": call.error_message, "confidence": "BAIXA", "chunk_ids": []}], [], "LLM não configurada", ["Configurar OPENAI_API_KEY para executar a análise interpretativa"], False, call.model, call, retrieved_chunk_ids)
+            status, reason = self.unavailable_override or unavailable_reason(self.db)
+            call = LLMCall.unavailable(settings.llm_provider, settings.llm_model, reason, status=status)
+            pending = "Configurar OPENAI_API_KEY para executar a análise interpretativa" if status == "SEM_CHAVE" else "Aguardar o próximo ciclo de orçamento ou ajustar LLM_BUDGET_USD_MONTH"
+            return AgentResult(self.name, [{"kind": "ausencia", "statement": call.error_message, "confidence": "BAIXA", "chunk_ids": []}], [], "LLM não configurada" if status == "SEM_CHAVE" else "IA indisponível", [pending], False, call.model, call, retrieved_chunk_ids)
+        # Pseudonimização de PESSOAS FÍSICAS conhecidas (titular, partes, ocupantes + nomes após rótulos
+        # jurídicos no texto): o LLM vê papéis ("[TITULAR]"), nunca o nome; as respostas são restauradas
+        # localmente antes de gravar. O aliaser é só do imóvel analisado (ver privacy_context.py).
+        self._aliaser = aliaser_for_property(self.db, property_id)
+        self._aliaser.learn_from_text(context)
         payload = {"imovel": self._property_snapshot(property_id), "contexto_rag": context, **(extra or {})}
-        messages = [{"role": "system", "content": ANALYSIS_SYSTEM_PROMPT + "\nVocê é o agente " + self.name + ". " + instructions + "\nUse somente fatos presentes no contexto ou snapshot. Para cada finding, informe chunk_ids que sustentem a afirmação; se não houver evidência, use kind=ausencia ou hipotese."}, {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)}]
+        user_content = self._aliaser.apply(json.dumps(payload, ensure_ascii=False, default=str))
+        messages = [{"role": "system", "content": ANALYSIS_SYSTEM_PROMPT + "\nVocê é o agente " + self.name + ". " + instructions + "\nUse somente fatos presentes no contexto ou snapshot. Para cada finding, informe chunk_ids que sustentem a afirmação; se não houver evidência, use kind=ausencia ou hipotese. Nomes de pessoas físicas aparecem como papéis entre colchetes (ex.: [TITULAR]); mantenha-os assim."}, {"role": "user", "content": user_content}]
         call = self.gateway.structured_chat(AgentResponse, messages)
         if call.status != "CONCLUIDO":
             return AgentResult(self.name, [], [], "", [call.error_message or "Falha na execução do agente"], False, call.model, call, retrieved_chunk_ids)
         try:
             response = call.content
             parsed = response if isinstance(response, AgentResponse) else AgentResponse.model_validate(response)
-            facts = [finding.model_dump() for finding in parsed.findings]
+            facts = self._aliaser.restore_obj([finding.model_dump() for finding in parsed.findings])
+            parsed.summary = self._aliaser.restore(parsed.summary)
+            parsed.pending = self._aliaser.restore_obj(parsed.pending)
             evidence_ids = [chunk_id for finding in facts for chunk_id in finding.get("chunk_ids", [])]
         except Exception as exc:
             call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = sanitize_error(str(exc))
@@ -81,8 +103,10 @@ class LegalAgent(RadarAgent):
                 "natureza": process.nature,
                 "assunto": process.subject,
                 "status": process.status,
-                "polo_ativo": process.polo_active,
-                "polo_passivo": process.polo_passive,
+                # Minimização: pessoa física vira "[PARTE ATIVA]"/"[PARTE PASSIVA]"; empresas,
+                # bancos, condomínios e entes públicos permanecem (necessários à análise).
+                "polo_ativo": self._party(process.polo_active, "PARTE ATIVA"),
+                "polo_passivo": self._party(process.polo_passive, "PARTE PASSIVA"),
                 "data_distribuicao": serialize(process.distribution_date),
                 "observacoes": process.observations,
                 "fonte": process.source,
@@ -209,6 +233,33 @@ class ChecklistAgent(RadarAgent):
             {"checklist_mestre": checklist_items or []},
         )
 
+class _RunBudget:
+    """Acumula o custo da análise em curso e decide se o próximo agente pode chamar o provider."""
+
+    def __init__(self, db: Session):
+        from decimal import Decimal
+        from .budget import month_status
+        self.db = db
+        self.spent = Decimal("0")
+        status = month_status(db) if settings.llm_budget_usd_month is not None else {"gasto_usd": 0.0}
+        self.month_base = Decimal(str(status.get("gasto_usd") or 0))
+
+    def add(self, call: LLMCall | None) -> None:
+        from .costs import calculate_cost, resolve_pricing
+        if call is None or call.input_tokens is None or call.output_tokens is None:
+            return
+        cost = calculate_cost(call.input_tokens, call.output_tokens, resolve_pricing(self.db, call.provider, call.model))["total_cost"]
+        if cost is not None:
+            self.spent += cost
+
+    def blocked_reason(self) -> str | None:
+        if settings.llm_budget_usd_per_analysis is not None and float(self.spent) >= settings.llm_budget_usd_per_analysis:
+            return "Teto de custo desta análise atingido; os agentes restantes não foram executados"
+        if settings.llm_budget_usd_month is not None and float(self.month_base + self.spent) >= settings.llm_budget_usd_month:
+            return "Orçamento mensal de IA atingido durante a análise; os agentes restantes não foram executados"
+        return None
+
+
 class Supervisor:
     def __init__(self, db: Session, gateway: LLMGateway | None = None):
         self.db = db
@@ -225,10 +276,18 @@ class Supervisor:
     ) -> list[AgentResult]:
         available = {a.name: a for a in [DocumentAgent(self.db, self.gateway), LegalAgent(self.db, self.gateway), FinancialAgent(self.db, self.gateway), MarketAgent(self.db, self.gateway), ChecklistAgent(self.db, self.gateway)]}
         results: list[AgentResult] = []
+        # Orçamento DURANTE a análise: as chamadas só entram em llm_runs ao final, então o gasto da própria
+        # análise é acumulado aqui (tokens reais x llm_pricing) e comparado ao teto mensal e ao teto por análise.
+        guard = _RunBudget(self.db) if self.gateway is not None and (settings.llm_budget_usd_month is not None or settings.llm_budget_usd_per_analysis is not None) else None
         for name in domains:
             agent = available.get(name)
             if not agent:
                 continue
+            if guard is not None:
+                blocked = guard.blocked_reason()
+                if blocked:
+                    agent.gateway = None
+                    agent.unavailable_override = ("ORCAMENTO_EXCEDIDO", blocked)
             try:
                 # O ChecklistAgent recebe o contexto direcionado (RAG por item) quando
                 # disponível; os demais agentes seguem com o contexto genérico. Isso
@@ -237,6 +296,8 @@ class Supervisor:
                     results.append(agent.run(property_id, checklist_context, checklist_chunk_ids or retrieved_chunk_ids))
                 else:
                     results.append(agent.run(property_id, context, retrieved_chunk_ids))
+                if guard is not None and results:
+                    guard.add(results[-1].llm_call)
             except Exception as exc:
                 call = LLMCall(provider=self.gateway.provider_name if self.gateway else settings.llm_provider, model=self.gateway.model if self.gateway else settings.llm_model, status="ERRO", error_type=type(exc).__name__, error_message=sanitize_error(str(exc)))
                 results.append(AgentResult(name, [], [], "", [call.error_message or "Falha no agente"], False, call.model, call, retrieved_chunk_ids or []))

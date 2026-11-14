@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +49,23 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 90.0
     llm_max_retries: int = 1
     llm_max_output_tokens: int | None = None
+    # ---- Privacidade e controle de custo (rodada de correções P0 da homologação v1.0.2) ----
+    # Minimização: mascara CPF/RG/e-mail/telefone/dados bancários e pseudonimiza partes de
+    # processo (pessoa física) antes de enviar texto à OpenAI. Ver app/privacy.py.
+    llm_redact_pii: bool = True
+    # Exige HTTPS nas rotas de API (426 em HTTP, exceto /health e loopback). Ligar antes de
+    # enviar documento real ou ativar a OpenAI. Ver app/https_guard.py e PLANO-ATIVACAO-OPENAI.md.
+    require_https: bool = False
+    # Orçamento mensal (USD) para chamadas de CHAT registradas em llm_runs. Ao atingir o
+    # teto, os agentes não chamam o provider (status ORCAMENTO_EXCEDIDO). None = sem teto
+    # na aplicação (o teto de gasto DEVE existir também no painel da OpenAI).
+    llm_budget_usd_month: float | None = None
+    # Teto de uma ÚNICA análise (soma dos agentes). Impede que uma análise estoure o mês por dentro e
+    # limita o excesso de análises simultâneas. Vale também para a checagem durante a execução dos agentes.
+    llm_budget_usd_per_analysis: float | None = None
+    # Preço de referência de embeddings (USD por 1M tokens) usado só para ESTIMAR o custo
+    # em log/telemetria (não há linha em llm_pricing). Confirmar na página de preços da OpenAI.
+    embedding_price_per_1m_usd: float = 0.02
     # ---- Proteção contra consumo indevido / abuso (por usuário, por processo) ----
     # Operações "críticas" são as que podem acionar LLM/embeddings/serviço externo
     # (analisar, agentes, extrair, reanalisar, reprocessar, consultar processos/débitos,
@@ -124,6 +141,14 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in (self.cors_allow_origins or "").split(",") if o.strip()]
+
+    @field_validator("llm_budget_usd_month", "llm_budget_usd_per_analysis", "llm_max_output_tokens", mode="before")
+    @classmethod
+    def _empty_is_none(cls, value):
+        # O compose repassa variáveis opcionais como string vazia; vazio = "não configurado".
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_runtime(self):

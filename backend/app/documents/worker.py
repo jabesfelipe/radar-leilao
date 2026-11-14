@@ -66,7 +66,7 @@ LOCK_TIMEOUT_MS_DEFAULT = 5000
 
 # Falhas que não indicam problema do documento: credencial, limite de taxa, timeout,
 # rede e indisponibilidade do provider. Não consomem as tentativas definitivas.
-TRANSIENT_ERROR_CATEGORIES = frozenset({"AUTENTICACAO", "RATE_LIMIT", "TIMEOUT", "CONEXAO", "PROVEDOR"})
+TRANSIENT_ERROR_CATEGORIES = frozenset({"AUTENTICACAO", "RATE_LIMIT", "TIMEOUT", "CONEXAO", "PROVEDOR", "ORCAMENTO"})
 BASE_BACKOFF_SECONDS = 60
 MAX_BACKOFF_SECONDS = 900
 

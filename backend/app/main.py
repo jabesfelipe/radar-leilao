@@ -30,6 +30,7 @@ from .rag.retriever import RetrieverFilters
 from . import legal_service
 from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary, due_diligence_overview, location_out, ensure_property_location, get_property_location, validate_location_checklist, upsert_due_diligence_front, get_due_diligence_front, reflect_due_diligence_signals)
 
+from .https_guard import HttpsGuardMiddleware
 from .locks import operation_lock
 from .request_context import CorrelationIdMiddleware, get_correlation_id, public_error
 from .security import security_gate
@@ -40,6 +41,7 @@ log = get_logger("api")
 # Segurança (default-deny): TODAS as rotas passam por ``security_gate`` — só /health e o
 # login são públicos; o restante exige JWT + permissão (ver security.py).
 app = FastAPI(title=settings.app_name, version="0.2.0", dependencies=[Depends(security_gate)])
+app.add_middleware(HttpsGuardMiddleware)  # mais interno: respostas 426/HSTS também passam por CORS e X-Request-ID
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins_list, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 app.add_middleware(CorrelationIdMiddleware)  # mais externo: todo response (inclusive preflight/CORS) leva X-Request-ID
 

@@ -67,11 +67,14 @@ def rag_metrics(db: Session = Depends(get_db), _: models.User = Depends(get_curr
     versoes_erro = db.scalar(
         select(func.count()).select_from(models.DocumentVersion).where(models.DocumentVersion.status == "ERRO")
     ) or 0
+    from ..ai.budget import month_status
     return {
         "documentos": int(documentos),
         "versoes": int(versoes),
         "versoes_em_erro": int(versoes_erro),
         "embeddings": cobertura,
+        # Gasto do mês (chat + embeddings estimados) x teto configurado; sem teto => limite/gasto None.
+        "orcamento_llm": month_status(db),
     }
 
 

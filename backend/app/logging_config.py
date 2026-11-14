@@ -28,13 +28,16 @@ class SecretRedactingFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        from .privacy import redact_pii
         from .redaction import redact
         from .request_context import get_correlation_id
         try:
-            record.msg = redact(record.getMessage(), max_len=4000)
+            # Segredos + dados pessoais (CPF, e-mail, telefone...) nunca chegam ao log,
+            # mesmo que uma biblioteca ou mensagem de erro os ecoe.
+            record.msg = redact_pii(redact(record.getMessage(), max_len=4000), force=True)
             record.args = ()
             if record.exc_info and not record.exc_text:
-                record.exc_text = redact(logging.Formatter().formatException(record.exc_info), max_len=8000)
+                record.exc_text = redact_pii(redact(logging.Formatter().formatException(record.exc_info), max_len=8000), force=True)
         except Exception:  # nunca derrubar a aplicação por causa do filtro
             pass
         record.correlation_id = get_correlation_id()

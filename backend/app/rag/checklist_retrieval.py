@@ -143,6 +143,23 @@ def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[
     chunks_recuperados_total = 0
     use_vector = bool(settings.effective_llm_api_key)
 
+    # Consultas de todos os itens e UMA única chamada de embeddings (antes: uma chamada por item, cada uma
+    # recriando o provider e consultando o orçamento). Mesmo texto, mesmo custo estimado, bem menos requisições.
+    valid_items = [(item.get("canonical_key"), build_item_query(item)) for item in checklist_items if item.get("canonical_key")]
+    item_embeddings: dict[str, list[float]] = {}
+    if use_vector and valid_items:
+        embeddings_requested = len(valid_items)
+        try:
+            from ..ai.gateway import build_gateway
+            vectors = build_gateway().embed([query for _, query in valid_items])
+            for (key, _), vector in zip(valid_items, vectors):
+                if vector:
+                    item_embeddings[key] = vector
+            embeddings_executed = len(item_embeddings)
+            embeddings_failed = embeddings_requested - embeddings_executed
+        except Exception:
+            embeddings_failed = embeddings_requested  # cai no modo texto do retriever
+
     for item in checklist_items:
         key = item.get("canonical_key")
         if not key:
@@ -150,16 +167,7 @@ def retrieve_for_checklist(db: Session, property_id: int, checklist_items: list[
         query = build_item_query(item)
         queries[key] = query
         items_with_query += 1
-        embedding = None
-        if use_vector:
-            embeddings_requested += 1
-            try:
-                from ..ai.gateway import build_gateway
-                embedding = build_gateway().embed([query])[0]
-                embeddings_executed += 1
-            except Exception:
-                embeddings_failed += 1
-                embedding = None  # cai no modo texto do retriever
+        embedding = item_embeddings.get(key)
         results = retriever.search(
             query=query,
             embedding=embedding,
