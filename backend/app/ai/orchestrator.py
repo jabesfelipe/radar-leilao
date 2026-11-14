@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from .graph import build_analysis_graph
+from .graph import DEFAULT_RAG_QUERY, build_analysis_graph
 
 
 class AnalysisOrchestrator:
@@ -22,6 +22,6 @@ class AnalysisOrchestrator:
                 "property_id": property_id,
                 "analysis_id": analysis_id,
                 "domains": domains,
-                "query": query or "análise documental do imóvel",
+                "query": query or DEFAULT_RAG_QUERY,
             }
         )

@@ -82,7 +82,8 @@ def test_persistencia_juridica_normaliza_evidence_e_checklist(monkeypatch):
         def __init__(self):
             self.added = []
             self.chunk = models.DocumentChunk(id=4, document_version_id=3, page=2, section="Registro", content="trecho jurídico")
-            self.version = models.DocumentVersion(id=3, document_id=8)
+            # O documento da versão pertence ao imóvel 1 (a persistência valida o isolamento por imóvel).
+            self.version = models.DocumentVersion(id=3, document_id=8, document=models.Document(id=8, property_id=1))
 
         def get(self, model, identifier):
             if model is models.DocumentChunk and identifier == 4:

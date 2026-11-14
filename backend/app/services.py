@@ -301,6 +301,28 @@ def create_verdict(db: Session, prop: models.Property, analysis: models.Analysis
     db.add(verdict); db.flush(); return verdict
 
 
+def resolve_cited_chunk(db: Session, raw_chunk_ids, property_id: int, allowed_chunk_ids=None):
+    """Resolve o ``chunk_id`` citado pelo LLM — que é entrada NÃO CONFIÁVEL — com isolamento por imóvel.
+
+    Só devolve (chunk, versão) se o chunk pertence a um documento DO MESMO imóvel e, quando o conjunto
+    recuperado pelo RAG é conhecido, se foi de fato recuperado para esta análise. Um chunk de outro
+    imóvel (alucinação ou prompt injection) é descartado: nunca vira Evidence nem entra em
+    ``documents_considered``. Retorna ``(None, None)`` quando a citação não é válida.
+    """
+    for chunk_id in valid_chunk_ids(raw_chunk_ids):
+        if allowed_chunk_ids and chunk_id not in allowed_chunk_ids:
+            continue
+        chunk = db.get(models.DocumentChunk, chunk_id)
+        if chunk is None:
+            continue
+        version = db.get(models.DocumentVersion, chunk.document_version_id)
+        document = version.document if version is not None else None
+        if document is None or document.property_id != property_id:
+            continue
+        return chunk, version
+    return None, None
+
+
 def persist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, agent_results: list[dict]) -> list[int]:
     """Converte findings estruturados em evidências rastreáveis e atualiza o checklist da execução."""
     evidence_ids: list[int] = []
@@ -308,16 +330,15 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     result_by_key = {result.item.canonical_key: result for result in execution.results} if execution else {}
     for result in agent_results:
         agent_name = result.get("agent", "IA")
+        allowed = set(valid_chunk_ids(result.get("retrieved_chunk_ids") or []))
         if agent_name.lower() in {"checklist", "checklist_agent"}:
-            evidence_ids.extend(persist_checklist_agent_findings(db, prop, analysis, execution, result.get("facts", [])))
+            evidence_ids.extend(persist_checklist_agent_findings(db, prop, analysis, execution, result.get("facts", []), allowed_chunk_ids=allowed))
             continue
         for finding in result.get("facts", []):
             statement = finding.get("statement") or finding.get("descricao")
             if not statement:
                 continue
-            chunk_ids = valid_chunk_ids(finding.get("chunk_ids", []))
-            chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
-            version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
+            chunk, version = resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed)
             if chunk and version:
                 document_ids.add(version.document_id)
             is_documental = agent_name.lower() in {"documental", "document_agent", "document"}
@@ -351,7 +372,7 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     return evidence_ids
 
 
-def persist_checklist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, facts: list[dict]) -> list[int]:
+def persist_checklist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, facts: list[dict], allowed_chunk_ids=None) -> list[int]:
     """Valida e aplica somente findings do Checklist Agent em uma nova execução."""
     if not execution:
         return []
@@ -372,9 +393,7 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
             continue
         if state != "NAO_APLICAVEL" and not checklist_result.applicable:
             continue
-        chunk_ids = valid_chunk_ids(finding.get("chunk_ids", []))
-        chunk = db.get(models.DocumentChunk, chunk_ids[0]) if chunk_ids else None
-        version = db.get(models.DocumentVersion, chunk.document_version_id) if chunk else None
+        chunk, version = resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed_chunk_ids)
         if not chunk or not version:
             continue
         document_ids.add(version.document_id)

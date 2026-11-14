@@ -494,7 +494,7 @@ def run_document_agent(property_id: int, analysis_id: int, db: Session = Depends
     prop = property_or_404(db, property_id)
     analysis = db.get(models.Analysis, analysis_id)
     if not analysis or analysis.property_id != property_id: raise HTTPException(404, "Análise não encontrada para este imóvel")
-    retrieval = RAGService(db).retrieve_context("fatos documentais matrícula edital", property_id)
+    retrieval = RAGService(db).retrieve_context("fatos documentais matrícula edital", property_id, filters=RetrieverFilters(property_id=property_id, category="documental"), broad=True)
     try:
         gateway = build_gateway()
     except RuntimeError as exc:
@@ -521,6 +521,7 @@ def run_legal_agent(property_id: int, analysis_id: int, db: Session = Depends(ge
         "matrícula edital processos consolidação registros averbações",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="juridico"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -556,6 +557,7 @@ def run_financial_agent(property_id: int, analysis_id: int, db: Session = Depend
         "custos dívidas aquisição desconto margem aluguel yield valor de mercado financeiro",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="financeiro"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -585,6 +587,7 @@ def run_market_agent(property_id: int, analysis_id: int, db: Session = Depends(g
         "comparáveis preço médio mediano preço por metro quadrado aluguel mercado região liquidez",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="mercado"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -624,6 +627,7 @@ def run_checklist_agent(property_id: int, analysis_id: int, db: Session = Depend
         "evidências matrícula edital processos documentos checklist regra pergunta",
         property_id,
         filters=RetrieverFilters(property_id=property_id, category="checklist"),
+        broad=True,
     )
     try:
         gateway = build_gateway()
@@ -1165,6 +1169,7 @@ def create_evidence(property_id: int, data: schemas.EvidenceCreate, db: Session 
     if data.chunk_id is not None:
         chunk = db.get(models.DocumentChunk, data.chunk_id)
         if not chunk or chunk.document_version.document.property_id != property_id: raise HTTPException(400, "DocumentChunk não pertence ao imóvel")
+        if data.document_version_id is not None and chunk.document_version_id != data.document_version_id: raise HTTPException(400, "DocumentChunk não pertence à DocumentVersion informada")
     evidence = models.Evidence(property_id=property_id, **data.model_dump())
     db.add(evidence); db.flush(); payload = data.model_dump(mode="json")
     event = record_event(db, prop, "EVIDENCIA_REGISTRADA", "Evidence", evidence.id, payload, ["checklist", "juridico", "documental"])
