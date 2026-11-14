@@ -63,6 +63,10 @@ def configure_logging() -> None:
 
     # Namespace da aplicação: sempre no nível configurado.
     logging.getLogger("radar").setLevel(level)
+    # Clientes HTTP de terceiros registram em INFO a URL completa das chamadas externas (Geocoding leva
+    # endereço e chave na query). Só avisos/erros desses loggers entram no log da aplicação.
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(max(level, logging.WARNING))
     _CONFIGURED = True
 
 
