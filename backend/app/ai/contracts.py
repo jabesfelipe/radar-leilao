@@ -49,7 +49,12 @@ class Finding(BaseModel):
     @classmethod
     def _kind(cls, value: Any) -> Any:
         text = _plain(value)
-        aliases = {"fact": "fato", "interpretation": "interpretacao", "hypothesis": "hipotese", "absence": "ausencia"}
+        aliases = {"fact": "fato", "interpretation": "interpretacao", "hypothesis": "hipotese", "absence": "ausencia",
+                   # Execução real v1.0.4 (agente checklist): kind='pendente' derrubou as 6 findings e o agente inteiro.
+                   # "Pendente"/"não identificado" = informação ausente do documento: nunca conta como fato.
+                   "pendente": "ausencia", "pending": "ausencia", "missing": "ausencia",
+                   "nao identificado": "ausencia", "nao_identificado": "ausencia", "nao encontrado": "ausencia",
+                   "nao_encontrado": "ausencia", "nao consta": "ausencia"}
         return aliases.get(text, text) if text else value
 
     @field_validator("confidence", mode="before")

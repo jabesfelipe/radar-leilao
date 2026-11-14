@@ -22,6 +22,17 @@ def test_kind_confianca_chunk_e_pagina_tolerantes():
     assert Finding(kind="fact", statement="x", confidence=None, chunk_ids=None, page="?").page is None
 
 
+def test_kind_pendente_vira_ausencia_e_nao_derruba_o_agente():
+    # Execução real v1.0.4 (checklist): 6 findings com kind='pendente' invalidavam a resposta inteira do agente.
+    for valor in ("pendente", "Pendente", "pending", "não identificado", "nao_encontrado", "não consta"):
+        assert Finding(kind=valor, statement="x").kind == "ausencia"
+    resp = AgentResponse.model_validate({"findings": [
+        {"kind": "pendente", "statement": "Débitos de condomínio não informados no edital"},
+        {"kind": "fato", "statement": "Matrícula informa alienação fiduciária"},
+    ]})
+    assert [f.kind for f in resp.findings] == ["ausencia", "fato"]
+
+
 def test_conteudo_invalido_continua_rejeitado():
     with pytest.raises(ValidationError):
         Finding(kind="opiniao_livre", statement="x")
