@@ -43,7 +43,8 @@ def test_evidence_get_individual_e_links_isolado():
     evidence=models.Evidence(id=4,property_id=1,fact="Fato",links=[])
     db=FakeDb(prop(),evidence)
     result=get_evidence(1,4,db)
-    assert result["evidencia"] is evidence and result["links"] == []
+    # A resposta é uma CÓPIA mascarada da evidência (dados pessoais protegidos), não o objeto ORM.
+    assert result["evidencia"]["id"] == evidence.id and result["evidencia"]["fact"] == "Fato" and result["links"] == []
     link=link_evidence(1,4,schemas.EvidenceLinkCreate(target_type="LegalProcess",target_id=10,relation="SUSTENTA"),db)
     assert link.evidence_id==4 and link.target_type=="LegalProcess"
     assert any(isinstance(item,models.DomainEvent) and item.event_type=="EVIDENCIA_VINCULADA" for item in db.added)
