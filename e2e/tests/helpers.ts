@@ -12,6 +12,7 @@ export const VIEWPORTS = [
   { nome: 'iphone-430x932', width: 430, height: 932 },
   { nome: 'tablet-768x1024', width: 768, height: 1024 },
   { nome: 'desktop-1366x768', width: 1366, height: 768 },
+  { nome: 'desktop-1920x1080', width: 1920, height: 1080 },
 ] as const
 
 export const ROTAS = [
