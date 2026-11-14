@@ -514,6 +514,7 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .verdict-evidence { display: grid; gap: .15rem; padding-left: .25rem; border-left: 2px solid var(--color-border, #e2e8f0); padding-block: .1rem; }
 .verdict-evidence-title { margin: 0; font-weight: 600; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .verdict-evidence-meta { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-xs, .75rem); }
+.verdict-evidence-source { margin: .1rem 0; display: flex; flex-wrap: wrap; gap: .35rem; }
 .verdict-evidence-desc { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.6; overflow-wrap: anywhere; }
 /* Trecho literal do documento citado (já mascarado pelo backend) e fundamentos do veredito por natureza. */
 .verdict-evidence-excerpt { margin: .35rem 0 0; padding: .55rem .75rem; border-left: 3px solid var(--color-border); background: var(--color-surface-subtle); color: var(--color-text); font-size: var(--font-size-sm); line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
