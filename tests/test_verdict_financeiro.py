@@ -225,9 +225,11 @@ def test_api_caso01_sem_ia_recomenda_nao_arrematar(client):
     assert corpo["veredito"] == "DESFAVORAVEL"                                                        # decisão é financeira
     rec = corpo["financeiro"]["decisao"]["recomendacao"]
     assert rec["codigo"] == "NAO_ARREMATAR" and round(rec["lance_maximo"]) == 136266
-    # Avisos "LLM não configurada" não viram evidência.
-    assert corpo["evidencias"] == []
+    # Avisos "LLM não configurada" não viram evidência. v1.0.7: sem IA, só a leitura determinística da cadeia
+    # registral da matrícula (que não depende de IA) gera evidências.
     evs = session.query(models.Evidence).filter(models.Evidence.property_id == pid).all()
+    assert {e.id for e in evs if e.id in corpo["evidencias"]} == set(corpo["evidencias"])
+    assert all(e.agent == "cadeia_registral" for e in evs if e.id in corpo["evidencias"])
     assert not any("não configurada" in (e.fact or "") for e in evs)
     # Pendência resolvida pelos dados: 2º leilão = 60% da avaliação.
     detalhe = c.get(f"/api/imoveis/{pid}").json()

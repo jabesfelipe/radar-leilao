@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from . import models
+from . import models, modality_rules
 from .config import settings
 from .checklist import CHECKLIST_CONFIDENCES, CHECKLIST_STATES, master_items
 from .finance import MaxPriceGoal, SaleAssumptions, ScenarioAssumptions, calculate_financial
@@ -67,11 +67,30 @@ def create_execution(db: Session, prop: models.Property, triggered_by: str = "MA
     db.add(execution); db.flush()
     previous_by_item = {r.checklist_item_id: r for r in previous.results} if previous else {}
     items = db.scalars(select(models.ChecklistItem).where(models.ChecklistItem.active.is_(True)).order_by(models.ChecklistItem.priority, models.ChecklistItem.canonical_key)).all()
+    modality = modality_rules.normalize_property_modality(getattr(prop, "modality", None))
     for item in items:
         old = previous_by_item.get(item.id)
-        db.add(models.ChecklistResult(execution_id=execution.id, checklist_item_id=item.id, item_version=item.version, applicable=item.applicable, previous_result_id=old.id if old else None, state="PENDENTE", answer="", confidence="MEDIA"))
+        result = models.ChecklistResult(execution_id=execution.id, checklist_item_id=item.id, item_version=item.version, applicable=item.applicable, previous_result_id=old.id if old else None, state="PENDENTE", answer="", confidence="MEDIA")
+        apply_modality_applicability(result, item.canonical_key, modality)
+        db.add(result)
     db.flush()
     return execution
+
+
+def apply_modality_applicability(result: models.ChecklistResult, canonical_key: str, modality: str) -> bool:
+    """Marca o item como NAO_APLICAVEL quando a regra de modalidade (a MESMA de
+    ``/api/oportunidades/{id}/checklist-aplicavel``, ``modality_rules``) o exclui (v1.0.7).
+
+    Ex.: em VENDA_DIRETA não há edital, então EDITAL_LIDO não é pendência. O item continua no catálogo e segue
+    obrigatório nas modalidades com edital; INDEFINIDO (imóveis de leilão/legados) mantém tudo aplicável."""
+    if modality_rules.checklist_applicability(modality, canonical_key) != modality_rules.APPLICABILITY_NAO_APLICAVEL:
+        return False
+    result.applicable = False
+    result.state = "NAO_APLICAVEL"
+    result.answer = f"Não aplicável à modalidade {modality} (regra {modality_rules.MODALITY_RULESET_VERSION})."
+    result.interpretation = "Item não exigido pela modalidade do imóvel; não conta como pendência."
+    result.resolution_origin = "REGRA_MODALIDADE"
+    return True
 
 
 def _execution_sort_key(execution: models.ChecklistExecution) -> tuple[int, int]:
@@ -463,15 +482,32 @@ def classify_finding_source(db: Session, prop: models.Property, agent_name: str,
     return origin, None, None, assessment
 
 
-def persist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, agent_results: list[dict]) -> list[int]:
+def _rejected_statement_evidence(db: Session, prop: models.Property, analysis: models.Analysis, category: str, agent_name: str, review) -> models.Evidence:
+    """Afirmação de agente que contraria a matrícula/cadastro (v1.0.7): fica registrada como inferência de BAIXA
+    confiança com a regra aplicada e a afirmação original (auditoria), sem documento e sem mudar o checklist."""
+    evidence = models.Evidence(property_id=prop.id, document_version_id=None, chunk_id=None, category=category, fact=review.statement,
+                               interpretation=None, hypothesis=f"Afirmação do agente não aceita ({review.rule}): {review.rejected}"[:2000],
+                               confidence="BAIXA", page=None, section=None, source_excerpt=None, origin="INFERENCIA_IA", strength=None, agent=agent_name)
+    db.add(evidence); db.flush()
+    db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="MENCIONA"))
+    return evidence
+
+
+def persist_agent_findings(db: Session, prop: models.Property, analysis: models.Analysis, execution: models.ChecklistExecution, agent_results: list[dict], registry=None) -> list[int]:
     """Converte findings estruturados em evidências rastreáveis e atualiza o checklist da execução.
 
     v1.0.4: toda citação é validada contra o conteúdo do chunk (``classify_finding_source``). Evidência com
     documento só existe com citação FORTE/MODERADA e trecho literal da fonte; o restante fica com a origem real
     (CADASTRO, CALCULO ou INFERENCIA_IA), sem documento e sem "trecho literal". O checklist só muda de estado com
     evidência documental válida.
+
+    v1.0.7: afirmações sobre ônus, áreas e titularidade são conferidas contra a cadeia registral (``registry``,
+    ver app/registry_chain.py) e o cadastro; as que contrariam (ex.: "não possui ônus" com alienação fiduciária
+    registrada, área total apresentada como privativa) viram inferência rejeitada. Itens NAO_APLICAVEL pela
+    modalidade nunca são alterados por agente.
     """
     from .evidence import normalize_documentary_evidence
+    from .registry_chain import review_statement
     evidence_ids: list[int] = []
     document_ids: set[int] = set()
     result_by_key = {result.item.canonical_key: result for result in execution.results} if execution else {}
@@ -492,6 +528,10 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 # "LLM não configurada", orçamento atingido etc.: é um AVISO de que o agente não rodou,
                 # não um fato sobre o imóvel. Nunca vira Evidence (nem conta para o veredito).
                 continue
+            review = review_statement(statement, registry, getattr(prop, "area_m2", None), getattr(prop, "private_area_m2", None))
+            if review.statement:
+                evidence_ids.append(_rejected_statement_evidence(db, prop, analysis, category, agent_name, review).id)
+                continue
             if is_documental and not resolve_cited_chunk(db, finding.get("chunk_ids", []), prop.id, allowed)[0]:
                 # Agente documental sem documento do imóvel citado: não há fato documental a registrar.
                 continue
@@ -508,7 +548,7 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="SUSTENTA" if origin != "INFERENCIA_IA" else "MENCIONA"))
             evidence_ids.append(evidence.id)
             checklist_key = finding.get("checklist_key")
-            if checklist_key and checklist_key in result_by_key and origin == "DOCUMENTO" and checklist_key not in DETERMINISTIC_CHECKLIST_KEYS:
+            if checklist_key and checklist_key in result_by_key and origin == "DOCUMENTO" and checklist_key not in DETERMINISTIC_CHECKLIST_KEYS and result_by_key[checklist_key].applicable is not False:
                 checklist_result = result_by_key[checklist_key]
                 new_state = finding.get("checklist_state") or checklist_result.state
                 checklist_result.state = new_state
@@ -520,6 +560,41 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
                 db.add(models.ChecklistEvidence(checklist_result_id=checklist_result.id, evidence_id=evidence.id))
     analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
     analysis.documents_considered = sorted(set((analysis.documents_considered or []) + list(document_ids)))
+    db.flush()
+    return evidence_ids
+
+
+def persist_registry_findings(db: Session, prop: models.Property, analysis: models.Analysis, registry) -> list[int]:
+    """Registra as conclusões determinísticas da cadeia registral (v1.0.7) como evidências da análise.
+
+    Cada conclusão sobre titularidade, alienação fiduciária, consolidação, cancelamentos, ônus e áreas aponta para
+    o trecho da matrícula que a sustenta (origem DOCUMENTO; força FORTE quando o trecho está literal no chunk).
+    Conclusão sem trecho a citar (ex.: titularidade inconclusiva) fica como REGRA_DETERMINISTICA, sem documento.
+    O cadastro nunca é alterado: divergências viram evidência."""
+    if registry is None or registry.is_empty() or registry.document_version_id is None:
+        return []
+    from .citations import FORTE, MODERADA, ORIGEM_REGRA, excerpt_in_text
+    from .evidence import normalize_documentary_evidence
+    from .registry_chain import conclusions
+    version = db.get(models.DocumentVersion, registry.document_version_id)
+    if version is None or version.document is None or version.document.property_id != prop.id:
+        return []
+    evidence_ids: list[int] = []
+    for item in conclusions(registry, prop.area_m2, prop.private_area_m2):
+        fact = item["fact"]
+        if fact is not None and fact.chunk_id is not None:
+            strength = FORTE if excerpt_in_text(fact.excerpt, registry.chunk_texts.get(fact.chunk_id, "")) else MODERADA
+            evidence = normalize_documentary_evidence(db=db, property_id=prop.id, document_version_id=version.id, chunk_id=fact.chunk_id, category=item["category"], fact=item["text"],
+                                                      confidence="ALTA" if strength == FORTE else "MEDIA", page=fact.page, section=fact.section, source_excerpt=fact.excerpt,
+                                                      target_type="Analysis", target_id=analysis.id, origin="DOCUMENTO", strength=strength, agent="cadeia_registral")
+        else:
+            evidence = models.Evidence(property_id=prop.id, document_version_id=None, chunk_id=None, category=item["category"], fact=item["text"], confidence="MEDIA",
+                                       page=None, section=None, source_excerpt=None, origin=ORIGEM_REGRA, strength=None, agent="cadeia_registral")
+            db.add(evidence); db.flush()
+            db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="MENCIONA"))
+        evidence_ids.append(evidence.id)
+    analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
+    analysis.documents_considered = sorted(set((analysis.documents_considered or []) + [version.document_id]))
     db.flush()
     return evidence_ids
 
@@ -556,6 +631,12 @@ def persist_checklist_agent_findings(db: Session, prop: models.Property, analysi
         from .citations import assess_citation
         assessment = assess_citation(statement, chunk.content, finding.get("evidence_excerpt"), forbidden)
         if not assessment.is_proof:
+            # v1.0.7: houve tentativa com documento do imóvel, mas a citação não sustenta a resposta. O item fica
+            # INCONCLUSIVO (estado EM_ANALISE) com a justificativa, sem evidência anexada e sem resposta aceita.
+            if checklist_result.state == "PENDENTE" and state not in ("PENDENTE", "EM_ANALISE"):
+                checklist_result.state = "EM_ANALISE"
+                checklist_result.interpretation = (f"INCONCLUSIVO: o agente propôs {state}, mas a citação não sustenta a resposta "
+                                                   f"(força {assessment.strength}). Requer leitura humana do documento.")
             continue
         document_ids.add(version.document_id)
         from .evidence import normalize_documentary_evidence

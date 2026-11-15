@@ -63,7 +63,11 @@ class IncrementalAnalysisService:
             analysis.token_usage = {"llm_used": orchestration.get("llm_used", False), "chunks_retrieved": len(orchestration.get("retrieved_chunk_ids", []))}
             if execution:
                 execution.analysis_version = analysis.version
-            evidence_ids = persist_agent_findings(self.db, prop, analysis, execution, orchestration.get("agent_results", []))
+            from .registry_chain import registry_for_property
+            from .services import persist_registry_findings
+            registry = registry_for_property(self.db, prop.id)
+            evidence_ids = persist_agent_findings(self.db, prop, analysis, execution, orchestration.get("agent_results", []), registry)
+            evidence_ids += persist_registry_findings(self.db, prop, analysis, registry)
             llm_runs = persist_llm_runs(self.db, prop, analysis, orchestration.get("llm_runs", []))
             analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
             finance = build_finance(prop)

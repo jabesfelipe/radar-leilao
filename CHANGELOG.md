@@ -2,6 +2,33 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
+## v1.0.7 — 2026-11-15
+
+Correções de qualidade jurídica e documental a partir do teste real do RESIDENCIAL AMERICA 5 (Caixa, venda direta;
+imóvel 7 da VPS). Sem migration.
+
+- **Checklist respeita a modalidade do imóvel.** A análise usa a mesma regra de `/api/oportunidades/{id}/checklist-aplicavel`
+  (`modality_rules`): em `VENDA_DIRETA`, `EDITAL_LIDO` (e os itens do rito de leilão) nasce `NAO_APLICAVEL`, não vira
+  pendência no veredito e não é enviado ao agente. O item continua no catálogo; imóveis de leilão ou sem modalidade
+  mantêm todos os itens aplicáveis.
+- **Status padronizado** em cada item (`status_padrao`: `RESPONDIDO`, `PENDENTE`, `NAO_APLICAVEL`, `INCONCLUSIVO`) com
+  `justificativa` e `evidence_ids` em `GET /api/imoveis/{id}` e `GET /api/imoveis/{id}/checklist`. Tentativa do agente
+  com citação insuficiente passa a `INCONCLUSIVO` (estado `EM_ANALISE`), com o motivo; sem citação, segue `PENDENTE`.
+- **Cadeia registral determinística** (`backend/app/registry_chain.py`): lê a matrícula em ordem e separa proprietário
+  original, intermediários, titular atual, credor fiduciário, alienação fiduciária, consolidação, cancelamentos, ônus e
+  áreas total/privativa. Cada conclusão vira evidência com o trecho da matrícula (`agent=cadeia_registral`).
+  Consolidação não é tratada como baixa; ausência de ônus no texto lido é `INCONCLUSIVA`, nunca "inexistente".
+- **Afirmações dos agentes conferidas**: "não possui ônus", área total apresentada como privativa (ou o inverso) e
+  titular atual fora da sequência de atos viram inferência rejeitada, com a regra e a afirmação original. O cadastro
+  nunca é alterado; divergência entre cadastro e matrícula é registrada.
+- **Extração da matrícula**: `holder` passa a ser o titular atual pela sequência de atos (o valor do modelo fica em
+  `campos.holder`); sem ato legível, o campo fica `INCONCLUSIVO`.
+- Agentes recebem `area_total_m2`, `area_privativa_m2` e `modalidade` rotulados e a leitura da cadeia registral.
+
+## v1.0.6 — 2026-11-14
+
+Finding com `kind="risco"` (e equivalentes) passa a `interpretacao` em vez de invalidar a resposta do agente checklist.
+
 ## v1.0.5 — 2026-11-14
 
 Release operacional: primeira implantação na VPS com a IA (OpenAI) ativada. O código da aplicação é o da v1.0.4.

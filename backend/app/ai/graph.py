@@ -121,6 +121,7 @@ def build_analysis_graph(db: Session, gateway_override: LLMGateway | None = None
                         "related_rules": r.item.related_rules or [],
                     }
                     for r in (execution.results if execution else [])
+                    if r.applicable is not False   # v1.0.7: item não aplicável à modalidade não gera busca
                 ]
                 if items:
                     directed = retrieve_for_checklist(db, property_id, items, analysis_id=analysis_id)

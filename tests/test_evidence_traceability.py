@@ -134,20 +134,26 @@ def test_item_resolvido_com_evidencia_documental_registra_origem_e_vinculo(db, c
     assert ev.origin == "DOCUMENTO" and ev.strength == "FORTE" and ev.agent == "checklist"
 
 
-@pytest.mark.parametrize("finding_extra", [
-    {"chunk_ids": []},                                                      # sem evidência
-    {"evidence_excerpt": "texto que não existe no edital deste imóvel"},   # evidência inválida
-    {"evidence_excerpt": "__PERGUNTA__"},                                   # pergunta como trecho
-    {"statement": "Divergência de área privativa entre documentos", "evidence_excerpt": None},  # inconclusivo (fraco)
+@pytest.mark.parametrize("finding_extra,estado", [
+    ({"chunk_ids": []}, "PENDENTE"),                                                      # sem evidência: nada foi lido
+    ({"evidence_excerpt": "texto que não existe no edital deste imóvel"}, "EM_ANALISE"),  # evidência inválida
+    ({"evidence_excerpt": "__PERGUNTA__"}, "EM_ANALISE"),                                 # pergunta como trecho
+    ({"statement": "Divergência de área privativa entre documentos", "evidence_excerpt": None}, "EM_ANALISE"),  # fraco
 ])
-def test_item_sem_evidencia_suficiente_permanece_pendente(db, cenario, finding_extra):
+def test_item_sem_evidencia_suficiente_nao_e_resolvido(db, cenario, finding_extra, estado):
+    # v1.0.7: tentativa com documento do imóvel e citação insuficiente = INCONCLUSIVO (estado EM_ANALISE), com
+    # justificativa; sem citação nenhuma o item segue PENDENTE. Em nenhum caso o item é resolvido.
+    from backend.app.checklist import standard_status
     item = cenario["item"]
     finding = {"kind": "fato", "statement": "Pagamento à vista", "confidence": "ALTA", "checklist_key": item.item.canonical_key, "checklist_state": "CONFIRMADO", "chunk_ids": [cenario["chunk_a"].id]}
     finding.update(finding_extra)
     if finding.get("evidence_excerpt") == "__PERGUNTA__":
         finding["evidence_excerpt"] = item.item.question
     assert _checklist(db, cenario, finding) == []
-    assert item.state == "PENDENTE" and item.resolution_origin is None and _links(db, item) == []
+    assert item.state == estado and item.resolution_origin is None and _links(db, item) == []
+    assert standard_status(item.state, item.applicable) == ("PENDENTE" if estado == "PENDENTE" else "INCONCLUSIVO")
+    if estado == "EM_ANALISE":
+        assert item.interpretation.startswith("INCONCLUSIVO")
 
 
 def test_finding_pendente_vincula_evidencia_sem_registrar_resolucao_nem_reabrir_item(db, cenario):

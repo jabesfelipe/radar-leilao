@@ -51,3 +51,38 @@ def master_items():
 
 CHECKLIST_STATES = ("PENDENTE", "EM_ANALISE", "CONFIRMADO", "RISCO_IDENTIFICADO", "ATENCAO", "NAO_IDENTIFICADO", "NAO_APLICAVEL")
 CHECKLIST_CONFIDENCES = ("BAIXA", "MEDIA", "ALTA")
+
+# Status padronizado do item (v1.0.7), DERIVADO do estado detalhado acima (que continua sendo o gravado e o
+# vocabulário dos agentes). Códigos sem acento, como os demais do sistema; o rótulo de exibição tem acento.
+STATUS_RESPONDIDO = "RESPONDIDO"        # avaliado com informação/evidência suficiente (sim, não, risco ou atenção)
+STATUS_PENDENTE = "PENDENTE"            # informação ou ação ainda não realizada
+STATUS_NAO_APLICAVEL = "NAO_APLICAVEL"  # não exigido pela modalidade: nunca conta como pendência
+STATUS_INCONCLUSIVO = "INCONCLUSIVO"    # houve tentativa de análise, sem conclusão confiável
+CHECKLIST_STANDARD_STATUSES = (STATUS_RESPONDIDO, STATUS_PENDENTE, STATUS_NAO_APLICAVEL, STATUS_INCONCLUSIVO)
+STANDARD_STATUS_LABELS = {STATUS_RESPONDIDO: "Respondido", STATUS_PENDENTE: "Pendente", STATUS_NAO_APLICAVEL: "Não aplicável", STATUS_INCONCLUSIVO: "Inconclusivo"}
+
+
+def standard_status(state: str | None, applicable: bool | None = True) -> str:
+    """Status padronizado a partir do estado gravado e da aplicabilidade do item."""
+    normalized = str(state or "").strip().upper()
+    if applicable is False or normalized == "NAO_APLICAVEL":
+        return STATUS_NAO_APLICAVEL
+    if normalized in ("", "PENDENTE"):
+        return STATUS_PENDENTE
+    if normalized == "EM_ANALISE":
+        return STATUS_INCONCLUSIVO
+    return STATUS_RESPONDIDO
+
+
+def standard_justification(state: str | None, applicable: bool | None, answer: str | None, interpretation: str | None) -> str:
+    """Justificativa legível do status (rastreabilidade): resposta/interpretação gravada ou o motivo padrão."""
+    status = standard_status(state, applicable)
+    text = (interpretation or "").strip() if status == STATUS_INCONCLUSIVO else (answer or interpretation or "").strip()
+    if text:
+        return text
+    return {
+        STATUS_NAO_APLICAVEL: "Item não exigido pela modalidade do imóvel.",
+        STATUS_PENDENTE: "Informação ou ação ainda não realizada.",
+        STATUS_INCONCLUSIVO: "Houve tentativa de análise, sem conclusão confiável.",
+        STATUS_RESPONDIDO: "Item avaliado.",
+    }[status]

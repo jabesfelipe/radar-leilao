@@ -11,7 +11,7 @@ from ..privacy import minimize_party
 from ..privacy_context import aliaser_for_property
 from .budget import unavailable_reason
 from .gateway import LLMCall, LLMGateway, sanitize_error
-from .prompts import ANALYSIS_SYSTEM_PROMPT, DOCUMENT_REVIEW_POINTS, SOURCE_RULES
+from .prompts import ANALYSIS_SYSTEM_PROMPT, DOCUMENT_REVIEW_POINTS, REGISTRY_RULES, SOURCE_RULES
 
 @dataclass
 class AgentResult:
@@ -48,7 +48,8 @@ class RadarAgent:
     def _property_snapshot(self, property_id: int) -> dict[str, Any]:
         prop = self.db.get(models.Property, property_id)
         if not prop: return {}
-        return {"id": prop.id, "titulo": prop.title, "endereco": prop.address, "cidade": prop.city, "estado": prop.state, "tipo": prop.property_type, "area_m2": serialize(prop.area_m2), "quartos": prop.bedrooms, "processos": [{"numero": p.number, "assunto": p.subject, "status": p.status, "impacto": p.impact} for p in prop.processes], "comparaveis": [{"tipo": c.kind, "preco": serialize(c.price), "aluguel": serialize(c.rent), "area_m2": serialize(c.area_m2), "fonte": c.source} for c in prop.comparables], "documentos": [{"nome": d.name, "tipo": d.document_type, "status": d.status} for d in prop.documents]}
+        # v1.0.7: áreas com rótulo explícito (antes só "area_m2", e o agente apresentou a área total como privativa).
+        return {"id": prop.id, "titulo": prop.title, "endereco": prop.address, "cidade": prop.city, "estado": prop.state, "tipo": prop.property_type, "modalidade": getattr(prop, "modality", None), "area_total_m2": serialize(prop.area_m2), "area_privativa_m2": serialize(getattr(prop, "private_area_m2", None)), "quartos": prop.bedrooms, "processos": [{"numero": p.number, "assunto": p.subject, "status": p.status, "impacto": p.impact} for p in prop.processes], "comparaveis": [{"tipo": c.kind, "preco": serialize(c.price), "aluguel": serialize(c.rent), "area_m2": serialize(c.area_m2), "fonte": c.source} for c in prop.comparables], "documentos": [{"nome": d.name, "tipo": d.document_type, "status": d.status} for d in prop.documents]}
 
     def _run_llm(self, property_id: int, context: str, instructions: str, retrieved_chunk_ids: list[int], extra: dict[str, Any] | None = None) -> AgentResult:
         if not self.gateway:
@@ -82,10 +83,17 @@ class RadarAgent:
     def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
         raise NotImplementedError
 
+def _registry_extra(db: Session, property_id: int) -> dict[str, Any]:
+    """Leitura determinística da cadeia registral da matrícula para os agentes documental e jurídico (v1.0.7)."""
+    from ..registry_chain import registry_for_property
+    chain = registry_for_property(db, property_id)
+    return {"cadeia_registral_deterministica": chain.to_prompt_dict()} if chain is not None and not chain.is_empty() else {}
+
+
 class DocumentAgent(RadarAgent):
     name = "documental"
     def run(self, property_id: int, context: str = "", retrieved_chunk_ids: list[int] | None = None) -> AgentResult:
-        return self._run_llm(property_id, context, "Extraia somente fatos documentais, ausência de informação e interpretações documentais estritamente suportadas pelo trecho. Não produza risco, avaliação de compra, veredito, conclusão jurídica, validade, nulidade ou regularidade. " + DOCUMENT_REVIEW_POINTS, retrieved_chunk_ids or [])
+        return self._run_llm(property_id, context, "Extraia somente fatos documentais, ausência de informação e interpretações documentais estritamente suportadas pelo trecho. Não produza risco, avaliação de compra, veredito, conclusão jurídica, validade, nulidade ou regularidade. " + DOCUMENT_REVIEW_POINTS + " " + REGISTRY_RULES, retrieved_chunk_ids or [], _registry_extra(self.db, property_id))
 
 class LegalAgent(RadarAgent):
     name = "juridico"
@@ -135,9 +143,10 @@ class LegalAgent(RadarAgent):
             "em documento. Não invente fatos, não afirme certeza jurídica sem base, não declare validade ou "
             "nulidade automaticamente, não emita veredito de compra, não calcule preço e não crie risco final. "
             "Quando houver dúvida, registre como hipótese ou ausência e preserve a evidência; a análise não substitui "
-            "decisão jurídica profissional."
+            "decisão jurídica profissional. "
+            + REGISTRY_RULES
         )
-        return self._run_llm(property_id, context, instructions, retrieved_chunk_ids or [])
+        return self._run_llm(property_id, context, instructions, retrieved_chunk_ids or [], _registry_extra(self.db, property_id))
 
 class FinancialAgent(RadarAgent):
     name = "financeiro"
@@ -215,6 +224,8 @@ class ChecklistAgent(RadarAgent):
                 }
                 for result in (execution.results if execution else [])
             ]
+        # v1.0.7: item NAO_APLICAVEL pela modalidade (ex.: EDITAL_LIDO em venda direta) não é enviado ao agente.
+        checklist_items = [item for item in (checklist_items or []) if item.get("applicable", True) is not False]
         instructions = (
             "Relacione somente evidências às regras existentes do Checklist Mestre fornecidas em "
             "checklist_mestre. Use exclusivamente canonical_key presentes nessa lista e os estados "

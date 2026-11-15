@@ -28,3 +28,18 @@ DOCUMENT_REVIEW_POINTS = (
     "do 1º e 2º leilão e da avaliação. Não gaste findings com modalidade on-line, portal ou dados do cabeçalho. "
     "Se as áreas divergirem, registre a divergência como kind=interpretacao, source=inferencia."
 )
+
+# v1.0.7 (teste real do imóvel 7): a incorporadora do cabeçalho foi tratada como titular, a alienação fiduciária
+# registrada virou "não possui ônus" e a área total foi apresentada como privativa. O servidor confere essas
+# afirmações contra a cadeia registral (app/registry_chain.py) e rejeita as que a contrariam.
+REGISTRY_RULES = (
+    "Matrícula: leia os atos em ordem cronológica (R-n = registro, Av-n = averbação). Distinga proprietário original "
+    "(abertura da matrícula), proprietários intermediários, titular atual (último ato de transmissão ou de consolidação), "
+    "credor fiduciário, alienação fiduciária, consolidação da propriedade e cancelamentos/baixas. Consolidação em nome do "
+    "credor não significa ausência de registros ou gravames, nem cancela por si a alienação fiduciária. Nunca afirme que "
+    "não há ônus porque o trecho não mostra um registro: registre kind=ausencia e trate a situação como INCONCLUSIVA. "
+    "Sem ato legível que determine o titular atual, diga que a titularidade é INCONCLUSIVA. "
+    "Áreas: area_total_m2 é a área total/global; area_privativa_m2 é a área privativa/de utilização exclusiva; nunca "
+    "troque uma pela outra. Quando cadeia_registral_deterministica for fornecida, use-a como referência e cite o trecho do "
+    "documento; se o documento divergir do cadastro, registre a divergência sem substituir o dado."
+)

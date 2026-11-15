@@ -28,6 +28,7 @@ from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
 from . import legal_service
+from .checklist import standard_justification, standard_status
 from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary, due_diligence_overview, location_out, ensure_property_location, get_property_location, validate_location_checklist, upsert_due_diligence_front, get_due_diligence_front, reflect_due_diligence_signals)
 
 from .https_guard import HttpsGuardMiddleware
@@ -310,7 +311,7 @@ def checklist_rule_history(item_id: int, db: Session = Depends(get_db)):
 def property_checklist(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     executions = db.scalars(select(models.ChecklistExecution).where(models.ChecklistExecution.property_id == prop.id).order_by(models.ChecklistExecution.created_at)).all()
-    return [{"id": execution.id, "analysis_version": execution.analysis_version, "triggered_by": execution.triggered_by, "created_at": execution.created_at, "results": [{"id": result.id, "checklist_item_id": result.checklist_item_id, "canonical_key": result.item.canonical_key, "item_version": result.item_version, "applicable": result.applicable, "state": result.state, "answer": result.answer, "confidence": result.confidence, "interpretation": result.interpretation, "risk": result.risk, "previous_result_id": result.previous_result_id} for result in execution.results]} for execution in executions]
+    return [{"id": execution.id, "analysis_version": execution.analysis_version, "triggered_by": execution.triggered_by, "created_at": execution.created_at, "results": [{"id": result.id, "checklist_item_id": result.checklist_item_id, "canonical_key": result.item.canonical_key, "item_version": result.item_version, "applicable": result.applicable, "state": result.state, "status_padrao": standard_status(result.state, result.applicable), "justificativa": standard_justification(result.state, result.applicable, result.answer, result.interpretation), "evidence_ids": sorted(link.evidence_id for link in result.evidence_links), "answer": result.answer, "confidence": result.confidence, "interpretation": result.interpretation, "risk": result.risk, "previous_result_id": result.previous_result_id} for result in execution.results]} for execution in executions]
 
 @app.get("/api/imoveis/{property_id}/checklist/historico")
 def property_checklist_history(property_id: int, db: Session = Depends(get_db)):
@@ -711,7 +712,7 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     latest = db.scalar(select(models.Verdict).where(models.Verdict.property_id == property_id).order_by(models.Verdict.analysis_version.desc(), models.Verdict.id.desc()))
     veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
     juridico = juridical_overview(db, prop)
-    checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk, "resolution_origin": r.resolution_origin, "evidence_ids": sorted(link.evidence_id for link in r.evidence_links)} for r in (execution.results if execution else [])]
+    checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "status_padrao": standard_status(r.state, r.applicable), "justificativa": standard_justification(r.state, r.applicable, r.answer, r.interpretation), "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk, "resolution_origin": r.resolution_origin, "evidence_ids": sorted(link.evidence_id for link in r.evidence_links)} for r in (execution.results if execution else [])]
     return {"imovel": _property_columns(prop), "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": [masked_evidence(e) for e in prop.evidences], "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop), "confronto_documental": _document_comparison_view(prop)}
 
 
@@ -1327,7 +1328,11 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     analysis.prompt_version = "radar-analysis-v1"
     analysis.token_usage = {"llm_used": orchestration.get("llm_used", False), "chunks_retrieved": len(orchestration.get("retrieved_chunk_ids", []))}
     execution.analysis_version = analysis.version
-    evidence_ids = persist_agent_findings(db, prop, analysis, execution, orchestration.get("agent_results", []))
+    from .registry_chain import registry_for_property
+    from .services import persist_registry_findings
+    registry = registry_for_property(db, prop.id)
+    evidence_ids = persist_agent_findings(db, prop, analysis, execution, orchestration.get("agent_results", []), registry)
+    evidence_ids += persist_registry_findings(db, prop, analysis, registry)
     llm_runs = persist_llm_runs(db, prop, analysis, orchestration.get("llm_runs", []))
     analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
     # Status HONESTO: calculado das chamadas reais dos agentes e da prontidão dos documentos

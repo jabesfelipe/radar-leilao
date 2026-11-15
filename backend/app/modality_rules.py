@@ -142,6 +142,28 @@ def normalize(code: str | None) -> str:
     return c if c in MODALITIES else MODALITY_INDEFINIDO
 
 
+_PROPERTY_MODALITY_SYNONYMS = {
+    "VENDA DIRETA": MODALITY_VENDA_DIRETA,
+    "VENDA DIRETA ONLINE": MODALITY_VENDA_DIRETA,
+    "COMPRA DIRETA": MODALITY_VENDA_DIRETA,
+}
+
+
+def normalize_property_modality(value: str | None) -> str:
+    """Modalidade do IMÓVEL (``Property.modality``, texto livre do cadastro) no vocabulário canônico (v1.0.7).
+
+    Aceita o código canônico e sinônimos exatos de venda direta ("Venda direta", "Compra direta"). Qualquer outro
+    valor (vazio, "Leilão", "Licitação aberta"...) vira ``INDEFINIDO``: todos os itens continuam aplicáveis, que é o
+    comportamento anterior para imóveis de leilão e legados."""
+    raw = _strip_accents(str(value or "")).strip().upper()
+    if raw in MODALITIES:
+        return raw
+    spaced = " ".join(raw.replace("_", " ").replace("-", " ").split())
+    if spaced.replace(" ", "_") in MODALITIES:
+        return spaced.replace(" ", "_")
+    return _PROPERTY_MODALITY_SYNONYMS.get(spaced, MODALITY_INDEFINIDO)
+
+
 def checklist_applicability(modality: str, canonical_key: str) -> str:
     """Estado de aplicabilidade de um canonical_key sob a modalidade. Default APLICAVEL."""
     overrides = CHECKLIST_APPLICABILITY.get(normalize(modality), {})

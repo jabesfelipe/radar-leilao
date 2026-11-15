@@ -221,6 +221,45 @@ def validate_fields_against_document(output: RegistrationExtraction | NoticeExtr
     return output.model_copy(update=updates), status
 
 
+def reconcile_registration_holder(output: RegistrationExtraction, field_status: dict[str, dict[str, Any]], chain) -> tuple[RegistrationExtraction, dict[str, dict[str, Any]]]:
+    """``holder`` = titular ATUAL pela sequência de atos da matrícula (v1.0.7).
+
+    No imóvel 7 o modelo devolveu a incorporadora do cabeçalho ("PROPRIETÁRIA: ...") embora a propriedade tenha
+    sido consolidada depois em nome da CAIXA. Com a cadeia registral legível, o titular vem do último ato de
+    transmissão/consolidação, com a referência ao trecho; o valor do modelo fica registrado em ``campos.holder``
+    (nada é trocado em silêncio). Sem ato legível e com atos posteriores à abertura, o campo fica INCONCLUSIVO."""
+    from .registry_chain import PESSOA_FISICA, TITULARIDADE_DETERMINADA, canonical_party, same_party
+    if chain is None or chain.is_empty():
+        return output, field_status
+    model_holder = output.holder
+    others = [reference for reference in output.references if reference.field != "holder"]
+    status = dict(field_status)
+    holder = chain.holder_name if chain.holder_status == TITULARIDADE_DETERMINADA else None
+    if holder and holder != PESSOA_FISICA:
+        if model_holder and same_party(model_holder, holder):
+            return output, field_status
+        fact = chain.current_holder
+        reference = ExtractionReference(field="holder", value=holder, chunk_id=fact.chunk_id, page=fact.page, section=fact.section, excerpt=fact.excerpt[:600], confidence="ALTA")
+        status["holder"] = {"status": CAMPO_EXTRAIDO, "chunk_id": fact.chunk_id, "page": fact.page,
+                            "ajuste": "titular atual pela sequência de atos da matrícula" + (f" ({fact.act})" if fact.act else ""),
+                            "valor_modelo": canonical_party(model_holder) if model_holder else None}
+        return output.model_copy(update={"holder": holder, "references": others + [reference]}), status
+    if model_holder is None or not chain.ownership_events():
+        return output, field_status
+    original = chain.original_owner
+    if holder == PESSOA_FISICA and not (original and same_party(model_holder, original.value)):
+        return output, field_status   # titular atual pessoa física e o modelo não repetiu o proprietário original
+    status["holder"] = {"status": CAMPO_INCONCLUSIVO, "motivo": "a sequência de atos da matrícula não permite confirmar o titular atual; o valor indicado não foi aceito",
+                        "valor_modelo": canonical_party(model_holder)}
+    return output.model_copy(update={"holder": None, "references": others}), status
+
+
+def _registry_chain_for_extraction(db, version_id: int, chunks: list[dict[str, Any]]):
+    from .registry_chain import read_registry, registry_for_version
+    chain = registry_for_version(db, version_id)
+    return chain if chain is not None else read_registry(chunks, version_id)
+
+
 def _overall_status(field_status: dict[str, dict[str, Any]]) -> str:
     states = [item["status"] for item in field_status.values()]
     if CAMPO_EXTRAIDO in states:
@@ -275,6 +314,8 @@ def extract_document(db, property_id: int, document_version_id: int, document_ty
     except Exception as exc:
         call.status = "ERRO"; call.error_type = type(exc).__name__; call.error_message = sanitize_error(str(exc)); return done()
     output, field_status = validate_fields_against_document(output, retrieval.chunks)
+    if document_type == "MATRICULA":
+        output, field_status = reconcile_registration_holder(output, field_status, _registry_chain_for_extraction(db, document_version_id, retrieval.chunks))
     overall = _overall_status(field_status)
     if overall == EXTRACAO_INCONCLUSIVA:
         # A chamada foi feita (e cobrada: tokens ficam no llm_run), mas nada foi comprovado: não é extração concluída.
