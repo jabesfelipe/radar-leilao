@@ -2,7 +2,27 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
-## v1.0.8 — não publicada (aguardando autorização de tag e deploy)
+## v1.0.9 — 2026-11-16
+
+Correção de segurança dos dados de teste e da documentação. Sem migration, sem mudança de regra de negócio.
+
+- **Anonimização dos fixtures de matrícula.** `tests/test_v107_imovel7_regressao.py` usa uma matrícula inteiramente
+  fictícia (número, endereço, condomínio, construtora, comprador, banco, protocolos, datas, valores e áreas), com os
+  mesmos defeitos de OCR que motivaram a regressão. Novo teste sintético cobre os dois tratamentos da Caixa pelo leitor
+  registral (normalização do nome e credor reconhecido sem "em favor da").
+- **Imóvel do teste de venda direta (v1.0.7/v1.0.8).** Nome do condomínio e endereço retirados de fixtures, testes,
+  docstrings e CHANGELOG; os comparáveis (anúncios públicos de outros imóveis) ficam com fonte e data da coleta.
+- **Imóvel de referência 633.** Nome, endereço, matrícula, inscrição imobiliária, código do imóvel, edital, item,
+  leiloeiro, áreas, nomes de arquivo e hashes dos PDFs substituídos por dados fictícios coerentes em testes
+  (backend e frontend) e documentos.
+- **`scripts/db/cleanup_test_properties.sql`.** A trava continua exigindo o id 633 com o título exato, agora o
+  fictício `COND RESIDENCIAL EXEMPLO GAMA`; bancos anteriores abortam (comportamento seguro) até a renomeação manual
+  descrita no script. Novo `tests/test_cleanup_test_properties.py` roda o script real num schema isolado: preserva só o
+  633 e seus dados e aborta sem apagar nada quando o 633 não existe ou o título não confere.
+- **Infraestrutura.** IP público da VPS retirado do CHANGELOG.
+- Versões e commits anteriores continuam com os dados antigos no histórico do Git (não reescrito).
+
+## v1.0.8 — 2026-11-16
 
 Inteligência de mercado e viabilidade financeira. Migration `0026_comparaveis_rastreaveis` (colunas opcionais).
 
@@ -67,8 +87,7 @@ Inteligência de mercado e viabilidade financeira. Migration `0026_comparaveis_r
 
 ## v1.0.7 — 2026-11-15
 
-Correções de qualidade jurídica e documental a partir do teste real do RESIDENCIAL AMERICA 5 (Caixa, venda direta;
-imóvel 7 da VPS). Sem migration.
+Correções de qualidade jurídica e documental a partir de um teste real de venda direta (Caixa). Sem migration.
 
 - **Checklist respeita a modalidade do imóvel.** A análise usa a mesma regra de `/api/oportunidades/{id}/checklist-aplicavel`
   (`modality_rules`): em `VENDA_DIRETA`, `EDITAL_LIDO` (e os itens do rito de leilão) nasce `NAO_APLICAVEL`, não vira
@@ -96,7 +115,7 @@ Finding com `kind="risco"` (e equivalentes) passa a `interpretacao` em vez de in
 
 Release operacional: primeira implantação na VPS com a IA (OpenAI) ativada. O código da aplicação é o da v1.0.4.
 
-- VPS de homologação (`13.140.151.74`, HTTP) atualizada de v1.0.3 para v1.0.5 pelo `release.yml`, com backup do banco e
+- VPS de homologação (HTTP) atualizada de v1.0.3 para v1.0.5 pelo `release.yml`, com backup do banco e
   dos documentos e a migration `0025_evidencia_origem_forca`.
 - IA no `.env.prod` da VPS: `gpt-4o-mini`, `text-embedding-3-small`, teto mensal de US$ 0,50, teto por análise de
   US$ 0,10, 1.500 tokens de saída, `LLM_REQUIRE_BUDGET=true`, `LLM_REDACT_PII=true`. A chave fica só no `.env.prod`.
