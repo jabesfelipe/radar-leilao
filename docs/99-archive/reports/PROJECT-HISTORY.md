@@ -230,12 +230,12 @@ Novo imóvel
 
 ### Testes
 - `tests/test_cadastro_completo.py` (novo): cadastro completo persiste todas as entidades; aparece na lista; cadastro mínimo; validação de título; fontes por endpoint dedicado; integração cadastro → dossiê → análise (gera versão + histórico + financeiro).
-- Fixture de referência: **COND PARQUE ARVOREDO RESIDENCIAL CLUBE** (dados reais usados apenas como caso de validação; não hardcoded no produto).
+- Fixture de referência: **COND RESIDENCIAL EXEMPLO GAMA** (dados reais usados apenas como caso de validação; não hardcoded no produto).
 - Frontend: `PropertyWizard.test.tsx` (novo) + ajustes em `PropertiesPage.test.tsx` e `PropertyDetailPage.test.tsx`.
 - Resultado: **`pytest -q` = 227 passed** (era 221; +6 novos). **Vitest = 88 passed** (16 arquivos). `alembic upgrade head` aplica 0009 em banco limpo.
 
 ### Caso de validação do primeiro E2E real
-- O imóvel COND PARQUE ARVOREDO foi preparado como caso de validação do primeiro fluxo E2E real. **O E2E real da Caixa NÃO é declarado concluído** nesta Task — apenas o cadastro foi preparado para esse caso.
+- O imóvel COND EXEMPLO GAMA foi preparado como caso de validação do primeiro fluxo E2E real. **O E2E real da Caixa NÃO é declarado concluído** nesta Task — apenas o cadastro foi preparado para esse caso.
 
 ### Limitações conhecidas
 - A análise continua funcionando sem LLM configurada (comportamento atual preservado); as etapas de IA ficam limitadas sem chave.
@@ -260,7 +260,7 @@ Novo imóvel
 - O upload continua uma etapa posterior (nunca dentro da transação do cadastro).
 
 ### Testes
-- `tests/test_cadastro_completo.py`: fixture COND PARQUE ARVOREDO agora com `first_auction_date=2026-09-28T10:00:00` e `second_auction_date=2026-10-02T10:00:00`; asserção de que a hora `10:00` não é truncada; novo `test_leilao_preserva_data_e_hora`.
+- `tests/test_cadastro_completo.py`: fixture COND EXEMPLO GAMA agora com `first_auction_date=2026-09-28T10:00:00` e `second_auction_date=2026-10-02T10:00:00`; asserção de que a hora `10:00` não é truncada; novo `test_leilao_preserva_data_e_hora`.
 - `frontend/src/pages/PropertyWizard.test.tsx`: novo teste de upload parcial (imóvel criado, aviso exibido identificando o documento que falhou, navegação só após ação do usuário).
 - Resultado: `pytest -q` = **228 passed** (era 227, +1). Vitest = **89 passed** (era 88, +1). `tsc --noEmit` OK.
 - Migration validada: `alembic upgrade head` em **banco existente com dados** (0009→0010) e em **banco limpo** (0001→0010; colunas resultam `timestamp without time zone`).
@@ -363,7 +363,7 @@ Nenhuma alteração de código de produto foi feita durante esse diagnóstico.
 - `tests/test_orchestration_graph.py`: 3 `FakeSupervisor.run` atualizados para aceitar os novos kwargs opcionais (mock ajustado, sem enfraquecer teste).
 - Resultado: **`pytest -q` = 239 passed** (228 anteriores + 11 novos), sem regressão. Frontend não afetado. **Nenhuma migration** criada.
 
-### Validação E2E real — Imóvel 633 (COND PARQUE ARVOREDO)
+### Validação E2E real — Imóvel 633 (COND EXEMPLO GAMA)
 - Backend reconstruído (`docker compose up -d --build backend`, volumes preservados, `OPENAI_API_KEY configurada`). Nova análise disparada por `POST /api/imoveis/633/analisar`.
 - Preservação (nada apagado): analyses 4→5 (V1–V4 intactas, nova **V5**); document_versions 4→4; document_chunks 1089→1089; evidences 40→73; checklist_executions 5→6; checklist_results 135→162; llm_runs 20→25; verdicts→5.
 - Resposta: `versao=5`, 5 agentes `CONCLUIDO`, `llm_usada=true`, `modelo=gpt-4o-mini`. Logs confirmam o RAG direcionado ao vivo: `rag checklist direcionado: property_id=633 itens=27 chunks_distintos=4 (teto=24 por_item=4)` e `checklist_chunks=4 llm=True`.
@@ -592,8 +592,8 @@ Depois do commit, aguardar auditoria antes de avançar.
 - `backend/app/ai/graph.py`: `run_agents` repassa `analysis_id` ao `retrieve_for_checklist`. A medição **não** aumenta o número de chamadas de LLM dos agentes (continua 5).
 
 ### Reprocessamento da matrícula com OCR (preservando histórico)
-- A matrícula 25278 do imóvel 633 (PDF escaneado, ~538 KB) foi reprocessada com OCR habilitado apenas para essa operação (sem editar o `.env`), reutilizando o pipeline de ingestão existente, gerando **nova `document_version` (v2)** e **preservando** o original, a v1 e os chunks anteriores.
-- Resultado da v2: `extraction_quality=OCR`, `ocr=true`, `ocr_engine=tesseract`, `ocr_language=por`, `ocr_pages=2`, `char_count=8355`, 8 chunks. Conteúdo registral real recuperado ("REGISTRO DE IMÓVEIS 7ª Circunscrição Curitiba-Paraná", "Matrícula nº 25.278", compra/venda/mútuo). O documento original **não** foi substituído.
+- A matrícula 99001 do imóvel 633 (PDF escaneado, ~538 KB) foi reprocessada com OCR habilitado apenas para essa operação (sem editar o `.env`), reutilizando o pipeline de ingestão existente, gerando **nova `document_version` (v2)** e **preservando** o original, a v1 e os chunks anteriores.
+- Resultado da v2: `extraction_quality=OCR`, `ocr=true`, `ocr_engine=tesseract`, `ocr_language=por`, `ocr_pages=2`, `char_count=8355`, 8 chunks. Conteúdo registral real recuperado ("REGISTRO DE IMÓVEIS 7ª Circunscrição Curitiba-Paraná", "Matrícula nº 99.001", compra/venda/mútuo). O documento original **não** foi substituído.
 
 ### Validação E2E real — Imóvel 633 (V5 → V6)
 - Nova análise por `POST /api/imoveis/633/analisar`: HTTP 200 em ~61s, 5 agentes `CONCLUIDO`, `modelo=gpt-4o-mini`. Log ao vivo: `rag checklist direcionado: property_id=633 analysis_id=229 itens=27 embeddings_solicitados=27 embeddings_executados=27 embeddings_falhos=0 chunks_recuperados_total=108 chunks_distintos=4`.- Preservação (nada apagado): analyses 5→6 (V1–V5 intactas, nova **V6**); document_versions 4→5 (+ matrícula OCR v2); document_chunks 1089→1097 (+8 OCR; v1 intacta); evidences 73→108; checklist_executions 6→7; checklist_results 162→189 (+27); llm_runs 25→30 (+5); verdicts 5→6. 27 `canonical_key` intactos. Veredito V6 = INCONCLUSIVO.
@@ -617,7 +617,7 @@ Depois do commit, aguardar auditoria antes de avançar.
 
 **Status:** 🟢 APROVADA.
 
-A auditoria confirmou que a implementação atende ao escopo: OCR local operacional no Docker, Tesseract com português, Poppler, `ocr_available()=True`, OCR opcional/desligado por padrão, reprocessamento real da matrícula 25278 do imóvel 633 em nova versão sem apagar a anterior, preservação de páginas/chunks/rastreabilidade, telemetria de embeddings do retrieval direcionado e suíte `pytest -q = 243 passed` reportada pelo Kiro.
+A auditoria confirmou que a implementação atende ao escopo: OCR local operacional no Docker, Tesseract com português, Poppler, `ocr_available()=True`, OCR opcional/desligado por padrão, reprocessamento real da matrícula 99001 do imóvel 633 em nova versão sem apagar a anterior, preservação de páginas/chunks/rastreabilidade, telemetria de embeddings do retrieval direcionado e suíte `pytest -q = 243 passed` reportada pelo Kiro.
 
 A reanálise criou V6 preservando V1–V5. Foram mantidos os 27 canonical keys e nenhuma confirmação artificial foi introduzida. A limitação restante foi confirmada: os chunks não recebem embedding automaticamente durante a ingestão, portanto o pgvector não consegue aproveitar plenamente os novos chunks OCR.
 
@@ -786,8 +786,8 @@ Depois do commit, **parar e aguardar auditoria**. Não iniciar TASK 67.
 
 ### E2E real — Imóvel 633 (V6 → V7)
 - Backup: `backups/radar-backup-20260924-220845`. Provider disponível no container; modelo de embedding `text-embedding-3-small`, dimensão 1536.
-- **Reingestão da matrícula** (bytes do original em disco; OCR habilitado apenas para a operação; `DocumentPipeline.ingest` reutilizado) criou a **v3** (`version_id=454`) preservando v1/v2: `extraction_quality=OCR`, `ocr_pages=2`, `char_count=8355`, **8 chunks, todos com embedding**, dimensão 1536 (min=max), página/seção/metadata preservados, conteúdo registral real (Matrícula 25278, Curitiba). Chunks ids 1752–1759.
-- **Busca semântica**: consulta `"registro de imóveis matrícula 25278 Curitiba consolidação"` retornou como top-5 **todos os chunks OCR da matrícula v3**, com `vector_score` 0,57–0,63 e `text_score = 0,0000` → recuperados **por similaridade vetorial pura** (impossível antes). `RAGService`: `vector_search=True`, `text_fallback=False`.
+- **Reingestão da matrícula** (bytes do original em disco; OCR habilitado apenas para a operação; `DocumentPipeline.ingest` reutilizado) criou a **v3** (`version_id=454`) preservando v1/v2: `extraction_quality=OCR`, `ocr_pages=2`, `char_count=8355`, **8 chunks, todos com embedding**, dimensão 1536 (min=max), página/seção/metadata preservados, conteúdo registral real (Matrícula 99001, Curitiba). Chunks ids 1752–1759.
+- **Busca semântica**: consulta `"registro de imóveis matrícula 99001 Curitiba consolidação"` retornou como top-5 **todos os chunks OCR da matrícula v3**, com `vector_score` 0,57–0,63 e `text_score = 0,0000` → recuperados **por similaridade vetorial pura** (impossível antes). `RAGService`: `vector_search=True`, `text_fallback=False`.
 - **Análise V7** (`POST /api/imoveis/633/analisar`): HTTP 200, 5 agentes `CONCLUIDO` (`gpt-4o-mini`, 27.885 tokens, 5/5 sucesso), e `chunks_recuperados = [1752..1759]` (os chunks OCR da matrícula), contra 276–283 (edital genérico) na V6. Checklist V7: **4 CONFIRMADO / 23 PENDENTE** (V6 = 0/27); `LEILOES_NEGATIVOS_AVERBADOS` = CONFIRMADO com evidência da matrícula. 27 evidências do 633 passaram a citar os chunks OCR da matrícula v3. Melhora **orgânica**, sem forçar confirmação.
 - **Métricas de embeddings (reingest v3):** criados=8, solicitados=8, executados=8, sucesso=8, falha=0, com embedding=8, dimensão=1536, modelo=`text-embedding-3-small`.
 
@@ -821,7 +821,7 @@ Validações principais:
 - fallback seguro sem API key;
 - falha do provider não interrompe ingestão;
 - novos chunks recebem embedding;
-- busca semântica real recupera chunks OCR da matrícula 25278.
+- busca semântica real recupera chunks OCR da matrícula 99001.
 
 No imóvel 633:
 
@@ -1270,7 +1270,7 @@ Se a TASK 68 passar na auditoria e o E2E final estiver íntegro, o próximo pass
 - Objetivo: corrigir a falha comprovada na Task 67 (edital não coexistia com a matrícula no contexto) de forma mínima, reutilizando o embedding da Task 66. Sem backfill global, sem reescrever o RAG, preservando V1–V7 e sem confirmação artificial.
 
 ### Identificação do edital
-- Edital efetivamente usado pela análise = **doc 193** (`EDITAL`, `EL00440226CPARE.pdf`, hash `4e5926d9c35c`, ver_id 193 v1, 544 chunks 277–820, 0 embedding). Os chunks 277–283 usados na V6 pertencem a este documento. O doc 195 (`edital`, source caixa) é duplicata do mesmo arquivo/hash → não reprocessado. Backup: `backups/radar-backup-20260924-224856`.
+- Edital efetivamente usado pela análise = **doc 193** (`EDITAL`, `EL00000000CPAXX.pdf`, hash `<omitido>`, ver_id 193 v1, 544 chunks 277–820, 0 embedding). Os chunks 277–283 usados na V6 pertencem a este documento. O doc 195 (`edital`, source caixa) é duplicata do mesmo arquivo/hash → não reprocessado. Backup: `backups/radar-backup-20260924-224856`.
 
 ### Reingestão controlada do edital
 - `DocumentPipeline.ingest` (pipeline da Task 66) gerou **edital v2** (`document_version_id=474`) preservando a v1: `SUFICIENTE`, `ocr=False`, `char_count=573775`, **544 chunks, 544 com embedding**, dimensão 1536. Embeddings globais 8 → 552. Sem backfill de outros documentos.
@@ -1280,7 +1280,7 @@ Se a TASK 68 passar na auditoria e o E2E final estiver íntegro, o próximo pass
 
 ### Correção mínima (2 arquivos)
 - `backend/app/rag/checklist_retrieval.py`: `_select_with_document_diversity(chunks, max_total)` — agrupa os candidatos já recuperados por documento de origem, ordena cada grupo por `final_score` e distribui os `MAX_TOTAL_CHUNKS` em round-robin por documento (documentos ordenados pelo melhor score), reordenando o resultado por relevância. Substitui o corte por score puro na seleção final. Não altera `PER_ITEM_LIMIT`/`MAX_TOTAL_CHUNKS`, pesos, consulta ou ranking do retriever, e não recupera nada novo.
-- `backend/app/services.py`: `valid_chunk_ids(raw)` restringe os `chunk_ids` do LLM a inteiros positivos ≤ int4 do PostgreSQL, aplicada nos dois pontos de persistência. Corrige um HTTP 500 (`integer out of range`) observado na 1ª tentativa de V8, quando o LLM citou `1555528765064` (número do conteúdo da matrícula) como chunk_id. Guarda defensiva e conservadora (id inválido → sem evidência), sem mudar regra de negócio. Essa 1ª tentativa falhou antes de persistir (nenhuma V8 parcial ficou no banco).
+- `backend/app/services.py`: `valid_chunk_ids(raw)` restringe os `chunk_ids` do LLM a inteiros positivos ≤ int4 do PostgreSQL, aplicada nos dois pontos de persistência. Corrige um HTTP 500 (`integer out of range`) observado na 1ª tentativa de V8, quando o LLM citou `9999999999999` (número do conteúdo da matrícula) como chunk_id. Guarda defensiva e conservadora (id inválido → sem evidência), sem mudar regra de negócio. Essa 1ª tentativa falhou antes de persistir (nenhuma V8 parcial ficou no banco).
 - Efeito no retrieval direcionado do 633: 24 EDITAL / 0 MATRÍCULA → **22 EDITAL / 2 MATRÍCULA**.
 
 ### E2E V8 (preservando V1–V7)
@@ -1329,7 +1329,7 @@ A Task 68 foi aprovada após auditoria do commit, código, testes e documentaç�
 
 ### V8 — E2E final de referência
 
-Imóvel: COND PARQUE ARVOREDO RESIDENCIAL CLUBE, Caixa, Curitiba/PR.
+Imóvel: COND RESIDENCIAL EXEMPLO GAMA, Caixa, Curitiba/PR.
 
 analysis_id=280
 

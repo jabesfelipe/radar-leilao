@@ -22,7 +22,7 @@ Cadastrar e manter o imóvel, o leilão, o edital, a matrícula e as fontes, com
 `Property`, `Auction`, `AuctionNotice`, registro de matrícula, `PropertySource`, `EntityHistory`, eventos de domínio.
 
 ## Regras
-Dado cadastral editável com histórico; análises e documentos são versionados e não sobrescritos. O imóvel 633 (COND PARQUE ARVOREDO RESIDENCIAL CLUBE) é o imóvel de referência protegido.
+Dado cadastral editável com histórico; análises e documentos são versionados e não sobrescritos. O imóvel 633 (COND RESIDENCIAL EXEMPLO GAMA) é o imóvel de referência protegido.
 
 ## Permissões
 Backend sem JWT nessas rotas (legado); portão do proxy na borda.

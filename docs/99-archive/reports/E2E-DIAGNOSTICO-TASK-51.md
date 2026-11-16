@@ -37,18 +37,20 @@ Situação por bloqueio:
 
 ## 1. Imóvel utilizado
 
-**COND PARQUE ARVOREDO RESIDENCIAL CLUBE** — dados reais fornecidos pela task
-(usados exatamente como recebidos; nada inventado):
+**COND RESIDENCIAL EXEMPLO GAMA** — na execução original foram usados os dados reais
+fornecidos pela task. Na v1.0.9 os identificadores (nome, endereço, matrícula, inscrição,
+código Caixa, edital, item, leiloeiro, áreas e hashes dos PDFs) foram substituídos por
+valores FICTÍCIOS; a estrutura do diagnóstico foi preservada:
 
 | Campo | Valor |
 |---|---|
 | Tipo | Apartamento · 3 quartos · 2 vagas |
-| Nº do imóvel (Caixa) | 155552876506-4 |
-| Matrícula | 25278 · Comarca CURITIBA-PR · Ofício 07 |
-| Inscrição imobiliária | 57000970088001 |
-| Área total / privativa | 102,71 m² / 109,08 m² |
-| Endereço | RUA FRANCISCO DEROSSO, 375, APTO 53, TORRE 05B, PAV. 5, XAXIM, CEP 81710-000, CURITIBA-PR |
-| Leilão | SFI · Edital 0044/0226 - CPA/RE · Item 258 · Leiloeiro WERNO KLÖCKNER JÚNIOR |
+| Nº do imóvel (Caixa) | 999999999999-9 |
+| Matrícula | 99001 · Comarca CURITIBA-PR · Ofício 07 |
+| Inscrição imobiliária | 00000000000001 |
+| Área total / privativa | 98,10 m² / 104,20 m² |
+| Endereço | RUA FICTÍCIA GAMA, 100, APTO 11, TORRE 01, PAV. 1, BAIRRO EXEMPLO, CEP 00000-000, CURITIBA-PR |
+| Leilão | SFI · Edital 0000/0000 - CPA/XX · Item 1 · Leiloeiro LEILOEIRO FICTÍCIO EXEMPLO |
 | Avaliação | R$ 370.000,00 |
 | Mínimo 1º leilão / 2º leilão | R$ 370.000,00 / R$ 222.000,00 |
 | Datas | 1º: 28/09/2026 10h00 · 2º: 02/10/2026 10h00 |
@@ -62,8 +64,8 @@ Ambos baixados dos endpoints oficiais da Caixa (não sintéticos):
 
 | Documento | URL | Tamanho | Tipo | Páginas (aprox.) | SHA-256 |
 |---|---|---|---|---|---|
-| Matrícula | `venda-imoveis.caixa.gov.br/editais/matricula/PR/1555528765064.pdf` | 538.507 bytes | PDF válido (`%PDF`) | ~3 | `e0b83814500229aa2ccbd32eb68d9836c76fdfe11acd64e9f3be3ab8db58a273` |
-| Edital | `venda-imoveis.caixa.gov.br/editais/EL00440226CPARE.PDF` | 1.126.227 bytes | PDF válido (`%PDF`) | ~142 | `4e5926d9c35c4356e9f7569212564d5eeafd2b168937e3b7c466c396e835d93b` |
+| Matrícula | `venda-imoveis.caixa.gov.br/editais/matricula/PR/9999999999999.pdf` | 538.507 bytes | PDF válido (`%PDF`) | ~3 | `<sha256 omitido>` |
+| Edital | `venda-imoveis.caixa.gov.br/editais/EL00000000CPAXX.PDF` | 1.126.227 bytes | PDF válido (`%PDF`) | ~142 | `<sha256 omitido>` |
 
 > A contagem ~142 páginas do edital confere com a informação da task. Os arquivos
 > permaneceram **apenas no ambiente local** (`_e2e_local/`), **não versionados**.
@@ -106,14 +108,14 @@ contratos atuais (`schemas.py`), os seguintes dados reais **não têm campo
 correspondente** e ficam registrados como **GAP DE CONTRATO** (a confirmar na TASK 52;
 **não** alterados aqui):
 
-- **Número do imóvel Caixa** (`155552876506-4`): sem campo no modelo `Property`.
-- **Inscrição imobiliária** (`57000970088001`): sem campo.
+- **Número do imóvel Caixa** (`999999999999-9`): sem campo no modelo `Property`.
+- **Inscrição imobiliária** (`00000000000001`): sem campo.
 - **Duas datas de leilão simultâneas** (1º 28/09 e 2º 02/10): `AuctionCreate`/
   `AuctionNotice` guardam um `auction_date`/`auction_stage` por registro, não o par.
-- **Nº do item do edital** (`258`) e **identificador do edital** (`0044/0226 - CPA/RE`):
+- **Nº do item do edital** (`1`) e **identificador do edital** (`0000/0000 - CPA/XX`):
   `AuctionNoticeCreate` tem `identifier` (texto livre) mas não `item`/lote dedicado.
 - **Área total vs. área privativa**: `Property.area_m2` é único; os dois valores reais
-  (102,71 e 109,08) não cabem separadamente.
+  (98,10 e 104,20, fictícios) não cabem separadamente.
 - **Responsabilidade por condomínio/tributos** e **FGTS/forma de pagamento**: sem
   campos estruturados (poderiam ir para `observations` em texto livre).
 
@@ -225,8 +227,8 @@ Ordenada por dependência:
 
 # TASK 51B — Segunda execução (preparar runtime + repetir E2E)
 
-> Data: 20/09/2026 · Mesmo imóvel (COND PARQUE ARVOREDO — nº Caixa 155552876506-4,
-> matrícula 25278, edital 0044/0226 - CPA/RE, item 258, Curitiba/PR) e mesmos
+> Data: 20/09/2026 · Mesmo imóvel (COND EXEMPLO GAMA — nº Caixa 999999999999-9,
+> matrícula 99001, edital 0000/0000 - CPA/XX, item 1, Curitiba/PR; identificadores fictícios) e mesmos
 > documentos oficiais. Objetivo: remover o bloqueio de PDF, disponibilizar o
 > Postgres/pgvector existente, configurar LLM se houver chave, repetir o E2E e
 > encontrar o próximo breakpoint real. **Sem corrigir GAPs de negócio.**
@@ -276,7 +278,7 @@ de dependência). Confirmado sobre a matrícula real.
 - **PROBLEMA:** a matrícula normaliza para apenas ~423 chars, contendo somente o
   carimbo de autenticidade do CRI (`"Para consultar a autenticidade ... CNS ... código
   de verificação ..."`). **Nenhum** termo do imóvel foi encontrado no markdown
-  (matrícula 25278, titular, averbações, ônus, etc.: todos ausentes).
+  (matrícula 99001, titular, averbações, ônus, etc.: todos ausentes).
 - **EVIDÊNCIA:** `pdfplumber` sobre o PDF real (538.507 bytes): **2 páginas, ~398 chars
   de texto no total, 2 imagens**. Ou seja, o corpo da matrícula está em **imagem**; a
   única camada de texto é o rodapé de autenticidade.

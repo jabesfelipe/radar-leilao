@@ -2,7 +2,7 @@
 
 Cobertura pedida: comparáveis rastreáveis, ausência e insuficiência de comparáveis, discrepantes, custos ausentes,
 cenários, preço máximo, separação entre preço anunciado e transacionado e bloqueio de conclusão favorável sem dados
-críticos. Inclui a validação do imóvel 7 (RESIDENCIAL AMERICA 5) com os comparáveis reais coletados.
+críticos. Inclui a validação de um teste de venda direta com comparáveis reais (anúncios públicos) coletados.
 """
 from __future__ import annotations
 
@@ -529,7 +529,7 @@ def api(postgres_engine):
 def test_api_comparavel_rastreavel_e_inteligencia_de_mercado(api):
     client, session = api
     from backend.app import models
-    pid = client.post("/api/imoveis", json={"title": "RESIDENCIAL AMERICA 5 (sintético)", "address": "Rua Macapá", "city": "Fazenda Rio Grande", "state": "PR",
+    pid = client.post("/api/imoveis", json={"title": "IMÓVEL DE TESTE DE VENDA DIRETA (sintético)", "address": "Rua Fictícia", "city": "Fazenda Rio Grande", "state": "PR",
                                             "neighborhood": "Estados", "property_type": "Apartamento", "modality": "VENDA_DIRETA", "area_m2": 48.74,
                                             "private_area_m2": 45.50, "bedrooms": 2, "parking_spots": 1}).json()["id"]
     session.add(models.Auction(property_id=pid, auction_stage="Venda direta", appraisal_value=Decimal("220000"), bid_value=Decimal("132970.97"),
@@ -554,7 +554,7 @@ def test_api_comparavel_rastreavel_e_inteligencia_de_mercado(api):
 
 def test_api_premissas_v108_sao_gravadas_e_reserva_manual_exige_origem(api):
     client, _ = api
-    pid = client.post("/api/imoveis", json={"title": "Premissas v1.0.8", "address": "Rua Macapá", "city": "Fazenda Rio Grande", "state": "PR", "property_type": "Apartamento",
+    pid = client.post("/api/imoveis", json={"title": "Premissas v1.0.8", "address": "Rua Fictícia", "city": "Fazenda Rio Grande", "state": "PR", "property_type": "Apartamento",
                                             "private_area_m2": 45.5, "bedrooms": 2}).json()["id"]
     client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "132970.97", "appraisal_value": "220000", "commission_percent": "0"})
     ok = {"itbi_aliquota": "0.025", "itbi_base_minima": "141825.75", "iptu_anual_reserva_base": "600", "iptu_anual_reserva_conservador": "900",

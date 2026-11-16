@@ -53,10 +53,10 @@ def client(postgres_engine):
 
 
 def _seed(session: Session):
-    prop = models.Property(title="COND PARQUE ARVOREDO", address="Rua X", city="Curitiba", state="PR")
+    prop = models.Property(title="COND EXEMPLO GAMA", address="Rua X", city="Curitiba", state="PR")
     session.add(prop); session.flush()
     # documento + versão para as evidências legíveis
-    document = models.Document(property_id=prop.id, name="EL00440226CPARE.pdf", document_type="EDITAL", source="Cadastro")
+    document = models.Document(property_id=prop.id, name="EL00000000CPAXX.pdf", document_type="EDITAL", source="Cadastro")
     session.add(document); session.flush()
     version = models.DocumentVersion(document_id=document.id, version=2, content_hash="c" * 64, original_path="edital.pdf")
     session.add(version); session.flush()
@@ -94,7 +94,7 @@ def test_evidencias_legiveis_com_dados_reais(client):
     evidencias = corpo["veredito_evidencias"]
     assert isinstance(evidencias, list) and evidencias
     principal = next(e for e in evidencias if e["id"] == ev_full_id)
-    assert principal["documento"] == "EL00440226CPARE.pdf"
+    assert principal["documento"] == "EL00000000CPAXX.pdf"
     assert principal["document_type"] == "EDITAL"
     assert principal["version"] == 2
     assert principal["category"] == "CHECKLIST"

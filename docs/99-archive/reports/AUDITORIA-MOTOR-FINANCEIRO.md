@@ -1,4 +1,4 @@
-# Auditoria do Motor Financeiro — Imóvel 633 (Parque Arvoredo Residencial Clube)
+# Auditoria do Motor Financeiro — Imóvel 633 (Residencial Exemplo Gama)
 
 Data: 2026-09-20. Escopo: validar custo total, custo de saída, resultado líquido,
 margem, ROI, break-even e preço máximo de arrematação; identificar divergências e

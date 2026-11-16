@@ -4,10 +4,11 @@ Exercitam o endpoint transacional ``POST /api/imoveis/completo`` que reutiliza o
 modelos existentes (Property, Auction, AuctionNotice, PropertyRegistration,
 PropertySource) e valida a integração cadastro -> dossiê -> análise.
 
-Caso de referência (fixture, NÃO hardcoded no produto): imóvel real
-"COND PARQUE ARVOREDO RESIDENCIAL CLUBE". Serve como caso de validação do primeiro
-fluxo E2E real — este teste NÃO declara o E2E real da Caixa como concluído, apenas
-verifica que o cadastro foi preparado para esse caso.
+Caso de referência (fixture, NÃO hardcoded no produto): imóvel FICTÍCIO
+"COND RESIDENCIAL EXEMPLO GAMA" (código, inscrição, matrícula, edital e leiloeiro
+fictícios), com a mesma estrutura do caso usado no primeiro fluxo E2E da Caixa. Este
+teste NÃO declara o E2E real da Caixa como concluído, apenas verifica que o cadastro
+foi preparado para esse caso.
 """
 
 from __future__ import annotations
@@ -63,20 +64,20 @@ def client(postgres_engine):
         connection.close()
 
 
-# Caso de referência COND PARQUE ARVOREDO — fixture de validação.
+# Caso de referência COND EXEMPLO GAMA — fixture de validação.
 CAIXA_PAYLOAD = {
     "imovel": {
-        "title": "COND PARQUE ARVOREDO RESIDENCIAL CLUBE",
+        "title": "COND RESIDENCIAL EXEMPLO GAMA",
         "city": "Curitiba",
         "state": "PR",
         "property_type": "Apartamento",
-        "area_m2": 102.71,
-        "private_area_m2": 109.08,
+        "area_m2": 98.10,
+        "private_area_m2": 104.20,
         "bedrooms": 3,
         "parking_spots": 2,
         "origin": "Caixa Econômica Federal",
-        "origin_property_code": "155552876506-4",
-        "inscription": "57000970088001",
+        "origin_property_code": "999999999999-9",
+        "inscription": "00000000000001",
         "modality": "Extrajudicial",
         "system": "SFI",
     },
@@ -86,10 +87,10 @@ CAIXA_PAYLOAD = {
         "first_auction_value": 370000,
         "second_auction_date": "2026-10-02T10:00:00",
         "second_auction_value": 222000,
-        "auctioneer": "WERNO KLÖCKNER JÚNIOR",
+        "auctioneer": "LEILOEIRO FICTÍCIO EXEMPLO",
     },
-    "edital": {"identifier": "0044/0226 - CPA/RE", "item": "258"},
-    "matricula": {"registration_number": "25278", "registry_office": "07", "comarca": "Curitiba - PR"},
+    "edital": {"identifier": "0000/0000 - CPA/XX", "item": "1"},
+    "matricula": {"registration_number": "99001", "registry_office": "07", "comarca": "Curitiba - PR"},
     "fontes": [
         {"source_type": "PAGINA_IMOVEL", "url": "https://venda-imoveis.caixa.gov.br/exemplo", "description": "Página Caixa"},
         {"source_type": "EDITAL", "url": "https://exemplo.gov.br/edital.pdf"},
@@ -113,14 +114,14 @@ def test_cadastro_completo_persiste_todas_as_entidades(client):
 
     detalhe = client.get(f"/api/imoveis/{property_id}").json()
     imovel = detalhe["imovel"]
-    assert imovel["title"] == "COND PARQUE ARVOREDO RESIDENCIAL CLUBE"
+    assert imovel["title"] == "COND RESIDENCIAL EXEMPLO GAMA"
     assert imovel["city"] == "Curitiba" and imovel["state"] == "PR"
-    assert float(imovel["area_m2"]) == pytest.approx(102.71)
-    assert float(imovel["private_area_m2"]) == pytest.approx(109.08)
+    assert float(imovel["area_m2"]) == pytest.approx(98.10)
+    assert float(imovel["private_area_m2"]) == pytest.approx(104.20)
     assert imovel["bedrooms"] == 3 and imovel["parking_spots"] == 2
     assert imovel["origin"] == "Caixa Econômica Federal"
-    assert imovel["origin_property_code"] == "155552876506-4"
-    assert imovel["inscription"] == "57000970088001"
+    assert imovel["origin_property_code"] == "999999999999-9"
+    assert imovel["inscription"] == "00000000000001"
     assert imovel["modality"] == "Extrajudicial" and imovel["system"] == "SFI"
 
     # leilão preserva avaliação e 1º/2º leilão separadamente, com data + hora
@@ -129,15 +130,15 @@ def test_cadastro_completo_persiste_todas_as_entidades(client):
     assert float(leilao["appraisal_value"]) == pytest.approx(370000)
     assert float(leilao["first_auction_value"]) == pytest.approx(370000)
     assert float(leilao["second_auction_value"]) == pytest.approx(222000)
-    assert leilao["auctioneer"] == "WERNO KLÖCKNER JÚNIOR"
+    assert leilao["auctioneer"] == "LEILOEIRO FICTÍCIO EXEMPLO"
     # a hora (10:00) não pode ser truncada
     assert "10:00" in leilao["first_auction_date"]
     assert "10:00" in leilao["second_auction_date"]
 
     # edital e matrícula
-    assert detalhe["edital"]["identifier"] == "0044/0226 - CPA/RE"
-    assert detalhe["edital"]["item"] == "258"
-    assert detalhe["matricula"]["registration_number"] == "25278"
+    assert detalhe["edital"]["identifier"] == "0000/0000 - CPA/XX"
+    assert detalhe["edital"]["item"] == "1"
+    assert detalhe["matricula"]["registration_number"] == "99001"
     assert detalhe["matricula"]["registry_office"] == "07"
 
     # fontes

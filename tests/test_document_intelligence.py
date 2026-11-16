@@ -87,7 +87,7 @@ def test_normalizer_aplica_ocr_quando_disponivel(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("backend.app.documents.normalizer.settings.ocr_enabled", True, raising=False)
     monkeypatch.setattr("backend.app.documents.normalizer.ocr_available", lambda: True)
 
-    ocr_text = "## Página 1\n\n" + ("Registro de imóveis matrícula 25278 consolidação. " * 20)
+    ocr_text = "## Página 1\n\n" + ("Registro de imóveis matrícula 99001 consolidação. " * 20)
 
     def _fake_run_ocr(path, language="por"):
         return ocr_text, {"ocr": True, "ocr_engine": "tesseract", "ocr_language": language, "ocr_pages": 1, "ocr_available": True}
@@ -108,7 +108,7 @@ def test_normalizer_aplica_ocr_quando_disponivel(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("markitdown.MarkItDown", _FakeMarkItDown, raising=False)
 
     texto, metadata = DocumentNormalizer().normalize(arquivo, "Matrícula")
-    assert "matrícula 25278" in texto.lower()
+    assert "matrícula 99001" in texto.lower()
     assert metadata["ocr"] is True
     assert metadata["extraction_quality"] == "OCR"
     assert metadata["ocr_engine"] == "tesseract"
@@ -161,7 +161,7 @@ def test_ocr_preserva_marcadores_de_pagina_multipagina(tmp_path: Path, monkeypat
     monkeypatch.setattr("backend.app.documents.normalizer.ocr_available", lambda: True)
 
     ocr_text = (
-        "## Página 1\n\n" + ("Matrícula 25278 registro de imóveis Curitiba. " * 12)
+        "## Página 1\n\n" + ("Matrícula 99001 registro de imóveis Curitiba. " * 12)
         + "\n\n## Página 2\n\n" + ("Averbações e consolidação de propriedade. " * 12)
     )
     idioma_recebido: dict[str, str] = {}
@@ -241,7 +241,7 @@ def test_normalizer_nao_substitui_arquivo_original(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("backend.app.documents.normalizer.settings.ocr_enabled", True, raising=False)
     monkeypatch.setattr("backend.app.documents.normalizer.ocr_available", lambda: True)
 
-    ocr_text = "## Página 1\n\n" + ("Registro de imóveis matrícula 25278. " * 20)
+    ocr_text = "## Página 1\n\n" + ("Registro de imóveis matrícula 99001. " * 20)
 
     def _fake_run_ocr(path, language="por"):
         return ocr_text, {"ocr": True, "ocr_engine": "tesseract", "ocr_language": language, "ocr_pages": 1, "ocr_available": True}
@@ -270,4 +270,4 @@ def test_normalizer_nao_substitui_arquivo_original(tmp_path: Path, monkeypatch):
     assert arquivo.read_bytes() == conteudo_original
     # Texto normalizado veio do OCR (não é o arquivo original).
     assert metadata["ocr"] is True
-    assert "matrícula 25278" in texto.lower()
+    assert "matrícula 99001" in texto.lower()

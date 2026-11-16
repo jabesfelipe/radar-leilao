@@ -19,7 +19,7 @@ describe('PropertyWizard', () => {
     render(<PropertyWizard onCancel={() => {}} onCreated={onCreated} />)
 
     // Etapa 1 — dados básicos
-    fireEvent.change(screen.getByLabelText('Nome / identificação'), { target: { value: 'COND PARQUE ARVOREDO' } })
+    fireEvent.change(screen.getByLabelText('Nome / identificação'), { target: { value: 'COND EXEMPLO GAMA' } })
     fireEvent.change(screen.getByLabelText('Cidade'), { target: { value: 'Curitiba' } })
     fireEvent.change(screen.getByLabelText('Estado (UF)'), { target: { value: 'pr' } })
     fireEvent.change(screen.getByLabelText('Quartos'), { target: { value: '3' } })
@@ -29,7 +29,7 @@ describe('PropertyWizard', () => {
     expect(await screen.findByText('1º leilão')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Valor de avaliação (R$)'), { target: { value: '370000' } })
     fireEvent.change(screen.getByLabelText('Valor do 2º leilão (R$)'), { target: { value: '222000' } })
-    fireEvent.change(screen.getByLabelText('Número da matrícula'), { target: { value: '25278' } })
+    fireEvent.change(screen.getByLabelText('Número da matrícula'), { target: { value: '99001' } })
     fireEvent.click(screen.getByRole('button', { name: 'Avançar' }))
 
     // Etapa 3 — fontes
@@ -41,7 +41,7 @@ describe('PropertyWizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Avançar' }))
 
     // Etapa 5 — revisão
-    expect(await screen.findByText('COND PARQUE ARVOREDO')).toBeInTheDocument()
+    expect(await screen.findByText('COND EXEMPLO GAMA')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Salvar imóvel' }))
 
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(42))
@@ -49,12 +49,12 @@ describe('PropertyWizard', () => {
     const postOptions = vi.mocked(fetch).mock.calls[0]?.[1]
     expect(String(vi.mocked(fetch).mock.calls[0]?.[0])).toContain('/api/imoveis/completo')
     const payload = JSON.parse(String(postOptions?.body))
-    expect(payload.imovel.title).toBe('COND PARQUE ARVOREDO')
+    expect(payload.imovel.title).toBe('COND EXEMPLO GAMA')
     expect(payload.imovel.state).toBe('PR')
     expect(payload.imovel.bedrooms).toBe(3)
     expect(payload.leilao.appraisal_value).toBe(370000)
     expect(payload.leilao.second_auction_value).toBe(222000)
-    expect(payload.matricula.registration_number).toBe('25278')
+    expect(payload.matricula.registration_number).toBe('99001')
   })
 
   it('quando um upload falha, mantém o imóvel e avisa o usuário sem navegar automaticamente', async () => {

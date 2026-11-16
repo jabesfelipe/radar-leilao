@@ -3,6 +3,14 @@
 -- IMPORTANTE: faça backup antes e execute em transação.
 -- Se qualquer validação falhar: ROLLBACK.
 -- Se todas as validações estiverem corretas: COMMIT.
+--
+-- Trava de segurança: o script só prossegue se o imóvel 633 existir COM o título fictício de referência
+-- 'COND RESIDENCIAL EXEMPLO GAMA' (v1.0.9: o título real foi retirado do repositório). Em bancos criados antes da
+-- v1.0.9 a trava aborta, que é o comportamento seguro. Para usar o script nesses bancos, primeiro confira
+-- MANUALMENTE que o id 633 é o imóvel de referência (SELECT id, title, city, created_at FROM properties WHERE id = 633;)
+-- e só então renomeie, uma única vez:
+--   UPDATE properties SET title = 'COND RESIDENCIAL EXEMPLO GAMA' WHERE id = 633;
+-- Coberto por tests/test_cleanup_test_properties.py.
 
 BEGIN;
 
@@ -11,7 +19,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM properties
         WHERE id = 633
-          AND title = 'COND PARQUE ARVOREDO RESIDENCIAL CLUBE'
+          AND title = 'COND RESIDENCIAL EXEMPLO GAMA'
     ) THEN
         RAISE EXCEPTION 'ABORTADO: imóvel 633 não encontrado ou título diferente.';
     END IF;

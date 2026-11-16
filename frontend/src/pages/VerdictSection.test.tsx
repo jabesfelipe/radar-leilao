@@ -52,18 +52,18 @@ describe('VerdictSection', () => {
 
   it('exibe evidências vinculadas de forma legível (documento/versão/página/fato)', async () => {
     const evidencias = [
-      { id: 202, documento: 'EL00440226CPARE.pdf', document_type: 'EDITAL', version: 2, category: 'CHECKLIST', page: 8, fact: 'Responsabilidade por débitos descrita no edital.' },
-      { id: 203, documento: '1555528765064.pdf', document_type: 'MATRICULA', version: 3, category: 'DOCUMENTAL' },
+      { id: 202, documento: 'EL00000000CPAXX.pdf', document_type: 'EDITAL', version: 2, category: 'CHECKLIST', page: 8, fact: 'Responsabilidade por débitos descrita no edital.' },
+      { id: 203, documento: '9999999999999.pdf', document_type: 'MATRICULA', version: 3, category: 'DOCUMENTAL' },
     ]
     vi.mocked(fetch).mockReturnValueOnce(detail(verdict, evidencias))
     render(<VerdictSection propertyId={5} />)
 
-    expect(await screen.findByText('📄 EL00440226CPARE.pdf')).toBeInTheDocument()
+    expect(await screen.findByText('📄 EL00000000CPAXX.pdf')).toBeInTheDocument()
     // documento, página e seção sempre visíveis (ausência dita explicitamente, nunca inventada)
     expect(screen.getByText('Checklist · versão 2 · Página 8 · Seção não informada')).toBeInTheDocument()
     expect(screen.getByText('Responsabilidade por débitos descrita no edital.')).toBeInTheDocument()
     // segunda evidência sem página/fato não quebra e mostra o que existe
-    expect(screen.getByText('📄 1555528765064.pdf')).toBeInTheDocument()
+    expect(screen.getByText('📄 9999999999999.pdf')).toBeInTheDocument()
     expect(screen.getByText('Documental · versão 3 · Página não informada · Seção não informada')).toBeInTheDocument()
     expect(screen.getAllByText('Sem trecho de documento vinculado.')).toHaveLength(2)
     // não expõe o ID interno como apresentação principal

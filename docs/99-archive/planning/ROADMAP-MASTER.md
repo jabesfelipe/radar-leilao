@@ -176,7 +176,7 @@ Executar em ondas internas:
 
 ## 8. Preservação obrigatória
 Até autorização explícita e plano de migração:
-- property 633 — COND PARQUE ARVOREDO RESIDENCIAL CLUBE;
+- property 633 — COND RESIDENCIAL EXEMPLO GAMA;
 - análises V1–V9 e análises financeiras V1–V9;
 - histórico de `llm_runs`;
 - 27 `canonical_key` do Checklist Mestre;

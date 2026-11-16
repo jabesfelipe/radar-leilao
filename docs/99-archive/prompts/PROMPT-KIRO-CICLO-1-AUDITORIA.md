@@ -31,7 +31,7 @@ Antes de qualquer ação:
 5. Identificar ambiente e banco usado pelos testes; não conectar a ambiente produtivo.
 
 Preservar obrigatoriamente:
-- property 633 — COND PARQUE ARVOREDO RESIDENCIAL CLUBE;
+- property 633 — COND RESIDENCIAL EXEMPLO GAMA;
 - análises V1–V9;
 - análises financeiras V1–V9;
 - histórico de llm_runs;

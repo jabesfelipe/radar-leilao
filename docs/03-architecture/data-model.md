@@ -63,4 +63,4 @@ Próxima migration livre: `0025`. As Ondas 1 e 2 do workflow reusam o schema de 
 [specs/MODEL-DATA-WORKFLOW.md](specs/MODEL-DATA-WORKFLOW.md), [specs/SPEC-OPPORTUNITY-DOMAIN.md](specs/SPEC-OPPORTUNITY-DOMAIN.md).
 
 ## Invariantes históricos a preservar
-Imóvel 633 (COND PARQUE ARVOREDO RESIDENCIAL CLUBE), análises V1 a V9 e financeiras V1 a V9, 45 `llm_runs`, 27 `canonical_key`, 8 regras da Central Jurídica e 150 arquivos de storage.
+Imóvel 633 (COND RESIDENCIAL EXEMPLO GAMA), análises V1 a V9 e financeiras V1 a V9, 45 `llm_runs`, 27 `canonical_key`, 8 regras da Central Jurídica e 150 arquivos de storage.

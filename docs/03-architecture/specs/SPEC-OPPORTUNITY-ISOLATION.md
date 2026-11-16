@@ -26,7 +26,7 @@ processo de análise (versões), custos, decisões de comitê e workflow.
 ## 3. Modelo mental (exemplo)
 
 ```
-Imóvel 633 (COND PARQUE ARVOREDO)
+Imóvel 633 (COND EXEMPLO GAMA)
  ├── Opportunity #L (legada, is_legacy=true, opportunity_id dos registros = NULL)
  │     └── Analyses V1..V9, Verdict V8/V9, FinancialAnalysis V1..V9, Checklist execs, Risks  ← INTOCADO
  │

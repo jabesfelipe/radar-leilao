@@ -82,7 +82,7 @@ Observação: a tela de Administração ainda exibe o campo "X-Admin-Token" (ver
 
 - Sem `docker compose down -v`, `DROP DATABASE/TABLE`, `TRUNCATE` nem `VACUUM FULL` no ambiente vivo.
 - Sem exclusão automática de documentos, chunks ou diretórios.
-- Preservar o imóvel 633 (COND PARQUE ARVOREDO RESIDENCIAL CLUBE), as análises V1–V9 e financeiras V1–V9, os 45 `llm_runs`, as 27 `canonical_key` e as 8 regras da Central Jurídica.
+- Preservar o imóvel 633 (COND RESIDENCIAL EXEMPLO GAMA), as análises V1–V9 e financeiras V1–V9, os 45 `llm_runs`, as 27 `canonical_key` e as 8 regras da Central Jurídica.
 - Nunca versionar `.env`, chaves privadas, tokens nem a `GATE_KEY`.
 
 ## 5. Manutenção do banco

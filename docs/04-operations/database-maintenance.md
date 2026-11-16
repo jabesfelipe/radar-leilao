@@ -14,7 +14,7 @@ Script versionado em:
 
 Ele foi usado para limpar os imóveis de teste/resíduo do ambiente local, preservando exclusivamente o imóvel 633:
 
-**COND PARQUE ARVOREDO RESIDENCIAL CLUBE**
+**COND RESIDENCIAL EXEMPLO GAMA**
 
 ### Garantias da limpeza
 

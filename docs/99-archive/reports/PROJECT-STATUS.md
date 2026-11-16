@@ -278,7 +278,7 @@ registrados — nada declarado encerrado sem evidência.
 
 O fluxo principal foi implementado em Python/FastAPI + React/TypeScript, com PostgreSQL/pgvector, processamento documental com MarkItDown/OCR, RAG híbrido, LangChain/LangGraph, cinco agentes LLM especializados, Checklist Mestre, Risk Engine, Verdict Engine, histórico e memória estruturada.
 
-A validação final utilizou o imóvel real COND PARQUE ARVOREDO RESIDENCIAL CLUBE, referência Caixa, e foi concluída com a Analysis V9 real, após a reconciliação controlada da V8.
+A validação final utilizou o imóvel real COND RESIDENCIAL EXEMPLO GAMA, referência Caixa, e foi concluída com a Analysis V9 real, após a reconciliação controlada da V8.
 
 ## 2. Estado final por capacidade
 
@@ -315,7 +315,7 @@ A validação final utilizou o imóvel real COND PARQUE ARVOREDO RESIDENCIAL CLU
 
 ## 3. E2E final
 
-Imóvel: COND PARQUE ARVOREDO RESIDENCIAL CLUBE — Caixa — Curitiba/PR
+Imóvel: COND RESIDENCIAL EXEMPLO GAMA — Caixa — Curitiba/PR
 
 V8:
 - analysis_id=280;
@@ -433,14 +433,14 @@ Novas funcionalidades fora desse objetivo continuam sendo evolução/backlog.
 
 **Atualização: 25/09/2026 — validação manual pelo usuário**
 
-A validação do imóvel real **COND PARQUE ARVOREDO RESIDENCIAL CLUBE (property_id=633)** passou a ser conduzida pela interface do Radar, como usuário final.
+A validação do imóvel real **COND RESIDENCIAL EXEMPLO GAMA (property_id=633)** passou a ser conduzida pela interface do Radar, como usuário final.
 
 Na tela do Dossiê foi confirmado:
 
 - imóvel acessível pela rota `/imoveis/633`;
 - aba **Documentos** funcional;
 - matrícula com 3 versões processadas;
-- edital principal `EL00440226CPARE.pdf` com 2 versões processadas;
+- edital principal `EL00000000CPAXX.pdf` com 2 versões processadas;
 - histórico exibindo a Análise V8;
 - Checklist exibindo **7 CONFIRMADOS / 20 PENDENTES**.
 
@@ -822,7 +822,7 @@ Após aprovação da Task 73, o próximo marco será a validação operacional c
 
 ### Estado atual
 
-Após as Tasks 70 → 73.1, foi feita nova validação manual pela UI do imóvel **COND PARQUE ARVOREDO RESIDENCIAL CLUBE (property_id=633)**.
+Após as Tasks 70 → 73.1, foi feita nova validação manual pela UI do imóvel **COND RESIDENCIAL EXEMPLO GAMA (property_id=633)**.
 
 Confirmado na tela:
 
@@ -1417,7 +1417,7 @@ preservado. O estado abaixo é o autoritativo.
 
 ### 21.4 E2E real da Caixa — imóvel 633 (inspeção, sem nova análise)
 - `OPENAI_API_KEY` presente e `LLM_MODEL=gpt-4o-mini` (LLM configurado).
-- Imóvel 633 (COND PARQUE ARVOREDO RESIDENCIAL CLUBE): histórico **V1–V9
+- Imóvel 633 (COND RESIDENCIAL EXEMPLO GAMA): histórico **V1–V9
   preservado**; Checklist V9 = **10 CONFIRMADO / 17 PENDENTE** (27); Veredito V9 com
   **18 pendências** e **34 evidências** legíveis — coerente com `IMPLEMENTATION-REFERENCE`
   §14 e §15.

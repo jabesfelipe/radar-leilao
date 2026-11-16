@@ -1,6 +1,6 @@
 """Leitura determinística da cadeia registral da matrícula (v1.0.7).
 
-Motivação (teste real do RESIDENCIAL AMERICA 5, imóvel 7 da VPS): os agentes leram a matrícula fora de ordem e
+Motivação (teste de venda direta com matrícula lida por OCR): os agentes leram a matrícula fora de ordem e
 afirmaram que a incorporadora do cabeçalho era a titular, que não havia ônus apesar da alienação fiduciária
 registrada e que a área total era a privativa. Este módulo lê o texto (OCR incluído) em ordem e separa:
 

@@ -142,7 +142,7 @@ Migration consultada no banco: `0016_due_diligence`.
 
 ### 10.3 Preservação do imóvel 633 — somente leitura
 
-Consulta ao banco local retornou o imóvel `id=633`, título `COND PARQUE ARVOREDO RESIDENCIAL CLUBE`, Curitiba/PR, status `EM_ANALISE`. Datas reportadas: criação em `2026-09-23 01:20:16.248356` e atualização em `2026-09-23 01:20:16.24836`.
+Consulta ao banco local retornou o imóvel `id=633`, título `COND RESIDENCIAL EXEMPLO GAMA`, Curitiba/PR, status `EM_ANALISE`. Datas reportadas: criação em `2026-09-23 01:20:16.248356` e atualização em `2026-09-23 01:20:16.24836`.
 
 Consulta de `analyses` para `property_id=633` retornou 9 registros, versões `{1,2,3,4,5,6,7,8,9}`. Consulta de `financial_analyses` retornou 9 registros, versões `{1,2,3,4,5,6,7,8,9}`.
 
@@ -187,17 +187,17 @@ Consulta somente leitura agrupada por `status` retornou:
 
 Os números fecham com a baseline da seção 10.5 (45 registros). A última execução registrada em qualquer status continua em 28/09/2026, conforme os resultados apresentados pelo operador. Não foi iniciada análise nova durante esta verificação.
 
-**Próxima etapa manual:** abrir `http://localhost:5173`, localizar o imóvel 633 (`COND PARQUE ARVOREDO RESIDENCIAL CLUBE), abrir seu dossiê e selecionar a aba **Due Diligence**. Apenas observar a tela e, se possível, registrar os estados exibidos nos quatro cards (Matrícula/ônus, Processos, Prefeitura/IPTU e Localização). Não clicar em botões de analisar, reprocessar, atualizar análise ou gerar relatório; não salvar alterações nesta primeira inspeção.
+**Próxima etapa manual:** abrir `http://localhost:5173`, localizar o imóvel 633 (`COND RESIDENCIAL EXEMPLO GAMA), abrir seu dossiê e selecionar a aba **Due Diligence**. Apenas observar a tela e, se possível, registrar os estados exibidos nos quatro cards (Matrícula/ônus, Processos, Prefeitura/IPTU e Localização). Não clicar em botões de analisar, reprocessar, atualizar análise ou gerar relatório; não salvar alterações nesta primeira inspeção.
 
 
 ### 10.7 Inspeção visual da aba Due Diligence — imóvel 633 (24/10/2026)
 
 O operador enviou captura do navegador em `http://localhost:5173/imoveis/633`, com a aba **Due Diligence** aberta. Evidências visíveis na captura:
 
-- **Matrícula e ônus:** selo `Consultado`; titular `Não confirmado`; matrícula `25278`; instrução para importar matrícula atualizada em Documentos; última consulta exibida `23/09/2026, 01:20:16`.
+- **Matrícula e ônus:** selo `Consultado`; titular `Não confirmado`; matrícula `99001`; instrução para importar matrícula atualizada em Documentos; última consulta exibida `23/09/2026, 01:20:16`.
 - **Processos judiciais:** selo `Não consultado`; resumo mostra processos 0, relevantes 0 e possíveis homônimos 0; a própria interface informa que consulta/correlação deve ser feita na aba Processos Jurídicos, reutilizando a Judicial API; campo de última consulta indica `Nunca consultado`. O zero exibido não deve ser interpretado como prova de inexistência de processos.
 - **Prefeitura e IPTU:** selo `Não consultado`; resumo mostra débitos municipais 0 e em aberto R$ 0,00. Como a frente não está consultada, esses zeros não comprovam ausência de débitos.
-- **Localização e entorno:** selo `Não consultado`; aviso `Integração não configurada`; endereço exibido na tela: Rua Francisco Derosso, nº 375, apto. 53, Torre 05B, pav. 5, Xaxim, CEP 81710-000, Curitiba/PR. Google Maps aparece como `não configurada`, sem coordenadas. Links externos para Google Maps e Street View estão visíveis.
+- **Localização e entorno:** selo `Não consultado`; aviso `Integração não configurada`; endereço exibido na tela: Rua Fictícia Gama, nº 100, apto. 11, Torre 01, pav. 1, Bairro Exemplo, CEP 00000-000, Curitiba/PR. Google Maps aparece como `não configurada`, sem coordenadas. Links externos para Google Maps e Street View estão visíveis.
 - **Checklist de localização:** itens visíveis (acesso viário, pavimentação/condição da rua, transporte público, comércio/serviços, escolas e saúde, infraestrutura do entorno) aparecem como `NAO VERIFICADO`.
 
 Esta foi uma inspeção visual, sem acionamento de ações de análise ou reprocessamento. Não há evidência nesta captura de persistência após edição/recarga; nenhum campo foi alterado durante esta inspeção.

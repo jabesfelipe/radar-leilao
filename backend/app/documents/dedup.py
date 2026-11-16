@@ -1,6 +1,6 @@
 """Deduplicação de conteúdo documental por hash SHA-256 (Fase 2 — RAG).
 
-Problema observado na auditoria: o mesmo arquivo (ex.: ``EL00440226CPARE.pdf``) foi
+Problema observado na auditoria: o mesmo arquivo (ex.: ``EL00000000CPAXX.pdf``) foi
 ingerido 3 vezes, gerando 3 × 544 chunks idênticos. Reprocessar conteúdo
 byte-idêntico não agrega informação — só desperdiça chunks, embeddings e storage.
 

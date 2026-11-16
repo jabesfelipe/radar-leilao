@@ -162,8 +162,8 @@ def test_valid_chunk_ids_ignora_valores_fora_do_range_int4():
     # conteúdo do documento) não pode quebrar o db.get com "integer out of range".
     from backend.app.services import valid_chunk_ids
 
-    # 1555528765064 > int4 max -> descartado; ids válidos preservados na ordem.
-    assert valid_chunk_ids([1758, "1756", 1555528765064, "abc", -3, 0]) == [1758, 1756]
+    # 9999999999999 > int4 max -> descartado; ids válidos preservados na ordem.
+    assert valid_chunk_ids([1758, "1756", 9999999999999, "abc", -3, 0]) == [1758, 1756]
     assert valid_chunk_ids([]) == []
     assert valid_chunk_ids(None) == []
     assert valid_chunk_ids([2147483647]) == [2147483647]      # limite do int4 é aceito

@@ -73,7 +73,7 @@ dashboard do frontend (RagHealthPanel).
 ## 8. Estado atual medido (auditoria)
 
 - `document_chunks` = 1.649 (552 com vetor; 1.097 sem — ingeridos sem chave).
-- 4 documentos / 7 versões (todos do imóvel 633). `EL00440226CPARE.pdf` foi ingerido 3×
+- 4 documentos / 7 versões (todos do imóvel 633). `EL00000000CPAXX.pdf` foi ingerido 3×
   antes da dedup (duplicatas históricas preservadas; dedup evita novas).
 - `knowledge_items` = 9 (0 com vetor). Índice vetorial IVFFlat `lists=100` (criado vazio).
 

@@ -351,7 +351,7 @@ export function PropertyWizard({ onCancel, onCreated }: PropertyWizardProps) {
             <Input label="Data do 2º leilão" type="datetime-local" value={form.second_auction_date} onChange={(e) => update('second_auction_date', e.target.value)} />
             <Input label="Valor do 2º leilão (R$)" type="number" step="0.01" value={form.second_auction_value} onChange={(e) => update('second_auction_value', e.target.value)} error={errors.second_auction_value} />
             <p className="wizard-subtitle dossier-form-full">Edital</p>
-            <Input label="Número do edital" placeholder="Ex.: 0044/0226 - CPA/RE" value={form.notice_identifier} onChange={(e) => update('notice_identifier', e.target.value)} />
+            <Input label="Número do edital" placeholder="Ex.: 0000/0000 - CPA/XX" value={form.notice_identifier} onChange={(e) => update('notice_identifier', e.target.value)} />
             <Input label="Item do edital" value={form.notice_item} onChange={(e) => update('notice_item', e.target.value)} />
             <p className="wizard-subtitle dossier-form-full">Matrícula</p>
             <Input label="Número da matrícula" value={form.registration_number} onChange={(e) => update('registration_number', e.target.value)} />

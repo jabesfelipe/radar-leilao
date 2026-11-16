@@ -89,7 +89,7 @@ def _com_api_key(monkeypatch):
 def test_chunk_novo_recebe_embedding_persistido_dimensao_correta(monkeypatch):
     gateway = FakeGateway()
     monkeypatch.setattr(embedding_module, "build_gateway", lambda: gateway)
-    chunk = FakeChunk("registro de imóveis matrícula 25278")
+    chunk = FakeChunk("registro de imóveis matrícula 99001")
     db = FakeDb([chunk])
 
     telemetry = embed_pending_chunks(db, version_id=42)

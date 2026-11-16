@@ -452,7 +452,7 @@ def _cenario_633():
             {"category": "IPTU em débito", "amount": Decimal("22245.55")},
         ],
         market_value=Decimal("300000"),
-        area=Decimal("102.71"),
+        area=Decimal("98.10"),
         sale=SaleAssumptions(corretagem_pct=Decimal("0.05"), tributo_pct=Decimal("0"), tax_base="GANHO"),
         goal=MaxPriceGoal(kind=GOAL_MARGEM_MINIMA, value=Decimal("0.20")),
     )

@@ -156,7 +156,7 @@ Não remover testes existentes.
 
 ## 6. Preservação obrigatória do imóvel 633
 
-A propriedade **633 — COND PARQUE ARVOREDO RESIDENCIAL CLUBE** é o caso real de regressão do projeto.
+A propriedade **633 — COND RESIDENCIAL EXEMPLO GAMA** é o caso real de regressão do projeto.
 
 Durante a task:
 

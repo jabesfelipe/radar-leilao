@@ -839,7 +839,7 @@ Campos preservados separadamente (o valor de avaliação nunca é sobrescrito pe
 As datas do 1º e 2º leilão são `TIMESTAMP` (data + hora), preservando o horário (ex.: 28/09/2026 10:00) de ponta a ponta (frontend `datetime-local` → API `datetime` → PostgreSQL `timestamp` → dossiê). O upload de documentos é etapa posterior ao cadastro; falhas de upload não desfazem o imóvel e são informadas ao usuário.
 Identificação na origem (extensível, sem enum rígido): `Property.origin`, `origin_property_code`, `inscription`, `modality`, `system`.
 
-Caso de validação do primeiro fluxo E2E real: **COND PARQUE ARVOREDO RESIDENCIAL CLUBE** (o E2E real da Caixa não é declarado concluído — apenas o cadastro foi preparado para esse caso).
+Caso de validação do primeiro fluxo E2E real: **COND RESIDENCIAL EXEMPLO GAMA** (o E2E real da Caixa não é declarado concluído — apenas o cadastro foi preparado para esse caso).
 
 ---
 
@@ -2277,7 +2277,7 @@ Não existe um Desocupação Agent separado no MVP encerrado. Desocupação perm
 
 ## 43.3 Validação final real — imóvel 633
 
-O E2E real de referência utilizado para o fechamento foi o imóvel COND PARQUE ARVOREDO RESIDENCIAL CLUBE, da Caixa, em Curitiba/PR.
+O E2E real de referência utilizado para o fechamento foi o imóvel COND RESIDENCIAL EXEMPLO GAMA, da Caixa, em Curitiba/PR.
 
 Na V8 (analysis_id=280):
 - 5/5 agentes concluíram;
@@ -2968,7 +2968,7 @@ Essa regra foi validada em testes e no fluxo real V9.
 
 O imóvel de referência:
 
-**COND PARQUE ARVOREDO RESIDENCIAL CLUBE — property_id 633**
+**COND RESIDENCIAL EXEMPLO GAMA — property_id 633**
 
 teve seu Veredito V8 histórico reconciliado sem criar nova Analysis.
 

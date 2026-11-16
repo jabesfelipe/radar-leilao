@@ -50,6 +50,6 @@ Nenhuma alíquota ou tabela foi cadastrada como verdade.
 | RAG | recuperação de trechos relevantes dos documentos para a IA |
 | Central Jurídica | catálogo de fontes, dispositivos e regras jurídicas |
 | Modalidade | tipo de venda do imóvel (5 modalidades; LICITACAO em aberto) |
-| Imóvel 633 | imóvel de referência (COND PARQUE ARVOREDO RESIDENCIAL CLUBE), protegido contra limpeza |
+| Imóvel 633 | imóvel de referência (COND RESIDENCIAL EXEMPLO GAMA), protegido contra limpeza |
 | Gate (portão) | cookie de acesso do proxy nginx que antecede o login |
 | GHCR | registro de imagens do GitHub usado no deploy |
