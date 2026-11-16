@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { BarChart3, ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { Alert, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
+import { Alert, Button, Card, EmptyState, Input, LoadingState, Section, Select } from '../components/ui'
 import { createComparable, deleteComparable, formatMoney, getMarket, listComparables, updateComparable, type MarketComparable, type MarketResponse } from '../services/market'
+import { MarketIntelligencePanel } from './MarketIntelligencePanel'
 
 type MarketSectionProps = {
   propertyId: number
@@ -14,9 +15,20 @@ type ComparableForm = {
   area_m2: string
   source: string
   url: string
+  price_type?: string
+  collected_at?: string
+  neighborhood?: string
+  address?: string
+  bedrooms?: string
+  parking_spots?: string
+  area_basis?: string
+  notes?: string
 }
 
-const initialForm: ComparableForm = { kind: '', price: '', rent: '', area_m2: '', source: '', url: '' }
+const initialForm: ComparableForm = { kind: '', price: '', rent: '', area_m2: '', source: '', url: '', price_type: 'ANUNCIADO', collected_at: '', neighborhood: '', address: '', bedrooms: '', parking_spots: '', area_basis: '', notes: '' }
+
+const opt = (value?: string) => (value && value.trim() ? value.trim() : undefined)
+const optNum = (value?: string) => (value && value.trim() ? Number(value) : undefined)
 
 function formatArea(value?: number | string) {
   if (value === undefined || value === null || value === '') return 'Não informado'
@@ -37,6 +49,7 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
   const [market, setMarket] = useState<MarketResponse['mercado'] | null>(null)
   const [editId, setEditId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<ComparableForm>(initialForm)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const loadComparables = useCallback(async () => {
     setLoading(true)
@@ -85,8 +98,17 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
         area_m2: form.area_m2.trim() ? Number(form.area_m2) : undefined,
         source: form.source.trim() || undefined,
         url: form.url.trim() || undefined,
+        price_type: (opt(form.price_type) as 'ANUNCIADO' | 'TRANSACIONADO' | undefined),
+        collected_at: opt(form.collected_at),
+        neighborhood: opt(form.neighborhood),
+        address: opt(form.address),
+        bedrooms: optNum(form.bedrooms),
+        parking_spots: optNum(form.parking_spots),
+        area_basis: (opt(form.area_basis) as 'PRIVATIVA' | 'UTIL' | 'TOTAL' | 'DESCONHECIDA' | undefined),
+        notes: opt(form.notes),
       })
       setComparables((current) => [...current, created])
+      setRefreshKey((k) => k + 1)
       setFormOpen(false)
       setForm(initialForm)
       setSuccessMessage('Comparável cadastrado com sucesso.')
@@ -120,6 +142,7 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
       })
       setComparables((cur) => cur.map((c) => (c.id === id ? comparavel : c)))
       setMarket(mercado)
+      setRefreshKey((k) => k + 1)
       setEditId(null)
       setSuccessMessage('Comparável atualizado. A visão de mercado foi recalculada.')
     } catch (cause) {
@@ -137,6 +160,7 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
       setComparables((cur) => cur.filter((x) => x.id !== c.id))
       const marketData = await getMarket(propertyId)
       setMarket(marketData.mercado)
+      setRefreshKey((k) => k + 1)
       setSuccessMessage('Comparável excluído. A visão de mercado foi recalculada.')
     } catch (cause) {
       setSaveError(cause instanceof Error ? cause.message : 'Não foi possível excluir o comparável.')
@@ -167,6 +191,8 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
         </Card>
       )}
 
+      <MarketIntelligencePanel propertyId={propertyId} refreshKey={refreshKey} />
+
       {formOpen && (
         <Card variant="elevated" padding="lg" className="dossier-form-card">
           <form className="dossier-form" onSubmit={handleSubmit} noValidate>
@@ -176,6 +202,22 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
             <Input label="Área m² (opcional)" type="number" step="0.01" value={form.area_m2} onChange={(event) => updateField('area_m2', event.target.value)} />
             <Input label="Fonte (opcional)" value={form.source} onChange={(event) => updateField('source', event.target.value)} />
             <Input label="URL (opcional)" value={form.url} onChange={(event) => updateField('url', event.target.value)} className="dossier-form-full" />
+            <Select label="Natureza do valor" value={form.price_type} onChange={(event) => updateField('price_type', event.target.value)}>
+              <option value="ANUNCIADO">Anunciado (preço pedido)</option>
+              <option value="TRANSACIONADO">Transacionado (negócio fechado)</option>
+            </Select>
+            <Input label="Data da consulta" type="date" value={form.collected_at} onChange={(event) => updateField('collected_at', event.target.value)} />
+            <Input label="Bairro" value={form.neighborhood} onChange={(event) => updateField('neighborhood', event.target.value)} />
+            <Input label="Endereço ou região" value={form.address} onChange={(event) => updateField('address', event.target.value)} />
+            <Input label="Quartos" type="number" min="0" value={form.bedrooms} onChange={(event) => updateField('bedrooms', event.target.value)} />
+            <Input label="Vagas" type="number" min="0" value={form.parking_spots} onChange={(event) => updateField('parking_spots', event.target.value)} />
+            <Select label="Base da área" value={form.area_basis} onChange={(event) => updateField('area_basis', event.target.value)}>
+              <option value="">Não informada</option>
+              <option value="PRIVATIVA">Privativa</option>
+              <option value="UTIL">Útil</option>
+              <option value="TOTAL">Total</option>
+            </Select>
+            <Input label="Observações e limitações" value={form.notes} onChange={(event) => updateField('notes', event.target.value)} className="dossier-form-full" />
             <div className="dossier-form-actions">
               {saveError && <Alert tone="danger">{saveError}</Alert>}
               <Button variant="ghost" type="button" onClick={() => setFormOpen(false)} disabled={saving}>Cancelar</Button>
@@ -227,6 +269,10 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
                     <Fact label="Aluguel" value={comparable.rent == null || comparable.rent === '' ? 'Não informado' : formatMoney(comparable.rent)} />
                     <Fact label="Área" value={formatArea(comparable.area_m2)} />
                     <Fact label="Fonte" value={comparable.source} />
+                    {comparable.price_type && <Fact label="Natureza do valor" value={comparable.price_type === 'TRANSACIONADO' ? 'Transacionado' : 'Anunciado'} />}
+                    {comparable.collected_at && <Fact label="Consultado em" value={comparable.collected_at} />}
+                    {comparable.neighborhood && <Fact label="Bairro" value={comparable.neighborhood} />}
+                    {comparable.excluded && <Fact label="Excluído da estimativa" value={comparable.exclusion_reason || 'Sim'} />}
                   </dl>
                 </>
               )}

@@ -467,6 +467,14 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 /* Link de fonte de comparável */
 .market-link { display: inline-flex; align-items: center; gap: .3rem; color: var(--color-accent-strong); font-size: var(--font-size-xs); font-weight: 700; text-decoration: none; }
 .market-link:hover { text-decoration: underline; }
+/* v1.0.8: inteligência de mercado */
+.market-intel { display: grid; gap: .9rem; margin-bottom: 1rem; }
+.market-intel h4 { margin: .4rem 0 0; font-size: var(--font-size-sm); }
+.market-intel-reasons, .market-intel-premises { margin: 0; padding-left: 1.1rem; font-size: var(--font-size-sm); display: grid; gap: .2rem; }
+.market-intel .hub-table { font-size: var(--font-size-xs); }
+.market-intel small { color: var(--color-text-soft); }
+.market-intel-composition summary { cursor: pointer; font-weight: 700; font-size: var(--font-size-sm); }
+.market-intel-composition .hub-table td:last-child, .market-intel-composition .hub-table th:last-child { text-align: right; white-space: nowrap; }
 
 /* Seção de checklist mestre */
 .checklist-list { display: grid; gap: .85rem; }

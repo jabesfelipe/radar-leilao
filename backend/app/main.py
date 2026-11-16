@@ -772,7 +772,9 @@ def _snapshot(obj, fields: list[str]) -> dict:
 
 COST_FIELDS = ["category", "description", "amount", "recurring"]
 DEBT_FIELDS = ["category", "creditor", "amount", "reference_date", "status", "evidence_id"]
-COMPARABLE_FIELDS = ["kind", "price", "rent", "area_m2", "source", "url"]
+COMPARABLE_FIELDS = ["kind", "price", "rent", "area_m2", "source", "url", "price_type", "collected_at", "listing_date", "address", "neighborhood", "city",
+                     "state", "property_type", "bedrooms", "parking_spots", "condition", "condo_fee", "iptu", "area_basis", "distance_km", "listing_ref",
+                     "notes", "excluded", "exclusion_reason"]
 PROCESS_FIELDS = ["number", "court", "comarca", "nature", "subject", "status", "polo_active", "polo_passive", "distribution_date", "observations", "source", "impact"]
 REGISTRATION_FIELDS = ["registration_number", "registry_office", "comarca", "consultation_date", "holder", "observations", "document_version_id"]
 NOTICE_FIELDS = ["identifier", "item", "notice_date", "auction_stage", "appraisal_value", "minimum_value", "auction_date", "auctioneer", "observations"]

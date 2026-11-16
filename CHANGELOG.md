@@ -2,6 +2,69 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
+## v1.0.8 — não publicada (aguardando autorização de tag e deploy)
+
+Inteligência de mercado e viabilidade financeira. Migration `0026_comparaveis_rastreaveis` (colunas opcionais).
+
+- **Comparáveis rastreáveis**: natureza do valor (`ANUNCIADO` ou `TRANSACIONADO`), data da consulta, bairro,
+  endereço, tipo, quartos, vagas, condomínio, IPTU, base da área, distância medida, observações e exclusão com motivo.
+- **Estimativa de mercado** (`market.estimate`): similaridade com o imóvel, duplicatas, discrepantes (Tukey), R$/m²
+  anunciado e provável negociado (desconto de negociação configurável), média, mediana, faixa P25–P75 e confiança.
+  Menos de 3 comparáveis: só faixa indicativa. Só anúncios: confiança no máximo MÉDIA.
+- **Viabilidade** (`backend/app/viability.py`, `GET /api/imoveis/{id}/inteligencia-mercado`): custos com status e
+  origem (ITBI, registro, certidões, condomínio e tributos em atraso com a regra da venda direta Caixa, reforma,
+  regularização, desocupação, manutenção na posse, corretagem e IR na revenda), cenários conservador/base/otimista,
+  preço máximo pelo ROI mínimo configurado, rentabilidade do aluguel sem presumir ocupação de 100%, liquidez e
+  conclusão consolidada (FAVORÁVEL só com documentação, risco, mercado, custos, rentabilidade e liquidez completos).
+- **Tela**: painel de inteligência de mercado na seção Mercado; formulário de comparável com os novos campos.
+- Leitura determinística, sem IA (custo zero). O veredito da análise não muda nesta versão.
+
+### Correções da revisão de regras de negócio (antes da publicação)
+
+- **Cálculo financeiro**: composição de cada cenário item a item, arredondada ao centavo antes de somar (soma dos
+  itens = investimento; venda − corretagem − IR − investimento = resultado). Custos e dívidas cadastrados fora das
+  linhas padrão deixaram de ser omitidos; comissão cadastrada também como custo não é somada duas vezes.
+- **IR sobre ganho de capital**: base = venda líquida da corretagem − custo de aquisição dedutível (aquisição,
+  comissão, ITBI, escritura/registro e reforma, IN SRF 84/2001), alíquota de 15%, sem isenções nem fator de redução.
+  Condomínio, IPTU, dívidas, certidões, desocupação e regularização não reduzem a base. A memória (itens dedutíveis,
+  não dedutíveis, base e alíquota) aparece em todos os cenários, inclusive no conservador. Antes: base = venda − investimento.
+- **Margem de segurança**: 1 − venda de equilíbrio ÷ venda estimada, com o mesmo IR do cenário.
+- **Regras da venda direta Caixa**, separadas por tipo de dívida: condomínio acima do limite → comprador paga até o
+  limite e a Caixa assume o excedente; IPTU/tributos acima do limite → a Caixa assume integralmente; abaixo do limite
+  → comprador paga tudo. Dívida de IPTU exatamente igual ao limite → integralmente do comprador (premissa
+  conservadora declarada; a regra não esclarece a igualdade). Cada linha mostra dívida total, limite,
+  responsabilidade do comprador e valor assumido pela Caixa. Dívida desconhecida: o conservador usa o teto.
+- **Pendência nunca vale zero**: cada custo PENDENTE declara o tratamento por cenário (reserva, teto ou fora da
+  soma). Registro (2%) e certidões entram em todos os cenários; reforma usa R$ 100/m² no base/otimista e R$ 250/m²
+  no conservador. Item fora da soma marca o cenário como incompleto, e a tela mostra o resultado se ele chegar ao
+  teto/reserva conhecido.
+- **Reservas manuais de regularização e IPTU durante a posse**: `regularizacao_reserva_base/_conservador` e
+  `iptu_anual_reserva_base/_conservador`, com origem obrigatória e conservador ≥ base. Não há valor padrão do
+  sistema: sem reserva o custo fica PENDENTE e fora da soma. O item segue PENDENTE mesmo com reserva, e o cenário
+  continua incompleto se houver outra pendência sem valor.
+- **Impacto de cada reserva**: por cenário, efeito de cada reserva/teto no investimento, no resultado, no ROI e no
+  preço máximo, calculado com a mesma função do cenário.
+- **Pendências no teto (base e otimista)**: memória item a item dos custos fora da soma que têm teto ou reserva
+  conhecidos (tipo, dedutibilidade no IR, IR adicional e conferência da conta), lista do que continua sem teto
+  conhecido e preço máximo recalculado com esses itens no teto. Se esse preço ficar abaixo da aquisição, a conclusão
+  registra um bloqueio.
+- **Natureza do valor de cada item no cenário**: confirmado, estimado, reserva, reserva manual, teto Caixa ou fora da soma.
+- **Premissas da v1.0.8 pela API**: `PUT /api/imoveis/{id}/financeiro/premissas` passou a aceitar e validar ITBI
+  (alíquota e base mínima), registro, certidões, reforma, regularização, IPTU anual, reservas manuais e condições
+  Caixa. Antes esses campos eram descartados pelo schema.
+- **Preço máximo**: busca binária com a mesma função do cenário, nos três cenários (conservador, base e otimista);
+  comprando pelo teto, o ROI é exatamente a meta. Provisório quando há custo sem valor.
+- **Comparáveis**: a estimativa lista as limitações da amostra (área total ou sem base declarada, ausência de
+  negócio fechado, distância não medida, quartos ausentes, conservação não vistoriada).
+- **Aluguel**: rentabilidade sobre o custo de aquisição e preparação (sem o carregamento da revenda), com vacância,
+  taxa de administração e condomínio/IPTU dos meses vagos explícitos; antes do IR sobre aluguel; marcado como
+  indicativo com menos de 3 comparáveis.
+- **Conclusão consolidada**: cenário incompleto impede FAVORÁVEL; aluguel indicativo e amostra só com anúncios
+  viram ressalvas (não bloqueiam a tese de revenda).
+- **Tela**: legenda Confirmado/Estimado/Pendente, selo de cenário incompleto, preço máximo e ROI no teto por
+  cenário, itens fora da soma com o teto conhecido, memória do IR, campos da regra Caixa, impacto das reservas e
+  quadro de locação.
+
 ## v1.0.7 — 2026-11-15
 
 Correções de qualidade jurídica e documental a partir do teste real do RESIDENCIAL AMERICA 5 (Caixa, venda direta;

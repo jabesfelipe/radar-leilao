@@ -1,0 +1,770 @@
+"""Viabilidade financeira com inteligência de mercado (v1.0.8).
+
+Camada de leitura, determinística e sem LLM, que junta:
+
+- a estimativa de mercado de ``market.estimate`` (venda e aluguel, com confiança e memória de cálculo);
+- custos de aquisição, posse e saída, cada um com ``status`` (INFORMADO, ESTIMADO, PENDENTE, NAO_APLICAVEL) e ``origem``;
+- as condições da venda direta Caixa (limites de responsabilidade do comprador por condomínio e tributos);
+- três cenários (conservador, base, otimista), preço máximo pela meta de retorno configurada e liquidez;
+- uma conclusão consolidada (FAVORAVEL, DESFAVORAVEL, INCONCLUSIVO) que considera documentação, risco jurídico,
+  mercado, custos, rentabilidade e liquidez.
+
+Princípios: nada é inventado. Premissas padrão existem só onde o mercado tem referência usual e aparecem com origem
+"padrão do sistema (parâmetro configurável)". Custo sem valor é PENDENTE e não entra no cenário base; no conservador
+entra o teto contratual (Caixa) ou a reserva parametrizada, sempre identificada. Desconto sobre a avaliação da Caixa
+é diferente de desconto sobre o valor de mercado estimado, e os dois são mostrados separados.
+
+O cálculo do veredito da análise (``build_finance``/``VerdictEngine``) não é alterado por este módulo.
+"""
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+from typing import Any
+
+from . import market as mk
+from .finance import GOAL_ROI_MINIMO, SaleAssumptions, TAX_BASE_GANHO, canonical_cost_key
+
+ZERO = Decimal("0")
+ONE = Decimal("1")
+
+INFORMADO, ESTIMADO, PENDENTE, NAO_APLICAVEL = "INFORMADO", "ESTIMADO", "PENDENTE", "NAO_APLICAVEL"
+FAVORAVEL, DESFAVORAVEL, INCONCLUSIVO = "FAVORAVEL", "DESFAVORAVEL", "INCONCLUSIVO"
+ORIGEM_PADRAO = "padrão do sistema (parâmetro configurável)"
+PREMISSA_IGUALDADE_IPTU = ("Premissa conservadora: dívida de IPTU/tributos EXATAMENTE igual ao limite é integralmente do comprador "
+                           "(Caixa assume R$ 0); a regra informada não esclarece a igualdade.")
+
+# Premissas padrão: chave no catálogo de parâmetros → (valor, descrição). Todas aparecem na saída com a origem.
+DEFAULTS: dict[str, tuple[Decimal | int, str]] = {
+    "mercado.desconto_negociacao": (mk.DEFAULT_NEGOTIATION_DISCOUNT, "Desconto de negociação sobre preço anunciado"),
+    "mercado.similaridade_minima": (mk.DEFAULT_MIN_SIMILARITY, "Similaridade mínima para usar o comparável"),
+    "venda.corretagem_pct": (Decimal("0.06"), "Corretagem na revenda (fração do valor de venda)"),
+    "venda.tributo_ganho_pct": (Decimal("0.15"), "IR sobre ganho de capital, pessoa física (alíquota mínima, Lei 13.259/2016)"),
+    "venda.prazo_meses": (12, "Prazo até a revenda no cenário base (meses)"),
+    "cenario.prazo_conservador_fator": (Decimal("1.5"), "Multiplicador do prazo no cenário conservador"),
+    "cenario.prazo_otimista_fator": (Decimal("0.75"), "Multiplicador do prazo no cenário otimista"),
+    "aluguel.taxa_ocupacao": (Decimal("0.90"), "Ocupação média anual do imóvel alugado (não presume 100%)"),
+    "aluguel.taxa_administracao": (Decimal("0.10"), "Taxa de administração da locação"),
+    "viabilidade.roi_minimo": (Decimal("0.20"), "Retorno mínimo sobre o investimento total na revenda (meta do preço máximo)"),
+    "viabilidade.reserva_registro_pct": (Decimal("0.02"), "Reserva conservadora para escritura/registro (fração da aquisição)"),
+    "viabilidade.reserva_certidoes": (Decimal("600"), "Reserva conservadora para certidões (R$)"),
+    "viabilidade.reserva_reforma_m2": (Decimal("250"), "Reserva conservadora de reforma (R$/m² de área privativa)"),
+    "viabilidade.reserva_reforma_m2_base": (Decimal("100"), "Reserva de reparos leves no cenário base/otimista (R$/m² de área privativa)"),
+    "viabilidade.reserva_desocupacao": (Decimal("5000"), "Reserva conservadora de desocupação (R$), se ocupação desconhecida"),
+}
+
+
+def _d(value: Any) -> Decimal | None:
+    if value is None or value == "":
+        return None
+    return value if isinstance(value, Decimal) else Decimal(str(value))
+
+
+def _brl(value: Decimal | None) -> str:
+    if value is None:
+        return "não informado"
+    return "R$ " + f"{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _pct(value: Decimal) -> str:
+    return f"{value * 100:.2f}".rstrip("0").rstrip(".").replace(".", ",") + "%"
+
+
+def _q(value: Decimal | None, places: str = "0.01") -> Decimal | None:
+    return value.quantize(Decimal(places)) if isinstance(value, Decimal) else value
+
+
+def resolve_premises(db, assumptions: dict | None) -> dict[str, dict]:
+    """Premissas efetivas: valor do imóvel (``financial_assumptions``) > parâmetro do catálogo > padrão."""
+    assumptions = assumptions or {}
+    out: dict[str, dict] = {}
+    for key, (default, label) in DEFAULTS.items():
+        local_key = key.split(".", 1)[1]
+        if assumptions.get(local_key) not in (None, ""):
+            out[key] = {"valor": _d(assumptions[local_key]) if not isinstance(default, int) else int(assumptions[local_key]), "origem": "premissa do imóvel", "descricao": label}
+            continue
+        value, origin = default, ORIGEM_PADRAO
+        if db is not None:
+            try:
+                from . import parameters as params
+                found = params.resolve(db, key, default=None)
+                if found is not None:
+                    value, origin = (_d(found) if not isinstance(default, int) else int(found)), f"catálogo de parâmetros ({key})"
+            except Exception:   # catálogo indisponível (sessão de teste simplificada): fica o padrão declarado
+                pass
+        out[key] = {"valor": value, "origem": origin, "descricao": label}
+    return out
+
+
+def _subject(prop) -> dict:
+    return {"city": prop.city, "neighborhood": prop.neighborhood, "property_type": prop.property_type, "bedrooms": prop.bedrooms,
+            "parking_spots": prop.parking_spots, "area": prop.private_area_m2 if prop.private_area_m2 else prop.area_m2,
+            "area_base": "PRIVATIVA" if prop.private_area_m2 else "TOTAL"}
+
+
+def _comparable_dict(c) -> dict:
+    keys = ("id", "kind", "price", "rent", "area_m2", "source", "url", "price_type", "collected_at", "listing_date", "address", "neighborhood", "city",
+            "state", "property_type", "bedrooms", "parking_spots", "condition", "condo_fee", "iptu", "area_basis", "distance_km", "listing_ref",
+            "notes", "excluded", "exclusion_reason")
+    return {k: getattr(c, k, None) for k in keys}
+
+
+def _line(key: str, label: str, value: Decimal | None, status: str, origem: str, *, conservador: Decimal | None = None, base: Decimal | None = None,
+          observacao: str = "", critico: bool = False, tratamento_base: str | None = None, tratamento_conservador: str | None = None, **extra) -> dict:
+    """Linha de custo. Para item PENDENTE, cada cenário declara o tratamento: ``valor_base`` (reserva usada nos cenários base e
+    otimista) e ``valor_conservador`` (reserva maior ou teto contratual). Sem valor declarado, o item fica FORA da soma e o
+    cenário é marcado como incompleto: pendência nunca entra como zero silencioso."""
+    known = value if status in (INFORMADO, ESTIMADO, NAO_APLICAVEL) else None
+    cons = conservador if conservador is not None else known
+    bas = base if base is not None else known
+    line = {"chave": key, "descricao": label, "valor": _q(value), "status": status, "origem": origem,
+            "valor_conservador": _q(cons), "valor_base": _q(bas), "observacao": observacao, "critico": critico,
+            "tratamento_base": tratamento_base or ("valor do item" if bas is not None and status != PENDENTE else ("sem valor: fora da soma" if bas is None else "reserva")),
+            "tratamento_conservador": tratamento_conservador or ("valor do item" if cons is not None and status != PENDENTE else ("sem valor: fora da soma" if cons is None else "reserva"))}
+    line.update(extra)
+    return line
+
+
+def _manual_reserve(key: str, label: str, assumptions: dict, prefix: str, origin_key: str, missing_note: str, *, annual: bool = False) -> dict:
+    """Custo sem valor real: reserva MANUAL por cenário (``<prefix>_base`` para base/otimista, ``<prefix>_conservador``), com origem
+    declarada. O sistema não tem valor padrão para estes itens. Sem reserva, o item fica fora da soma (cenário incompleto). Sem reserva
+    conservadora, o conservador usa a do base (nunca menos que o base)."""
+    base, cons = _d(assumptions.get(f"{prefix}_base")), _d(assumptions.get(f"{prefix}_conservador"))
+    if base is None and cons is None:
+        return _line(key, label, None, PENDENTE, "não informado", observacao=missing_note + " Sem valor padrão do sistema: fica fora da soma.")
+    origin = (assumptions.get(origin_key) or "").strip() or "reserva informada manualmente (origem não declarada)"
+    unit = " por ano" if annual else ""
+    cons_eff = cons if cons is not None else base
+    return _line(key, label, None, PENDENTE, f"reserva manual: {origin}", base=base, conservador=cons_eff,
+                 tratamento_base=(f"reserva manual de {_brl(base)}{unit} ({origin})" if base is not None else "sem reserva para o base: fora da soma"),
+                 tratamento_conservador=(f"reserva manual de {_brl(cons_eff)}{unit} ({origin})"
+                                         + ("" if cons is not None else "; sem reserva conservadora própria, usa a do base")),
+                 observacao="Valor real não levantado: os cenários usam a reserva manual informada; o item continua PENDENTE.",
+                 reserva_manual=True, origem_reserva=origin)
+
+
+def _iptu_year(line: dict, conservative: bool) -> Decimal | None:
+    if line.get("iptu_anual") is not None:
+        return line["iptu_anual"]
+    return line.get("iptu_anual_conservador" if conservative else "iptu_anual_base")
+
+
+def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_estimate: dict) -> dict:
+    """Custos de aquisição e posse, por item, com status e origem. ``assumptions`` = ``Auction.financial_assumptions``."""
+    acquisition = _d(auction.acquisition_value) if auction and auction.acquisition_value is not None else (_d(auction.bid_value) if auction else None)
+    appraisal = _d(auction.appraisal_value) if auction else None
+    area = _d(prop.private_area_m2) or _d(prop.area_m2)
+    costs_by_key: dict[str, Decimal] = {}
+    for cost in prop.costs:
+        key = canonical_cost_key(cost.category)
+        costs_by_key[key] = costs_by_key.get(key, ZERO) + (_d(cost.amount) or ZERO)
+    debts_open = [d for d in prop.debts if str(d.status or "").upper() != "QUITADO"]
+
+    used_debts: set[int] = set()
+
+    def debt_total(*tokens: str) -> Decimal | None:
+        found = [d for d in debts_open if any(t in str(d.category or "").upper() for t in tokens)]
+        used_debts.update(id(d) for d in found)
+        return sum((_d(d.amount) or ZERO for d in found), ZERO) if found else None
+
+    caixa = assumptions.get("condicoes_caixa") or {}
+    lines: list[dict] = []
+    lines.append(_line("aquisicao", "Preço de aquisição", acquisition, INFORMADO if acquisition is not None else PENDENTE, "cadastro do leilão/venda", critico=acquisition is None))
+    consumed: set[str] = set()   # chaves de custo cadastrado já usadas em alguma linha (o resto vira linha própria: nada é omitido)
+    commission = ZERO
+    if auction is not None and auction.commission_fixed is not None:
+        commission = _d(auction.commission_fixed)
+        lines.append(_line("comissao", "Comissão do leiloeiro", commission, INFORMADO, "cadastro do leilão (valor fixo)"))
+    elif auction is not None and auction.commission_percent is not None and acquisition is not None:
+        commission = acquisition * _d(auction.commission_percent) / Decimal("100")
+        lines.append(_line("comissao", "Comissão do leiloeiro", commission, INFORMADO,
+                           "cadastro do leilão/venda (venda direta: sem leiloeiro)" if commission == ZERO else f"cadastro do leilão ({_pct(_d(auction.commission_percent) / Decimal('100'))})"))
+    elif "comissao" in costs_by_key:
+        lines.append(_line("comissao", "Comissão do leiloeiro", costs_by_key["comissao"], INFORMADO, "custo cadastrado"))
+    else:
+        lines.append(_line("comissao", "Comissão do leiloeiro", None, PENDENTE, "não informada", critico=True))
+    consumed.add("comissao")   # com comissão no leilão, custo cadastrado de comissão não é somado de novo (sem dupla contagem)
+    # ITBI: custo informado > alíquota declarada (com origem) > pendente. Base = maior entre aquisição e base mínima informada.
+    itbi_rate = _d(assumptions.get("itbi_aliquota"))
+    itbi_base_min = _d(assumptions.get("itbi_base_minima"))
+    itbi_rate_pct = None
+    consumed.update({"itbi", "registro", "reforma", "desocupacao", "condominio", "iptu"})
+    if "itbi" in costs_by_key:
+        lines.append(_line("itbi", "ITBI", costs_by_key["itbi"], INFORMADO, "custo cadastrado"))
+    elif itbi_rate is not None and acquisition is not None:
+        base = max(acquisition, itbi_base_min or ZERO)
+        itbi_rate_pct = itbi_rate
+        lines.append(_line("itbi", "ITBI", base * itbi_rate, ESTIMADO, assumptions.get("itbi_origem") or "alíquota informada nas premissas",
+                           observacao=f"Alíquota {_pct(itbi_rate)} sobre base de {_brl(base)} (maior entre aquisição e base mínima informada)."))
+    else:
+        lines.append(_line("itbi", "ITBI", None, PENDENTE, "não informado", observacao="Informe a alíquota municipal e a base (valor venal).", critico=True))
+    for key, label, reserve_key in (("registro", "Escritura e registro", "viabilidade.reserva_registro_pct"), ("certidoes", "Certidões", "viabilidade.reserva_certidoes")):
+        informed = costs_by_key.get(key) if key == "registro" else _d(assumptions.get("certidoes"))
+        if informed is None and key == "registro" and assumptions.get("registro_estimado") not in (None, ""):
+            lines.append(_line(key, label, _d(assumptions["registro_estimado"]), ESTIMADO, assumptions.get("registro_origem") or "premissa do imóvel"))
+        elif informed is not None:
+            lines.append(_line(key, label, informed, INFORMADO, "custo cadastrado" if key == "registro" else "premissa do imóvel"))
+        else:
+            reserve = premises[reserve_key]["valor"]
+            amount = (acquisition * reserve) if key == "registro" and acquisition is not None else (reserve if key == "certidoes" else None)
+            rule = (f"reserva de {_pct(reserve)} da aquisição" if key == "registro" else f"reserva de {_brl(reserve)}") + f" ({premises[reserve_key]['origem']})"
+            lines.append(_line(key, label, None, PENDENTE, "não informado", conservador=amount, base=amount, tratamento_base=rule, tratamento_conservador=rule,
+                               observacao=f"Valor real não informado; todos os cenários usam {rule}.", reserva_pct=reserve if key == "registro" else None))
+    # Condomínio e tributos em atraso: dívida cadastrada > regra Caixa (teto de responsabilidade do comprador) > pendente.
+    for key, label, tokens, limit_key in (("condominio_atraso", "Condomínio em atraso", ("CONDOM",), "condominio_limite_pct_avaliacao"),
+                                          ("tributos_atraso", "IPTU e demais tributos em atraso", ("IPTU", "TRIBUT", "TAXA"), "tributos_limite_pct_avaliacao")):
+        debt = debt_total(*tokens)
+        if debt is None and key == "condominio_atraso" and "condominio" in costs_by_key:
+            debt = costs_by_key["condominio"]
+        if debt is None and key == "tributos_atraso" and "iptu" in costs_by_key:
+            debt = costs_by_key["iptu"]
+        limit_pct = _d(caixa.get(limit_key))
+        cap = _q(appraisal * limit_pct) if (limit_pct is not None and appraisal is not None) else None
+        if key == "condominio_atraso":
+            rule = (f"Regra Caixa: comprador paga a dívida até {_pct(limit_pct)} da avaliação ({_brl(cap)}); a Caixa paga o excedente."
+                    if cap is not None else None)
+        else:
+            rule = (f"Regra Caixa: se a dívida for menor que {_pct(limit_pct)} da avaliação ({_brl(cap)}), o comprador paga tudo; se for maior, "
+                    f"a Caixa paga integralmente. {PREMISSA_IGUALDADE_IPTU}"
+                    if cap is not None else None)
+        caixa_fields = {"divida_total": None, "responsabilidade_comprador": None, "assumido_caixa": None, "limite_responsabilidade": cap, "regra": rule,
+                        "premissa_conservadora": PREMISSA_IGUALDADE_IPTU if (key == "tributos_atraso" and cap is not None) else None}
+        if debt is not None:
+            debt = _q(debt)
+            if cap is None:
+                buyer, note = debt, "Dívida cadastrada, sem regra de limitação informada: integralmente do comprador."
+            elif key == "condominio_atraso":
+                buyer, note = min(debt, cap), rule
+            else:
+                buyer = debt if debt <= cap else ZERO   # igualdade: integral do comprador (premissa conservadora declarada)
+                note = rule + (" Dívida igual ao limite: aplicada a premissa conservadora." if debt == cap else "")
+            caixa_fields.update({"divida_total": debt, "responsabilidade_comprador": buyer, "assumido_caixa": debt - buyer})
+            lines.append(_line(key, label, buyer, INFORMADO, "dívida cadastrada", observacao=note, **caixa_fields))
+        elif cap is not None:
+            # Dívida desconhecida: o máximo que pode recair sobre o comprador é o limite (no IPTU, valor imediatamente abaixo dele).
+            # Cenário base/otimista não têm estimativa honesta do valor: o item fica fora da soma e o cenário é marcado incompleto.
+            lines.append(_line(key, label, None, PENDENTE, "valor da dívida não informado", conservador=cap,
+                               tratamento_conservador=f"teto de responsabilidade do comprador ({_brl(cap)})",
+                               tratamento_base="sem valor: fora da soma (cenário incompleto; veja o efeito do teto)",
+                               observacao=f"Dívida desconhecida. {rule} O assumido pela Caixa só pode ser calculado com o valor da dívida.", **caixa_fields))
+        else:
+            lines.append(_line(key, label, None, PENDENTE, "não informado", observacao="Sem valor da dívida e sem regra de limitação: risco sem teto conhecido.",
+                               critico=True, **caixa_fields))
+    # Reforma, regularização, desocupação.
+    reforma = costs_by_key.get("reforma") if "reforma" in costs_by_key else _d(assumptions.get("reforma"))
+    reserve_m2 = premises["viabilidade.reserva_reforma_m2"]["valor"]
+    if reforma is not None:
+        lines.append(_line("reforma", "Reforma", reforma, INFORMADO if "reforma" in costs_by_key else ESTIMADO, "custo cadastrado" if "reforma" in costs_by_key else "premissa do imóvel"))
+    else:
+        base_m2 = premises["viabilidade.reserva_reforma_m2_base"]["valor"]
+        lines.append(_line("reforma", "Reforma", None, PENDENTE, "estado de conservação não vistoriado",
+                           conservador=(reserve_m2 * area) if area else None, base=(base_m2 * area) if area else None,
+                           tratamento_base=f"reserva de {_brl(base_m2)}/m² ({premises['viabilidade.reserva_reforma_m2_base']['origem']})",
+                           tratamento_conservador=f"reserva de {_brl(reserve_m2)}/m² ({premises['viabilidade.reserva_reforma_m2']['origem']})",
+                           observacao="Sem vistoria: base usa reparo leve; conservador, reforma mais ampla."))
+    regularizacao = _d(assumptions.get("regularizacao"))
+    if regularizacao is not None:
+        lines.append(_line("regularizacao", "Regularização", regularizacao, ESTIMADO, assumptions.get("regularizacao_origem") or "premissa do imóvel"))
+    else:
+        lines.append(_manual_reserve("regularizacao", "Regularização", assumptions, "regularizacao_reserva",
+                                     "regularizacao_reserva_origem", "Sem levantamento de pendências de regularização além da matrícula."))
+    occupancy = max(prop.occupancy_analyses, key=lambda o: o.id) if prop.occupancy_analyses else None
+    if "desocupacao" in costs_by_key:
+        lines.append(_line("desocupacao", "Desocupação", costs_by_key["desocupacao"], INFORMADO, "custo cadastrado"))
+    elif occupancy is not None and occupancy.estimated_cost is not None:
+        lines.append(_line("desocupacao", "Desocupação", _d(occupancy.estimated_cost), ESTIMADO, "análise de ocupação"))
+    elif occupancy is not None and str(occupancy.status or "").upper() in ("DESOCUPADO", "LIVRE"):
+        lines.append(_line("desocupacao", "Desocupação", ZERO, NAO_APLICAVEL, "análise de ocupação: desocupado"))
+    else:
+        reserve = premises["viabilidade.reserva_desocupacao"]["valor"]
+        lines.append(_line("desocupacao", "Desocupação", None, PENDENTE, "ocupação não verificada", conservador=reserve,
+                           tratamento_conservador=f"reserva de {_brl(reserve)} ({premises['viabilidade.reserva_desocupacao']['origem']})",
+                           tratamento_base="sem valor: fora da soma (ocupação não verificada; veja o efeito da reserva)",
+                           observacao="Ocupação não verificada: o conservador supõe imóvel ocupado; base e otimista ficam incompletos até a verificação."))
+    # Custos e dívidas cadastrados que não pertencem a nenhuma linha acima entram como linhas próprias (antes eram omitidos).
+    labels = {"custos_juridicos": "Custos jurídicos", "debitos": "Débitos cadastrados como custo", "carregamento": "Carregamento cadastrado como custo", "outros": "Outros custos"}
+    for key in sorted(set(costs_by_key) - consumed):
+        lines.append(_line(f"custo_{key}", labels.get(key, f"Custo cadastrado ({key})"), costs_by_key[key], INFORMADO, "custo cadastrado"))
+    other_debts = [d for d in debts_open if id(d) not in used_debts]
+    if other_debts:
+        lines.append(_line("outras_dividas", "Outras dívidas cadastradas", sum((_d(d.amount) or ZERO for d in other_debts), ZERO), INFORMADO, "dívida cadastrada",
+                           observacao=", ".join(sorted({str(d.category) for d in other_debts}))))
+    # IPTU durante a posse: valor anual informado > pendente (o IPTU dos anúncios não é usado: não se sabe se é mensal ou anual).
+    # Valor anual informado vale para todos os cenários; sem ele, reserva anual manual por cenário (com origem); sem ambos, PENDENTE.
+    iptu_year = _d(assumptions.get("iptu_anual"))
+    if iptu_year is not None:
+        line = _line("iptu_posse", "IPTU durante a posse", None, ESTIMADO, assumptions.get("iptu_anual_origem") or "premissa do imóvel (IPTU anual)",
+                     observacao="Proporcional ao prazo de cada cenário.")
+        line.update({"iptu_anual": iptu_year, "iptu_anual_base": iptu_year, "iptu_anual_conservador": iptu_year})
+    else:
+        line = _manual_reserve("iptu_posse", "IPTU durante a posse", assumptions, "iptu_anual_reserva", "iptu_reserva_origem",
+                               "Informe o IPTU anual (carnê ou certidão da Prefeitura) ou uma reserva anual com origem.", annual=True)
+        # valor_base/valor_conservador aqui são ANUAIS; cada cenário aplica o proporcional ao prazo (_amount).
+        line.update({"iptu_anual": None, "iptu_anual_base": line["valor_base"], "iptu_anual_conservador": line["valor_conservador"], "valores_anuais": True})
+    lines.append(line)
+    # Manutenção durante a posse: carregamento mensal informado > mediana do condomínio dos comparáveis (estimado) > pendente.
+    monthly = _d(assumptions.get("carregamento_mensal"))
+    monthly_origin = "premissa do imóvel"
+    if monthly is None:
+        fees = [r for r in sale_estimate.get("_condo_fees", [])]
+        if fees:
+            monthly = mk.median(fees)
+            monthly_origin = f"mediana do condomínio de {len(fees)} anúncio(s) comparável(is); IPTU não incluído"
+    return {"linhas": lines, "aquisicao": acquisition, "avaliacao": appraisal, "carregamento_mensal": monthly,
+            "carregamento_origem": monthly_origin if monthly is not None else None, "itbi_aliquota": itbi_rate_pct, "itbi_base_minima": itbi_base_min,
+            "registro_reserva_pct": premises["viabilidade.reserva_registro_pct"]["valor"]}
+
+
+# Custo de aquisição dedutível no ganho de capital de pessoa física (regras da Receita Federal, IN SRF 84/2001): preço, comissão,
+# ITBI, escritura/registro e benfeitorias (reforma com comprovante). Condomínio/IPTU da posse, dívidas em atraso, certidões,
+# desocupação e regularização NÃO reduzem a base (estimativa prudente: mais imposto). Isenções (imóvel único até R$ 440 mil,
+# reinvestimento em 180 dias) e o fator de redução por tempo de posse não são aplicados.
+IR_DEDUCTIBLE = frozenset({"aquisicao", "comissao", "itbi", "registro", "reforma"})
+FORMULA = ("investimento = soma dos itens incluídos; venda líquida = venda − corretagem; base do IR = venda líquida − custo de aquisição "
+           "dedutível; IR = base × alíquota; resultado = venda líquida − IR − investimento; ROI = resultado ÷ investimento; "
+           "margem de segurança = 1 − (venda de equilíbrio ÷ venda)")
+
+
+def _amount(line: dict, conservative: bool, months: int) -> Decimal | None:
+    if line["chave"] == "iptu_posse":
+        year = _iptu_year(line, conservative)
+        return year * Decimal(months) / Decimal("12") if year is not None else None
+    return line["valor_conservador"] if conservative else line.get("valor_base")
+
+
+def _value_kind(line: dict, amount: Decimal | None) -> str:
+    """Natureza do valor usado no cenário, para a tela separar o que é confirmado do que é reserva, teto ou ausente."""
+    if amount is None:
+        return "FORA_DA_SOMA"
+    if line["status"] == INFORMADO:
+        return "CONFIRMADO"
+    if line["status"] == NAO_APLICAVEL:
+        return "NAO_APLICAVEL"
+    if line["status"] == ESTIMADO:
+        return "ESTIMADO"
+    if line.get("limite_responsabilidade") is not None:
+        return "TETO_CAIXA"
+    return "RESERVA_MANUAL" if line.get("reserva_manual") else "RESERVA"
+
+
+def _break_even(investment: Decimal, deductible: Decimal, c: Decimal, t: Decimal) -> Decimal | None:
+    """Venda em que o resultado é zero: V(1−c) − t·max(V(1−c) − D, 0) = investimento."""
+    if c >= ONE:
+        return None
+    if investment <= deductible:            # no equilíbrio não há ganho tributável
+        return investment / (ONE - c)
+    if t >= ONE:
+        return None
+    return (investment - t * deductible) / ((ONE - c) * (ONE - t))
+
+
+def _scenario(name: str, value: Decimal | None, lines: list[dict], *, conservative: bool, months: int, monthly: Decimal | None,
+              acquisition: Decimal | None, appraisal: Decimal | None, sale: SaleAssumptions, rent: Decimal | None, premises: dict,
+              rent_indicative: bool = False) -> dict:
+    """Cenário com composição completa e reprodutível: todos os valores são arredondados ao centavo ANTES de somar, então a
+    tela fecha exatamente (soma dos itens = investimento; venda − corretagem − IR − investimento = resultado)."""
+    value = _q(value)
+    items: list[dict] = []
+    pending: list[str] = []
+    reserves: list[str] = []
+    for line in lines:
+        amount = _q(_amount(line, conservative, months))
+        treatment = line.get("tratamento_conservador" if conservative else "tratamento_base") or ""
+        if amount is None:
+            basis = None
+        elif line["status"] == PENDENTE:
+            basis = treatment or "reserva"
+            reserves.append(f"{line['descricao']}: {treatment}")
+        else:
+            basis = {INFORMADO: "valor confirmado", ESTIMADO: "estimativa", NAO_APLICAVEL: "não aplicável"}.get(line["status"], line["status"])
+        items.append({"chave": line["chave"], "descricao": line["descricao"], "valor": amount, "status": line["status"], "incluido": amount is not None,
+                      "base_valor": basis, "origem": line["origem"], "dedutivel_ir": line["chave"] in IR_DEDUCTIBLE,
+                      "teto_conservador": _q(_amount(line, True, months)) if amount is None else None,
+                      "reserva_manual": bool(line.get("reserva_manual")) and amount is not None,
+                      "tipo_valor": _value_kind(line, amount)})
+        if amount is None and line["status"] == PENDENTE:
+            pending.append(line["descricao"])
+    carrying = _q(monthly * Decimal(months)) if monthly is not None else None
+    items.append({"chave": "manutencao_posse", "descricao": f"Condomínio durante a posse ({months} meses × {_brl(monthly)})" if monthly is not None else "Condomínio durante a posse",
+                  "valor": carrying, "status": ESTIMADO if carrying is not None else PENDENTE, "incluido": carrying is not None,
+                  "base_valor": "estimativa" if carrying is not None else None, "origem": "carregamento mensal", "dedutivel_ir": False,
+                  "teto_conservador": None, "tipo_valor": "ESTIMADO" if carrying is not None else "FORA_DA_SOMA"})
+    if carrying is None:
+        pending.append("Condomínio durante a posse")
+    investment = sum((i["valor"] for i in items if i["incluido"]), ZERO)
+    deductible = sum((i["valor"] for i in items if i["incluido"] and i["dedutivel_ir"]), ZERO)
+    # Efeito, sobre o resultado, dos itens fora da soma que têm teto/reserva conhecidos (não dedutíveis no IR: efeito 1 para 1;
+    # dedutíveis reduzem também o IR). Mostra quanto o resultado pode cair quando a pendência for resolvida no pior caso.
+    left_out = [i for i in items if not i["incluido"] and i["teto_conservador"] is not None]
+    out = {"cenario": name, "valor_venda": value, "prazo_meses": months, "custos_aquisicao_posse": investment - (carrying or ZERO), "carregamento": carrying,
+           "investimento_total": investment, "custos_pendentes_nao_incluidos": pending, "completo": not pending,
+           "premissas": {"tratamento_pendencias": reserves + [f"{p}: sem valor, fora da soma" for p in pending],
+                         "prazo_meses": months, "corretagem_venda": sale.corretagem_pct, "ir_ganho_capital": sale.tributo_pct}}
+    c = sale.corretagem_pct or ZERO
+    t = sale.tributo_pct or ZERO
+    composition = {"itens": items, "investimento_total": investment, "despesas_financeiras": {"valor": ZERO, "observacao": "Compra à vista: financiamento e custo de oportunidade do capital não modelados."},
+                   "formula": FORMULA}
+    if value is None or investment <= ZERO:
+        out.update({"resultado_liquido": None, "roi": None, "margem_seguranca": None, "desconto_sobre_mercado": None, "observacao": "Sem valor de venda estimado.",
+                    "composicao": composition})
+        return out
+    brokerage = _q(value * c)
+    net_sale = value - brokerage
+    tax_base = max(net_sale - deductible, ZERO)
+    tax = _q(tax_base * t)
+    result = net_sale - tax - investment
+    break_even = _break_even(investment, deductible, c, t)
+    composition.update({
+        "venda_bruta": value,
+        "corretagem_venda": {"valor": brokerage, "percentual": c, "origem": premises["venda.corretagem_pct"]["origem"]},
+        "venda_liquida": net_sale, "custo_aquisicao_dedutivel_ir": deductible, "base_ir": tax_base,
+        "ir_ganho_capital": {"valor": tax, "aliquota": t, "origem": premises["venda.tributo_ganho_pct"]["origem"],
+                             "observacao": "Sem isenções nem fator de redução; condomínio, IPTU, dívidas, certidões e desocupação não reduzem a base."},
+        "resultado_liquido": result, "venda_equilibrio": _q(break_even),
+        "conferencia": {"itens_somam_investimento": sum((i["valor"] for i in items if i["incluido"]), ZERO) == investment,
+                        "resultado_reproduz": value - brokerage - tax - investment == result},
+    })
+    composition["itens_dedutiveis_ir"] = [{"descricao": i["descricao"], "valor": i["valor"]} for i in items if i["incluido"] and i["dedutivel_ir"]]
+    composition["itens_nao_dedutiveis_ir"] = [{"descricao": i["descricao"], "valor": i["valor"]} for i in items if i["incluido"] and not i["dedutivel_ir"]]
+    if left_out:
+        extra = sum((i["teto_conservador"] for i in left_out), ZERO)
+        extra_deductible = sum((i["teto_conservador"] for i in left_out if i["dedutivel_ir"]), ZERO)
+        worse_tax = _q(max(net_sale - deductible - extra_deductible, ZERO) * t)
+        line_by_key = {l["chave"]: l for l in lines}
+        out["efeito_pendencias_no_teto"] = {
+            "itens": [f"{i['descricao']}: {_brl(i['teto_conservador'])}" for i in left_out], "valor": extra,
+            # Memória explícita: cada item somado, seu tipo e se reduz a base do IR; IR recalculado; itens sem teto conhecido.
+            "detalhe": [{"chave": i["chave"], "descricao": i["descricao"], "valor": i["teto_conservador"], "dedutivel_ir": i["dedutivel_ir"],
+                         "tipo": "TETO_CAIXA" if line_by_key.get(i["chave"], {}).get("limite_responsabilidade") is not None else "RESERVA",
+                         "origem": line_by_key.get(i["chave"], {}).get("tratamento_conservador")} for i in left_out],
+            "resultado_atual": result, "ir_atual": tax, "ir_se_no_teto": worse_tax, "ir_adicional": worse_tax - tax,
+            "resultado_se_no_teto": net_sale - worse_tax - investment - extra,
+            "conferencia": f"{_brl(result)} − {_brl(extra)} − IR adicional {_brl(worse_tax - tax)} = {_brl(net_sale - worse_tax - investment - extra)}",
+            "sem_teto_conhecido": [i["descricao"] for i in items if not i["incluido"] and i["teto_conservador"] is None],
+        }
+    out.update({
+        "corretagem_venda": brokerage, "tributo_venda": tax, "base_ir": tax_base, "venda_liquida": net_sale, "resultado_liquido": result,
+        "roi": _q(result / investment, "0.0001"),
+        "margem_seguranca": _q(ONE - break_even / value, "0.0001") if break_even is not None else None,
+        "venda_equilibrio": _q(break_even),
+        "desconto_sobre_mercado": _q(ONE - acquisition / value, "0.0001") if acquisition else None,
+        "composicao": composition,
+    })
+    if rent is not None:
+        iptu_line = next((l for l in lines if l["chave"] == "iptu_posse"), None)
+        out["rentabilidade_aluguel"] = _rental(rent, items, monthly, _iptu_year(iptu_line, conservative) if iptu_line else None, premises, rent_indicative)
+    return out
+
+
+def _rental(rent: Decimal, items: list[dict], monthly: Decimal | None, iptu_year: Decimal | None, premises: dict, indicative: bool) -> dict:
+    """Rentabilidade da tese de LOCAÇÃO (não da revenda). Base = investimento de aquisição e preparação, SEM o condomínio/IPTU do
+    período de espera da revenda. Vacância explícita: o proprietário paga condomínio e IPTU nos meses vagos; no mês ocupado,
+    o inquilino paga (contrato usual). Antes do IR sobre aluguel (carnê-leão), que depende da renda do proprietário."""
+    occupancy = premises["aluguel.taxa_ocupacao"]["valor"]
+    admin = premises["aluguel.taxa_administracao"]["valor"]
+    base = sum((i["valor"] for i in items if i["incluido"] and i["chave"] not in ("manutencao_posse", "iptu_posse")), ZERO)
+    vacant_months = Decimal("12") * (ONE - occupancy)
+    gross_year = _q(rent * Decimal("12"))
+    collected = _q(gross_year * occupancy)
+    admin_cost = _q(collected * admin)
+    vacancy_condo = _q((monthly or ZERO) * vacant_months)
+    vacancy_iptu = _q(iptu_year * (ONE - occupancy)) if iptu_year is not None else None
+    net = collected - admin_cost - vacancy_condo - (vacancy_iptu or ZERO)
+    missing = [m for m, ok in (("condomínio mensal", monthly is not None), ("IPTU anual", iptu_year is not None)) if not ok]
+    return {"aluguel_mensal": _q(rent), "aluguel_indicativo": indicative, "investimento_base": base,
+            "receita_bruta_anual": gross_year, "receita_com_vacancia": collected, "taxa_administracao": admin_cost,
+            "condominio_na_vacancia": vacancy_condo, "iptu_na_vacancia": vacancy_iptu, "resultado_anual_antes_ir": net,
+            "bruta_anual": _q(gross_year / base, "0.0001") if base > ZERO else None,
+            "liquida_anual": _q(net / base, "0.0001") if base > ZERO else None,
+            "premissas": (f"ocupação {_pct(occupancy)} ({vacant_months.normalize()} mês(es) vago(s) por ano), administração {_pct(admin)} sobre o recebido, "
+                          "condomínio e IPTU do proprietário só nos meses vagos; antes do IR sobre aluguel; seguro e manutenção não incluídos"),
+            "completa": not missing and not indicative, "pendencias": missing + (["aluguel com base em menos de 3 comparáveis"] if indicative else [])}
+
+
+def _lines_at(lines: list[dict], price: Decimal, costs: dict, commission_pct: Decimal | None) -> list[dict]:
+    """Linhas de custo recalculadas para um preço de aquisição hipotético (custos proporcionais ao preço acompanham)."""
+    out = []
+    for line in lines:
+        line = dict(line)
+        if line["chave"] == "aquisicao":
+            line["valor"] = line["valor_conservador"] = line["valor_base"] = price
+        elif line["chave"] == "comissao" and commission_pct is not None:
+            line["valor"] = line["valor_conservador"] = line["valor_base"] = price * commission_pct
+        elif line["chave"] == "itbi" and costs["itbi_aliquota"] is not None:
+            line["valor"] = line["valor_conservador"] = line["valor_base"] = max(price, costs["itbi_base_minima"] or ZERO) * costs["itbi_aliquota"]
+        elif line["chave"] == "registro" and line["status"] == PENDENTE and line.get("reserva_pct") is not None:
+            line["valor_conservador"] = line["valor_base"] = price * line["reserva_pct"]
+        out.append(line)
+    return out
+
+
+def _solve_max_price(scen: dict, conservative: bool, roi_goal: Decimal, costs: dict, commission_pct: Decimal | None, common: dict, unknown: list[str]) -> dict:
+    """Maior preço de aquisição com ROI ≥ meta, calculado com a MESMA função do cenário (mesma composição, mesmo IR).
+    O ROI cai quando o preço sobe, então a busca binária converge ao centavo; comprando pelo teto, o cenário dá a meta."""
+    value = scen["valor_venda"]
+    base = {"cenario": scen["cenario"], "usa_reservas_conservadoras": conservative}
+    if value is None:
+        return {**base, "preco_maximo": None, "definitivo": False, "provisorio": False, "razao": "SEM_VALOR_DE_VENDA", "pendencias": []}
+    kwargs = {k: v for k, v in common.items() if k not in ("lines", "acquisition")}
+
+    def roi(price: Decimal) -> Decimal | None:
+        s = _scenario(scen["cenario"], value, _lines_at(common["lines"], price, costs, commission_pct), conservative=conservative,
+                      months=scen["prazo_meses"], acquisition=price, **kwargs)
+        return None if s["resultado_liquido"] is None else s["resultado_liquido"] / s["investimento_total"]
+
+    low, high = Decimal("0.01"), value
+    if (roi(low) or Decimal("-1")) < roi_goal:
+        return {**base, "preco_maximo": None, "definitivo": False, "provisorio": False, "razao": "META_INATINGIVEL",
+                "pendencias": ["Meta de retorno inatingível mesmo com preço próximo de zero (custos fixos e de venda altos demais)."]}
+    if (roi(high) or Decimal("-1")) >= roi_goal:
+        low = high
+    while high - low > Decimal("0.005"):
+        mid = (low + high) / 2
+        if roi(mid) >= roi_goal:
+            low = mid
+        else:
+            high = mid
+    price = low.quantize(Decimal("0.01"), rounding="ROUND_FLOOR")
+    definitive = not unknown
+    notes = [] if definitive else ["Preço máximo é ESTIMATIVA PROVISÓRIA: há custos sem valor (" + ", ".join(unknown) + "). O teto real tende a ser MENOR."]
+    return {**base, "preco_maximo": price, "definitivo": definitive, "provisorio": not definitive, "razao": "DEFINITIVO" if definitive else "PROVISORIO",
+            "pendencias": notes, "roi_no_teto": _q(roi(price), "0.0001")}
+
+
+def _fill_base_with_ceiling(line: dict) -> dict:
+    """Linha em que o item fora da soma do base recebe o teto/reserva conservador conhecido (IPTU: valor anual)."""
+    if line["chave"] == "iptu_posse":
+        if line.get("iptu_anual") is None and line.get("iptu_anual_base") is None and line.get("iptu_anual_conservador") is not None:
+            return {**line, "iptu_anual_base": line["iptu_anual_conservador"]}
+        return line
+    if line.get("valor_base") is None and line.get("valor_conservador") is not None:
+        return {**line, "valor_base": line["valor_conservador"]}
+    return line
+
+
+def _without(lines: list[dict], key: str) -> list[dict]:
+    """Linhas com a reserva/teto de ``key`` removida (o item volta a ficar sem valor nos cenários)."""
+    out = []
+    for line in lines:
+        if line["chave"] == key:
+            line = {**line, "valor_base": None, "valor_conservador": None, "reserva_pct": None, "iptu_anual_base": None, "iptu_anual_conservador": None}
+        out.append(line)
+    return out
+
+
+def _reserve_impacts(scen: dict, conservative: bool, roi_goal: Decimal, costs: dict, commission_pct: Decimal | None, common: dict,
+                     max_price: Decimal | None) -> list[dict]:
+    """Quanto cada reserva/teto usado no lugar de um custo PENDENTE pesa no cenário: investimento, resultado, ROI e preço máximo.
+    Calculado com a mesma função do cenário, retirando só aquela reserva (o resto da composição é idêntico)."""
+    if scen["valor_venda"] is None or "composicao" not in scen:
+        return []
+    impacts = []
+    for item in scen["composicao"]["itens"]:
+        if item["status"] != PENDENTE or not item["incluido"]:
+            continue
+        alt_common = {**common, "lines": _without(common["lines"], item["chave"])}
+        kwargs = {k: v for k, v in alt_common.items() if k != "lines"}
+        alt = _scenario(scen["cenario"], scen["valor_venda"], alt_common["lines"], conservative=conservative, months=scen["prazo_meses"], **kwargs)
+        alt_max = _solve_max_price(alt, conservative, roi_goal, costs, commission_pct, alt_common, [])["preco_maximo"]
+        line = next((l for l in common["lines"] if l["chave"] == item["chave"]), {})
+        impacts.append({
+            "chave": item["chave"], "descricao": item["descricao"], "reserva": item["valor"], "base_valor": item["base_valor"],
+            "tipo": "reserva manual" if line.get("reserva_manual") else ("teto Caixa" if line.get("limite_responsabilidade") is not None else "reserva do sistema"),
+            "efeito_investimento": scen["investimento_total"] - alt["investimento_total"],
+            "efeito_resultado": (scen["resultado_liquido"] - alt["resultado_liquido"]) if alt["resultado_liquido"] is not None else None,
+            "efeito_roi": (scen["roi"] - alt["roi"]) if (scen.get("roi") is not None and alt.get("roi") is not None) else None,
+            "efeito_preco_maximo": (max_price - alt_max) if (max_price is not None and alt_max is not None) else None,
+        })
+    return impacts
+
+
+def _risk_snapshot(db, prop) -> dict:
+    """Documentação e risco jurídico a partir do que a análise já registrou (sem nova análise, sem LLM)."""
+    risks = [r for r in prop.risks if str(getattr(r, "status", "ATIVO") or "ATIVO").upper() not in ("INATIVO", "SUPERADO")]
+    severities = sorted({str(r.severity or "").upper() for r in risks if r.severity})
+    from .services import latest_execution
+    execution = latest_execution(prop)
+    doc_pending = []
+    if execution is not None:
+        doc_pending = [r.item.canonical_key for r in execution.results if r.applicable is not False and r.state in ("PENDENTE", "EM_ANALISE")
+                       and r.item is not None and r.item.category in ("DOCUMENTAL", "JURIDICO")]
+    has_registration_doc = any(str(d.document_type or "").upper() == "MATRICULA" for d in prop.documents)
+    onus = None
+    holder = None
+    try:
+        from .registry_chain import registry_for_property
+        chain = registry_for_property(db, prop.id) if db is not None else None
+        if chain is not None and not chain.is_empty():
+            onus = chain.encumbrance_status()[0]
+            holder = chain.holder_status
+    except Exception:
+        chain = None
+    return {"riscos_ativos": len(risks), "severidades": severities, "pendencias_documentais": doc_pending, "matricula_anexada": has_registration_doc,
+            "situacao_onus": onus, "titularidade": holder}
+
+
+def consolidate(dims: dict) -> dict:
+    """Conclusão consolidada. Precedência explícita:
+    1) risco jurídico grave (ALTA/CRITICA) ou ônus existente → DESFAVORAVEL, qualquer que seja o desconto;
+    2) preço acima do teto (dados de mercado com confiança ao menos MÉDIA) ou prejuízo no cenário base → DESFAVORAVEL;
+    3) qualquer informação crítica ausente → INCONCLUSIVO (nunca FAVORÁVEL definitivo);
+    4) demais casos → FAVORAVEL."""
+    legal, market, costs, ret, liq, docs = dims["risco_juridico"], dims["mercado"], dims["custos"], dims["rentabilidade"], dims["liquidez"], dims["documentacao"]
+    blockers: list[str] = []
+    if set(legal.get("severidades") or []) & {"ALTA", "CRITICA"}:
+        return {"resultado": DESFAVORAVEL, "motivos": ["Risco jurídico grave ativo: o desconto não compensa automaticamente."], "bloqueios": [], "ressalvas": []}
+    if legal.get("situacao_onus") == "EXISTENTE":
+        return {"resultado": DESFAVORAVEL, "motivos": ["Ônus ou gravame vigente identificado na matrícula."], "bloqueios": [], "ressalvas": []}
+    market_ok = market.get("confianca") in (mk.CONF_ALTA, mk.CONF_MEDIA)
+    if market_ok and ret.get("preco_acima_do_teto"):
+        return {"resultado": DESFAVORAVEL, "motivos": ["Preço de aquisição acima do preço máximo pela meta de retorno."], "bloqueios": [], "ressalvas": []}
+    if market_ok and ret.get("resultado_base") is not None and ret["resultado_base"] < ZERO:
+        return {"resultado": DESFAVORAVEL, "motivos": ["Prejuízo no cenário base."], "bloqueios": [], "ressalvas": []}
+    if not docs.get("matricula_anexada"):
+        blockers.append("Matrícula não anexada.")
+    if docs.get("pendencias_documentais"):
+        blockers.append(f"{len(docs['pendencias_documentais'])} item(ns) documentais/jurídicos do checklist sem resposta.")
+    if legal.get("situacao_onus") in (None, "INCONCLUSIVO"):
+        blockers.append("Situação de ônus e gravames inconclusiva.")
+    if not market_ok:
+        blockers.append(f"Estimativa de mercado com confiança {market.get('confianca')}.")
+    if costs.get("criticos_pendentes"):
+        blockers.append("Custos críticos pendentes: " + ", ".join(costs["criticos_pendentes"]) + ".")
+    if ret.get("preco_maximo_provisorio"):
+        blockers.append("Preço máximo provisório (custos materiais pendentes).")
+    if ret.get("preco_acima_do_teto") and not market_ok:
+        blockers.append("Preço acima do teto calculado, mas com dados de mercado insuficientes para concluir.")
+    if ret.get("preco_acima_do_teto_conservador") and not ret.get("preco_acima_do_teto"):
+        blockers.append("Preço acima do teto do cenário conservador (abaixo do teto do cenário base).")
+    if ret.get("resultado_base") is None:
+        blockers.append("Resultado da revenda não calculado (sem valor de mercado estimado).")
+    teto_pend, acq = ret.get("preco_maximo_base_com_pendencias_no_teto"), ret.get("aquisicao")
+    if teto_pend is not None and acq is not None and acq > teto_pend:
+        blockers.append(f"Com os itens fora da soma no teto, o preço máximo do cenário base cai para {_brl(teto_pend)}, abaixo do preço de "
+                        f"aquisição ({_brl(acq)}): levantar as dívidas e a ocupação antes de decidir.")
+    if ret.get("cenarios_incompletos"):
+        blockers.append("Cenário(s) " + ", ".join(ret["cenarios_incompletos"]) + " incompleto(s): há custo sem valor fora da soma.")
+    # Ressalvas: não bloqueiam a tese de revenda, mas aparecem na conclusão.
+    caveats: list[str] = []
+    if ret.get("aluguel_indicativo"):
+        caveats.append("Aluguel apenas indicativo (menos de 3 comparáveis de locação): a tese de locação não está validada.")
+    if market.get("somente_anunciados"):
+        caveats.append("Amostra só com preços anunciados (não transacionados): desconto de negociação aplicado por premissa.")
+    if liq.get("classificacao") in (mk.LIQ_BAIXA, mk.LIQ_INDETERMINADA):
+        blockers.append(f"Liquidez {liq.get('classificacao')}.")
+    if blockers:
+        return {"resultado": INCONCLUSIVO, "motivos": ["Informações críticas ausentes impedem conclusão favorável."], "bloqueios": blockers, "ressalvas": caveats}
+    return {"resultado": FAVORAVEL, "motivos": ["Documentação, risco, mercado, custos, rentabilidade e liquidez dentro dos critérios."], "bloqueios": [],
+            "ressalvas": caveats}
+
+
+def market_intelligence(db, prop) -> dict:
+    """Visão consolidada de inteligência de mercado e viabilidade do imóvel (leitura; não grava nada)."""
+    from .services import current_auction
+    auction = current_auction(prop)
+    assumptions = (getattr(auction, "financial_assumptions", None) or {}) if auction else {}
+    premises = resolve_premises(db, assumptions)
+    subject = _subject(prop)
+    comps = [_comparable_dict(c) for c in prop.comparables]
+    discount = premises["mercado.desconto_negociacao"]["valor"]
+    min_sim = premises["mercado.similaridade_minima"]["valor"]
+    sale_est = mk.estimate(subject, comps, "VENDA", negotiation_discount=discount, min_similarity=min_sim)
+    rent_est = mk.estimate(subject, comps, "ALUGUEL", negotiation_discount=discount, min_similarity=min_sim)
+    used_ids = {r["id"] for r in sale_est["comparaveis"] + rent_est["comparaveis"] if r["usado"]}
+    sale_est["_condo_fees"] = [_d(c["condo_fee"]) for c in comps if c["id"] in used_ids and c.get("condo_fee") not in (None, "")]
+    costs = acquisition_costs(prop, auction, premises, assumptions, sale_est)
+    sale_est.pop("_condo_fees", None)
+    acquisition, appraisal = costs["aquisicao"], costs["avaliacao"]
+    liq = mk.liquidity(sale_est, rent_est, subject, acquisition=acquisition)
+
+    sale = SaleAssumptions(corretagem_pct=premises["venda.corretagem_pct"]["valor"], tributo_pct=premises["venda.tributo_ganho_pct"]["valor"], tax_base=TAX_BASE_GANHO)
+    months = int(premises["venda.prazo_meses"]["valor"])
+    area = sale_est["area_referencia"]
+    stats = sale_est["estatisticas_m2"]
+    n = sale_est["quantidade_usada"]
+
+    def at(m2: Decimal | None) -> Decimal | None:
+        return (m2 * area).quantize(Decimal("0.01")) if (m2 is not None and area) else None   # igual à faixa exibida
+
+    low = stats["m2_ajustado_p25"] if n >= 4 else stats["m2_ajustado_min"]
+    high = stats["m2_ajustado_p75"] if n >= 4 else stats["m2_ajustado_max"]
+    rent_value = rent_est["valor_estimado"] if rent_est["valor_estimado"] is not None else (
+        mk.median([r["valor_m2_ajustado"] for r in rent_est["comparaveis"] if r["usado"]]) * area if rent_est["quantidade_usada"] and area else None)
+    common = {"lines": costs["linhas"], "monthly": costs["carregamento_mensal"], "acquisition": acquisition, "appraisal": appraisal, "sale": sale,
+              "rent": rent_value, "premises": premises, "rent_indicative": rent_est["valor_estimado"] is None and rent_value is not None}
+    cons_f, opt_f = premises["cenario.prazo_conservador_fator"]["valor"], premises["cenario.prazo_otimista_fator"]["valor"]
+    scenarios = [
+        _scenario("CONSERVADOR", at(low), conservative=True, months=int((Decimal(months) * cons_f).to_integral_value()), **common),
+        _scenario("BASE", sale_est["valor_estimado"], conservative=False, months=months, **common),
+        _scenario("OTIMISTA", at(high), conservative=False, months=max(1, int((Decimal(months) * opt_f).to_integral_value())), **common),
+    ]
+    base = scenarios[1]
+
+    # Preço máximo: maior aquisição que entrega o ROI mínimo, com ITBI proporcional ao preço e demais custos fixos.
+    goal_value = _d(assumptions.get("goal_value")) if assumptions.get("goal_kind") == GOAL_ROI_MINIMO else None
+    roi_goal = goal_value if goal_value is not None else premises["viabilidade.roi_minimo"]["valor"]
+    roi_origin = "premissa do imóvel (goal_value)" if goal_value is not None else premises["viabilidade.roi_minimo"]["origem"]
+    max_prices = {}
+    pending_keys = [l["descricao"] for l in costs["linhas"] if l["status"] == PENDENTE]
+    commission_pct = (_d(auction.commission_percent) / Decimal("100")) if (auction is not None and auction.commission_fixed is None
+                                                                            and auction.commission_percent is not None) else None
+    for scen in scenarios:
+        conservative = scen["cenario"] == "CONSERVADOR"
+        # Teto provisório quando o cenário tem item sem valor fora da soma (pendência nunca conta como zero).
+        unknown = list(scen["custos_pendentes_nao_incluidos"])
+        max_prices[scen["cenario"]] = _solve_max_price(scen, conservative, roi_goal, costs, commission_pct, common, unknown)
+        if not conservative and scen.get("efeito_pendencias_no_teto"):
+            # Mesmo cenário (venda e prazo), mas com os itens fora da soma no teto/reserva conhecido: mostra quanto o teto provisório cai.
+            filled = [_fill_base_with_ceiling(l) for l in common["lines"]]
+            filled_common = {**common, "lines": filled}
+            kw = {k: v for k, v in filled_common.items() if k != "lines"}
+            alt = _scenario(scen["cenario"], scen["valor_venda"], filled, conservative=False, months=scen["prazo_meses"], **kw)
+            alt_max = _solve_max_price(alt, False, roi_goal, costs, commission_pct, filled_common, alt["custos_pendentes_nao_incluidos"])
+            max_prices[scen["cenario"]]["com_pendencias_no_teto"] = {
+                "preco_maximo": alt_max.get("preco_maximo"), "roi_no_teto": alt_max.get("roi_no_teto"),
+                "itens": [d["descricao"] for d in scen["efeito_pendencias_no_teto"]["detalhe"]],
+                "sem_teto_conhecido": scen["efeito_pendencias_no_teto"]["sem_teto_conhecido"]}
+        scen["impacto_reservas"] = _reserve_impacts(scen, conservative, roi_goal, costs, commission_pct, common, max_prices[scen["cenario"]].get("preco_maximo"))
+    recommended = max_prices.get("CONSERVADOR", {}).get("preco_maximo")
+    base_max = max_prices.get("BASE", {}).get("preco_maximo")
+    critical = [l["descricao"] for l in costs["linhas"] if l["critico"] and l["status"] == PENDENTE]
+    dims = {
+        "documentacao": {}, "risco_juridico": {}, "mercado": {"confianca": sale_est["confianca"], "comparaveis_venda": n, "comparaveis_aluguel": rent_est["quantidade_usada"],
+                     "somente_anunciados": bool(n and sale_est["quantidade_anunciada"] == n)},
+        "custos": {"criticos_pendentes": critical, "pendentes": pending_keys},
+        "rentabilidade": {"roi_base": base.get("roi"), "resultado_base": base.get("resultado_liquido"), "meta_roi": roi_goal,
+                          "preco_maximo_recomendado": recommended, "preco_maximo_base": base_max,
+                          "preco_acima_do_teto": bool(base_max is not None and acquisition is not None and acquisition > base_max),
+                          "preco_acima_do_teto_conservador": bool(recommended is not None and acquisition is not None and acquisition > recommended),
+                          "preco_maximo_provisorio": bool(max_prices.get("CONSERVADOR", {}).get("provisorio") or max_prices.get("BASE", {}).get("provisorio")),
+                          "cenarios_incompletos": [s["cenario"] for s in scenarios if not s["completo"]],
+                          "preco_maximo_base_com_pendencias_no_teto": (max_prices.get("BASE", {}).get("com_pendencias_no_teto") or {}).get("preco_maximo"),
+                          "aquisicao": acquisition,
+                          "aluguel_indicativo": common["rent_indicative"]},
+        "liquidez": {"classificacao": liq["classificacao"], "confianca": liq["confianca"]},
+    }
+    snapshot = _risk_snapshot(db, prop)
+    dims["documentacao"] = {"matricula_anexada": snapshot["matricula_anexada"], "pendencias_documentais": snapshot["pendencias_documentais"]}
+    dims["risco_juridico"] = {"riscos_ativos": snapshot["riscos_ativos"], "severidades": snapshot["severidades"], "situacao_onus": snapshot["situacao_onus"],
+                              "titularidade": snapshot["titularidade"]}
+    conclusion = consolidate(dims)
+    return {
+        "property_id": prop.id, "data_calculo": date.today().isoformat(), "imovel": {**subject, "area": _q(_d(subject["area"]))},
+        "venda": sale_est, "aluguel": rent_est, "liquidez": liq,
+        "valores": {
+            "valor_mercado_estimado": _q(sale_est["valor_estimado"]), "faixa_venda": sale_est["faixa"], "aluguel_estimado": _q(rent_value),
+            "aluguel_indicativo": rent_est["valor_estimado"] is None and rent_value is not None, "faixa_aluguel": rent_est["faixa"],
+            "preco_m2_anunciado_mediana": _q(stats["m2_anunciado_mediana"]), "preco_m2_estimado_mediana": _q(stats["m2_ajustado_mediana"]),
+            "desconto_sobre_avaliacao": _q(ONE - acquisition / appraisal, "0.0001") if acquisition and appraisal else None,
+            "desconto_sobre_mercado": base.get("desconto_sobre_mercado"),
+            "observacao_descontos": "Desconto sobre a avaliação da Caixa ≠ desconto sobre o valor de mercado estimado a partir de comparáveis.",
+        },
+        "custos": costs["linhas"], "carregamento_mensal": {"valor": _q(costs["carregamento_mensal"]), "origem": costs["carregamento_origem"]},
+        "cenarios": scenarios,
+        "preco_maximo": {"recomendado": recommended, "criterio": f"ROI mínimo de {roi_goal * 100:.0f}% no cenário conservador ({roi_origin})",
+                         "por_cenario": max_prices, "provisorio": bool(max_prices.get("CONSERVADOR", {}).get("provisorio"))},
+        "premissas": {k: {**v, "valor": str(v["valor"])} for k, v in premises.items()},
+        "dimensoes": dims, "conclusao": conclusion,
+        "fontes": sorted({(r["fonte"] or "", r["url"] or "", str(r["consultado_em"] or "")) for r in sale_est["comparaveis"] + rent_est["comparaveis"]}),
+        "custo_ia_usd": 0,
+    }

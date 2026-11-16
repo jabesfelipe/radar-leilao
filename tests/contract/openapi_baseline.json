@@ -2,6 +2,7 @@
  "components": {
   "schemas": {
    "AnalyzeRequest": {
+    "description": "Corpo opcional de ``POST /api/imoveis/{id}/analisar`` (``{}`` ou ausente = análise completa).",
     "properties": {
      "domains": {
       "anyOf": [
@@ -9,16 +10,29 @@
         "items": {
          "type": "string"
         },
+        "maxItems": 5,
         "type": "array"
        },
        {
         "type": "null"
        }
       ],
+      "description": "Domínios a analisar. Valores permitidos: documental, juridico, financeiro, mercado, checklist. No máximo 5 itens (duplicatas são ignoradas). Vazio ou ausente = todos. Valor desconhecido ou mais de 5 itens => 422.",
+      "examples": [
+       [
+        "juridico",
+        "mercado"
+       ]
+      ],
       "title": "Domains"
      },
      "query": {
       "default": "",
+      "description": "Foco opcional da análise (consulta ao RAG). No máximo 500 caracteres; acima disso => 422.",
+      "examples": [
+       "riscos de ocupação e dívidas condominiais"
+      ],
+      "maxLength": 500,
       "title": "Query",
       "type": "string"
      }
@@ -1604,6 +1618,35 @@
    },
    "ComparableCreate": {
     "properties": {
+     "address": {
+      "anyOf": [
+       {
+        "maxLength": 240,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Address"
+     },
+     "area_basis": {
+      "anyOf": [
+       {
+        "enum": [
+         "PRIVATIVA",
+         "UTIL",
+         "TOTAL",
+         "DESCONHECIDA"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Area Basis"
+     },
      "area_m2": {
       "anyOf": [
        {
@@ -1616,10 +1659,188 @@
       "default": 0,
       "title": "Area M2"
      },
+     "bedrooms": {
+      "anyOf": [
+       {
+        "maximum": 20.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bedrooms"
+     },
+     "city": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "City"
+     },
+     "collected_at": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Collected At"
+     },
+     "condition": {
+      "anyOf": [
+       {
+        "maxLength": 60,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Condition"
+     },
+     "condo_fee": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Condo Fee"
+     },
+     "distance_km": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Distance Km"
+     },
+     "excluded": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Excluded"
+     },
+     "exclusion_reason": {
+      "anyOf": [
+       {
+        "maxLength": 240,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Exclusion Reason"
+     },
+     "iptu": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Iptu"
+     },
      "kind": {
       "default": "VENDA",
       "title": "Kind",
       "type": "string"
+     },
+     "listing_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Listing Date"
+     },
+     "listing_ref": {
+      "anyOf": [
+       {
+        "maxLength": 160,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Listing Ref"
+     },
+     "neighborhood": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Neighborhood"
+     },
+     "notes": {
+      "anyOf": [
+       {
+        "maxLength": 2000,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notes"
+     },
+     "parking_spots": {
+      "anyOf": [
+       {
+        "maximum": 20.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parking Spots"
      },
      "price": {
       "anyOf": [
@@ -1632,6 +1853,33 @@
       ],
       "default": 0,
       "title": "Price"
+     },
+     "price_type": {
+      "anyOf": [
+       {
+        "enum": [
+         "ANUNCIADO",
+         "TRANSACIONADO"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Price Type"
+     },
+     "property_type": {
+      "anyOf": [
+       {
+        "maxLength": 60,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Property Type"
      },
      "rent": {
       "anyOf": [
@@ -1652,6 +1900,18 @@
       "title": "Source",
       "type": "string"
      },
+     "state": {
+      "anyOf": [
+       {
+        "maxLength": 2,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "State"
+     },
      "url": {
       "default": "",
       "title": "Url",
@@ -1663,6 +1923,35 @@
    },
    "ComparableUpdate": {
     "properties": {
+     "address": {
+      "anyOf": [
+       {
+        "maxLength": 240,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Address"
+     },
+     "area_basis": {
+      "anyOf": [
+       {
+        "enum": [
+         "PRIVATIVA",
+         "UTIL",
+         "TOTAL",
+         "DESCONHECIDA"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Area Basis"
+     },
      "area_m2": {
       "anyOf": [
        {
@@ -1677,6 +1966,123 @@
       ],
       "title": "Area M2"
      },
+     "bedrooms": {
+      "anyOf": [
+       {
+        "maximum": 20.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bedrooms"
+     },
+     "city": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "City"
+     },
+     "collected_at": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Collected At"
+     },
+     "condition": {
+      "anyOf": [
+       {
+        "maxLength": 60,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Condition"
+     },
+     "condo_fee": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Condo Fee"
+     },
+     "distance_km": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Distance Km"
+     },
+     "excluded": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Excluded"
+     },
+     "exclusion_reason": {
+      "anyOf": [
+       {
+        "maxLength": 240,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Exclusion Reason"
+     },
+     "iptu": {
+      "anyOf": [
+       {
+        "minimum": 0.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Iptu"
+     },
      "kind": {
       "anyOf": [
        {
@@ -1687,6 +2093,67 @@
        }
       ],
       "title": "Kind"
+     },
+     "listing_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Listing Date"
+     },
+     "listing_ref": {
+      "anyOf": [
+       {
+        "maxLength": 160,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Listing Ref"
+     },
+     "neighborhood": {
+      "anyOf": [
+       {
+        "maxLength": 120,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Neighborhood"
+     },
+     "notes": {
+      "anyOf": [
+       {
+        "maxLength": 2000,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notes"
+     },
+     "parking_spots": {
+      "anyOf": [
+       {
+        "maximum": 20.0,
+        "minimum": 0.0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Parking Spots"
      },
      "price": {
       "anyOf": [
@@ -1701,6 +2168,33 @@
        }
       ],
       "title": "Price"
+     },
+     "price_type": {
+      "anyOf": [
+       {
+        "enum": [
+         "ANUNCIADO",
+         "TRANSACIONADO"
+        ],
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Price Type"
+     },
+     "property_type": {
+      "anyOf": [
+       {
+        "maxLength": 60,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Property Type"
      },
      "rent": {
       "anyOf": [
@@ -1726,6 +2220,18 @@
        }
       ],
       "title": "Source"
+     },
+     "state": {
+      "anyOf": [
+       {
+        "maxLength": 2,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "State"
      },
      "url": {
       "anyOf": [
@@ -10400,6 +10906,7 @@
   },
   "/api/imoveis/{property_id}/analisar": {
    "post": {
+    "description": "Executa uma nova versão de análise (pode acionar LLM). Corpo opcional; veja ``AnalyzeRequest`` para os limites.",
     "operationId": "analyze_api_imoveis__property_id__analisar_post",
     "parameters": [
      {
@@ -10438,15 +10945,23 @@
       },
       "description": "Successful Response"
      },
+     "401": {
+      "description": "Sem autenticação."
+     },
+     "403": {
+      "description": "Sem a permissão analysis:write."
+     },
+     "404": {
+      "description": "Imóvel não encontrado."
+     },
+     "409": {
+      "description": "Já existe uma análise em andamento para o imóvel."
+     },
      "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
+      "description": "Corpo inválido: domínio desconhecido, mais de 5 domínios ou query com mais de 500 caracteres."
+     },
+     "429": {
+      "description": "Limite de operações críticas (por minuto ou simultâneas) excedido."
      }
     },
     "summary": "Analyze"
@@ -12906,6 +13421,44 @@
      }
     },
     "summary": "History"
+   }
+  },
+  "/api/imoveis/{property_id}/inteligencia-mercado": {
+   "get": {
+    "description": "Inteligência de mercado e viabilidade (v1.0.8): estimativa de venda e aluguel a partir dos comparáveis\nrastreáveis, custos com status e origem, cenários, preço máximo, liquidez e conclusão consolidada.\nLeitura determinística: não grava, não dispara análise e não chama LLM.",
+    "operationId": "get_market_intelligence_api_imoveis__property_id__inteligencia_mercado_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Market Intelligence"
    }
   },
   "/api/imoveis/{property_id}/juridico/central": {

@@ -33,3 +33,14 @@ def get_market(property_id: int, db: Session = Depends(get_db)):
         "property_id": property_id,
         "mercado": calculate_market(comparables, min_sample=min_sample, high_dispersion_cv=high_cv),
     }
+
+
+@router.get("/api/imoveis/{property_id}/inteligencia-mercado")
+def get_market_intelligence(property_id: int, db: Session = Depends(get_db)):
+    """Inteligência de mercado e viabilidade (v1.0.8): estimativa de venda e aluguel a partir dos comparáveis
+    rastreáveis, custos com status e origem, cenários, preço máximo, liquidez e conclusão consolidada.
+    Leitura determinística: não grava, não dispara análise e não chama LLM."""
+    from ..services import serialize
+    from ..viability import market_intelligence
+    prop = property_or_404(db, property_id)
+    return serialize(market_intelligence(db, prop))

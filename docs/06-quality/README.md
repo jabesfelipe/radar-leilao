@@ -5,7 +5,7 @@
 | Nível | Onde | O que cobre |
 |---|---|---|
 | Unidade e integração do backend | `tests/test_*.py` (pytest, PostgreSQL + pgvector) | motores (finance, risk, verdict, workflow, modalidades), API, RAG, worker, storage, auth, Central Jurídica, débitos, pós-arrematação |
-| Contrato da API | `tests/contract/test_openapi_contract.py` e `openapi_baseline.json` | 144 paths; mudança de API exige atualizar o baseline |
+| Contrato da API | `tests/contract/test_openapi_contract.py` e `openapi_baseline.json` | 145 paths; mudança de API exige atualizar o baseline |
 | Política de release | `tests/test_release_workflow_policy.py` | somente `ci.yml` e `release.yml`; scripts 100755 |
 | Isolamento por oportunidade | `tests/test_opportunity_isolation.py`, `tests/test_rag_opportunity_isolation.py` | dados de uma oportunidade não vazam |
 | Fluxos ponta a ponta (API) | `tests/test_e2e_financeiro.py`, `test_e2e_oportunidade.py`, `test_juridico_e2e_http.py`, `test_integration_flows.py` | cenários completos via HTTP |

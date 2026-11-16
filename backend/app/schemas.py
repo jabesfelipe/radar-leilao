@@ -49,6 +49,12 @@ class ScenarioAssumptionInput(BaseModel):
         return v
 
 
+class CaixaConditions(BaseModel):
+    """Condições da venda direta Caixa: limite de responsabilidade do comprador, em fração da avaliação (0.10 = 10%)."""
+    condominio_limite_pct_avaliacao: Decimal | None = Field(default=None, ge=0, le=1)
+    tributos_limite_pct_avaliacao: Decimal | None = Field(default=None, ge=0, le=1)
+
+
 class FinanceAssumptions(BaseModel):
     """Premissas financeiras correntes de um imóvel (Task 3).
 
@@ -64,6 +70,36 @@ class FinanceAssumptions(BaseModel):
     prazo_meses: int | None = None
     carregamento_mensal: Decimal | None = None
     cenarios: list[ScenarioAssumptionInput] = Field(default_factory=list)
+    # v1.0.8 (inteligência de mercado/viabilidade). Todos opcionais; sem valor o custo fica PENDENTE (nada é inventado).
+    itbi_aliquota: Decimal | None = Field(default=None, ge=0, le=1)
+    itbi_base_minima: Decimal | None = Field(default=None, ge=0)
+    itbi_origem: str | None = Field(default=None, max_length=240)
+    registro_estimado: Decimal | None = Field(default=None, ge=0)
+    registro_origem: str | None = Field(default=None, max_length=240)
+    certidoes: Decimal | None = Field(default=None, ge=0)
+    reforma: Decimal | None = Field(default=None, ge=0)
+    regularizacao: Decimal | None = Field(default=None, ge=0)            # valor levantado (vale para todos os cenários)
+    regularizacao_origem: str | None = Field(default=None, max_length=240)
+    regularizacao_reserva_base: Decimal | None = Field(default=None, ge=0)          # reserva manual, cenários base e otimista
+    regularizacao_reserva_conservador: Decimal | None = Field(default=None, ge=0)   # reserva manual, cenário conservador
+    regularizacao_reserva_origem: str | None = Field(default=None, max_length=240)
+    iptu_anual: Decimal | None = Field(default=None, ge=0)               # valor do carnê/certidão (vale para todos os cenários)
+    iptu_anual_origem: str | None = Field(default=None, max_length=240)
+    iptu_anual_reserva_base: Decimal | None = Field(default=None, ge=0)
+    iptu_anual_reserva_conservador: Decimal | None = Field(default=None, ge=0)
+    iptu_reserva_origem: str | None = Field(default=None, max_length=240)
+    condicoes_caixa: CaixaConditions | None = None
+
+    @model_validator(mode="after")
+    def _reservas_com_origem(self):
+        # Reserva manual exige origem declarada; a do conservador não pode ser menor que a do base.
+        for prefix, origin in (("regularizacao_reserva", "regularizacao_reserva_origem"), ("iptu_anual_reserva", "iptu_reserva_origem")):
+            base, cons = getattr(self, f"{prefix}_base"), getattr(self, f"{prefix}_conservador")
+            if (base is not None or cons is not None) and not (getattr(self, origin) or "").strip():
+                raise ValueError(f"{origin} é obrigatório quando {prefix}_base/_conservador é informado")
+            if base is not None and cons is not None and cons < base:
+                raise ValueError(f"{prefix}_conservador não pode ser menor que {prefix}_base")
+        return self
 
     @field_validator("corretagem_pct", "tributo_pct")
     @classmethod
@@ -103,7 +139,28 @@ class CostCreate(BaseModel):
     category: str; description: str; amount: Decimal = 0; recurring: bool = False
 class DebtCreate(BaseModel):
     category: str; creditor: str = ""; amount: Decimal = 0; reference_date: date | None = None; status: str = "PENDENTE"; evidence_id: int | None = None
-class ComparableCreate(BaseModel):
+class _ComparableDetails(BaseModel):
+    """Campos de rastreabilidade do comparável (v1.0.8). Todos opcionais: o cadastro antigo continua válido."""
+    price_type: Literal["ANUNCIADO", "TRANSACIONADO"] | None = None
+    collected_at: date | None = None
+    listing_date: date | None = None
+    address: str | None = Field(default=None, max_length=240)
+    neighborhood: str | None = Field(default=None, max_length=120)
+    city: str | None = Field(default=None, max_length=120)
+    state: str | None = Field(default=None, max_length=2)
+    property_type: str | None = Field(default=None, max_length=60)
+    bedrooms: int | None = Field(default=None, ge=0, le=20)
+    parking_spots: int | None = Field(default=None, ge=0, le=20)
+    condition: str | None = Field(default=None, max_length=60)
+    condo_fee: Decimal | None = Field(default=None, ge=0)
+    iptu: Decimal | None = Field(default=None, ge=0)
+    area_basis: Literal["PRIVATIVA", "UTIL", "TOTAL", "DESCONHECIDA"] | None = None
+    distance_km: Decimal | None = Field(default=None, ge=0)
+    listing_ref: str | None = Field(default=None, max_length=160)
+    notes: str | None = Field(default=None, max_length=2000)
+    excluded: bool | None = None
+    exclusion_reason: str | None = Field(default=None, max_length=240)
+class ComparableCreate(_ComparableDetails):
     kind: str = "VENDA"; price: Decimal = 0; rent: Decimal | None = None; area_m2: Decimal = 0; source: str = "Cadastro manual"; url: str = ""
 class ProcessCreate(BaseModel):
     number: str
@@ -395,7 +452,7 @@ class DebtUpdate(BaseModel):
         return v
 
 
-class ComparableUpdate(BaseModel):
+class ComparableUpdate(_ComparableDetails):
     kind: str | None = None
     price: Decimal | None = None
     rent: Decimal | None = None

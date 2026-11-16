@@ -340,6 +340,26 @@ class MarketComparable(TimestampMixin, Base):
     area_m2: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
     source: Mapped[str] = mapped_column(String(240), default="Cadastro manual")
     url: Mapped[str] = mapped_column(String(500), default="")
+    # v1.0.8 (migration 0026): rastreabilidade e atributos para similaridade. Todos opcionais.
+    price_type: Mapped[str | None] = mapped_column(String(20))          # ANUNCIADO | TRANSACIONADO (nulo = ANUNCIADO)
+    collected_at: Mapped[date | None] = mapped_column(Date)             # data da consulta
+    listing_date: Mapped[date | None] = mapped_column(Date)             # data do anúncio, se conhecida
+    address: Mapped[str | None] = mapped_column(String(240))
+    neighborhood: Mapped[str | None] = mapped_column(String(120))
+    city: Mapped[str | None] = mapped_column(String(120))
+    state: Mapped[str | None] = mapped_column(String(2))
+    property_type: Mapped[str | None] = mapped_column(String(60))
+    bedrooms: Mapped[int | None] = mapped_column(Integer)
+    parking_spots: Mapped[int | None] = mapped_column(Integer)
+    condition: Mapped[str | None] = mapped_column(String(60))
+    condo_fee: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    iptu: Mapped[Decimal | None] = mapped_column(Numeric(14, 2))
+    area_basis: Mapped[str | None] = mapped_column(String(20))          # PRIVATIVA | UTIL | TOTAL | DESCONHECIDA
+    distance_km: Mapped[Decimal | None] = mapped_column(Numeric(8, 2))  # só quando medida
+    listing_ref: Mapped[str | None] = mapped_column(String(160))
+    notes: Mapped[str | None] = mapped_column(Text)
+    excluded: Mapped[bool | None] = mapped_column(Boolean, default=False)
+    exclusion_reason: Mapped[str | None] = mapped_column(String(240))
     property: Mapped[Property] = relationship(back_populates="comparables")
 
 

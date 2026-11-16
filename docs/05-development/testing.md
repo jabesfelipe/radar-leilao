@@ -41,7 +41,7 @@ Estratégia, mapa de testes e números atuais: [../06-quality/README.md](../06-q
 
 ## Testes de política e contrato que protegem a documentação e o deploy
 
-- `tests/contract/test_openapi_contract.py` compara a API com `tests/contract/openapi_baseline.json` (144 paths). Adicionar ou remover endpoint exige atualizar o baseline na mesma entrega.
+- `tests/contract/test_openapi_contract.py` compara a API com `tests/contract/openapi_baseline.json` (145 paths). Adicionar ou remover endpoint exige atualizar o baseline na mesma entrega.
 - `tests/test_release_workflow_policy.py` exige que existam somente `ci.yml` e `release.yml` em `.github/workflows` e que os scripts `.sh` tenham modo 100755.
 
 ## Portão de segurança nos testes
