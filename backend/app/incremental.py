@@ -67,11 +67,14 @@ class IncrementalAnalysisService:
             from .services import persist_registry_findings
             registry = registry_for_property(self.db, prop.id)
             evidence_ids = persist_agent_findings(self.db, prop, analysis, execution, orchestration.get("agent_results", []), registry)
-            evidence_ids += persist_registry_findings(self.db, prop, analysis, registry)
+            evidence_ids += persist_registry_findings(self.db, prop, analysis, registry, execution)
             llm_runs = persist_llm_runs(self.db, prop, analysis, orchestration.get("llm_runs", []))
             analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
             finance = build_finance(prop)
             self.db.add(models.FinancialAnalysis(property_id=prop.id, analysis_version=analysis.version, inputs={"domains": domains, "cause_event_id": event.id, "chunks": orchestration.get("retrieved_chunk_ids", [])}, outputs=serialize(finance)))
+            # Mesmo fluxo da análise completa: itens que os dados cadastrados respondem (sem IA).
+            from .services import resolve_checklist_from_data
+            resolve_checklist_from_data(self.db, prop, execution)
             recalculate_risks(self.db, prop, analysis.version)
             verdict = create_verdict(self.db, prop, analysis, None)
             event.processed = True

@@ -1,9 +1,30 @@
 # MATRIZ CHECKLIST × MODALIDADE
 
-> **Situação (reestruturação documental): ATUALIZAR.** O texto abaixo é um diagnóstico da "Fase Zero" e afirma "nada implementado".
-> Hoje a aplicabilidade do checklist por modalidade **está implementada** em `backend/app/modality_rules.py` (ruleset
-> `modality-v1`, 5 modalidades, LICITACAO em aberto) e exposta em `GET /api/oportunidades/{id}/checklist-aplicavel`.
-> Leia o documento como histórico de planejamento; o estado real está em [modules/opportunities-workflow.md](../modules/opportunities-workflow.md).
+> **Situação:** a aplicabilidade do checklist por modalidade **está implementada** em `backend/app/modality_rules.py`
+> (ruleset `modality-v2`, 5 modalidades, LICITACAO em aberto), aplicada a cada execução do checklist e exposta em
+> `GET /api/oportunidades/{id}/checklist-aplicavel`. A regra **implementada** para a venda direta está na seção abaixo; a
+> partir de "Fase Zero / diagnóstico" o texto é o histórico de planejamento (proposta de curadoria).
+
+## Regra implementada para VENDA_DIRETA (modality-v2)
+
+Decidida pela **finalidade** do item, não pelo rito: etapa de leilão que não existe → não aplicável; validade da execução
+fiduciária que originou o título do vendedor → condicional (continua PENDENTE e reduz a confiança); situação registral,
+condições da venda, ocupação, mercado e financeiro → aplicável. Cada item guarda a justificativa e a regra
+`modality-v2:VENDA_DIRETA:<chave>`. As demais modalidades não mudaram; INDEFINIDO mantém tudo aplicável.
+
+| # | canonical_key | Aplicabilidade | Motivo |
+|---|---|---|---|
+| 1–5 | INTIMACAO_PESSOAL, INTIMACAO_EDITAL, NOTIFICACAO_DOIS_LEILOES, QUITACAO_80, GARANTIA_DIVIDA_TERCEIRO | Condicional | Validade da execução de origem; o ex-devedor ainda pode questioná-la. |
+| 6 | LANCE_MENOR_50_AVALIACAO | Não aplicável | Não há segundo leilão nem lance; o preço é comparado ao mercado no financeiro. |
+| 7 | ACAO_QUESTIONAMENTO | Aplicável | Ação contra a execução ou o vendedor. |
+| 8 | LEILOES_NEGATIVOS_AVERBADOS | Condicional | Situação registral quando o título vem de consolidação. |
+| 9 | CONSOLIDACAO_REGISTRADA | Aplicável | Situação registral: comprova que o vendedor é o proprietário. Respondido pela cadeia registral da matrícula. |
+| 10 | PENHORA_INDISPONIBILIDADE | Aplicável | Ônus atual na matrícula; a ausência no texto lido não responde o item. |
+| 11–12 | TERCEIRO_OCUPANTE, LOCACAO_REGISTRADA | Aplicável | Ocupação. |
+| 13 | EDITAL_LIDO | Não aplicável | Sem edital; volta a ser aplicável se um documento do tipo EDITAL for anexado. |
+| 14 | EVICCAO | Aplicável | Vem das condições da venda. |
+| 15 | RESPONSABILIDADE_DEBITOS | Aplicável | Condições oficiais da venda, mesmo sem edital; com as condições informadas nas premissas fica INCONCLUSIVO até o documento ser anexado. |
+| 16–27 | demais itens | Aplicável | Mercado, financeiro, documentação e preferências do investidor. |
 
 > **Fase Zero / diagnóstico.** Planejamento. Nada implementado. Mapeia os **27 `canonical_key`
 > existentes** (preservados, imutáveis) contra as modalidades-alvo e propõe a estrutura de um

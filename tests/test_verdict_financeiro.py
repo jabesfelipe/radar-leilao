@@ -2,7 +2,13 @@
 
 O veredito passa a considerar o motor financeiro DETERMINÍSTICO (preço máximo, lance, resultado,
 margem, ROI). Nenhum LLM decide o resultado financeiro. Caso de referência: caso-01 sintético
-(e2e/fixtures/caso-01): lance R$ 240.000, preço máximo R$ 136.266, prejuízo R$ 26.550, margem -7,9%.
+(e2e/fixtures/caso-01).
+
+Duas referências, ambas no gabarito:
+- regra ATUAL (consistência financeira v2, o que a API e o veredito usam): preço máximo R$ 130.804 (provisório),
+  prejuízo R$ 30.457,50, custo total R$ 342.050 — testes ``test_api_caso01_*``;
+- regra ANTERIOR do motor legado puro ``calculate_financial`` (preço máximo R$ 136.266, prejuízo R$ 26.550), que segue
+  existindo para os campos legados e alimenta os testes da LÓGICA do veredito abaixo (``fin()``).
 """
 from __future__ import annotations
 
@@ -52,9 +58,11 @@ def decisao(result):
 
 # ---------------------------------------------------------------- caso de referência
 
-def test_caso01_motor_financeiro_bate_com_o_gabarito_escrito_antes():
-    gabarito = json.loads((FIXTURES / "gabarito.json").read_text(encoding="utf-8"))["resposta_esperada"]
+def test_caso01_motor_legado_bate_com_a_referencia_anterior_do_gabarito():
+    gabarito = json.loads((FIXTURES / "gabarito.json").read_text(encoding="utf-8"))["resposta_esperada"]["referencia_regra_anterior"]
     f = fin()
+    gabarito = {"preco_maximo_referencia_brl": gabarito["preco_maximo_brl"], "resultado_no_lance_minimo_brl": gabarito["resultado_no_lance_minimo_brl"],
+                "custo_total_no_lance_minimo_brl": gabarito["custo_total_no_lance_minimo_brl"]}
     assert round(f["preco_maximo"]) == gabarito["preco_maximo_referencia_brl"]
     assert round(f["resultado_liquido"]) == gabarito["resultado_no_lance_minimo_brl"]
     assert round(f["custo_total"]) == gabarito["custo_total_no_lance_minimo_brl"]
@@ -224,7 +232,16 @@ def test_api_caso01_sem_ia_recomenda_nao_arrematar(client):
     assert corpo["status"] == "falha" and corpo["status_detalhe"]["codigo"] == "IA_INDISPONIVEL"   # IA ausente informada
     assert corpo["veredito"] == "DESFAVORAVEL"                                                        # decisão é financeira
     rec = corpo["financeiro"]["decisao"]["recomendacao"]
-    assert rec["codigo"] == "NAO_ARREMATAR" and round(rec["lance_maximo"]) == 136266
+    # Consistência financeira (v2): o veredito usa a composição e o IR da inteligência de mercado. Em relação à referência
+    # anterior (R$ 136.266): entra a reserva de certidões (R$ 600), a corretagem passa a reduzir a base do IR e só os custos
+    # de aquisição (lance, comissão, ITBI, registro, reforma) são dedutíveis; dívidas, desocupação e condomínio da posse não.
+    gabarito = json.loads((FIXTURES / "gabarito.json").read_text(encoding="utf-8"))["resposta_esperada"]
+    assert rec["codigo"] == "NAO_ARREMATAR" and round(rec["lance_maximo"]) == gabarito["preco_maximo_referencia_brl"] == 130804
+    fin = corpo["financeiro"]
+    assert round(fin["resultado_liquido"]) == gabarito["resultado_no_lance_minimo_brl"]
+    assert round(fin["custo_total"]) == gabarito["custo_total_no_lance_minimo_brl"]
+    assert fin["preco_maximo_definitivo"] is gabarito["preco_maximo_definitivo_esperado"]
+    assert set(gabarito["custos_pendentes_esperados"]) <= set(fin["preco_maximo_detalhe"]["custos_desconhecidos"])
     # Avisos "LLM não configurada" não viram evidência. v1.0.7: sem IA, só a leitura determinística da cadeia
     # registral da matrícula (que não depende de IA) gera evidências.
     evs = session.query(models.Evidence).filter(models.Evidence.property_id == pid).all()
@@ -240,15 +257,27 @@ def test_api_caso01_sem_ia_recomenda_nao_arrematar(client):
     assert detalhe["veredito"]["overall"] == "DESFAVORAVEL" and detalhe["veredito"]["summary"].startswith("NÃO ARREMATAR")
 
 
-def test_api_lance_viavel_sem_ia_fica_inconclusivo_e_nao_desfavoravel(client):
+def test_api_lance_viavel_sem_ia_nao_e_desfavoravel_e_penhora_da_matricula_vira_impedimento(client):
+    """Lance viável sem IA não vira DESFAVORÁVEL. v2: a matrícula do caso 01 tem penhora (AV.3) e indisponibilidade
+    (AV.4); a leitura determinística da cadeia registral (sem IA) marca o item como RISCO_IDENTIFICADO, o que gera
+    risco ALTA e leva o veredito a ATENÇÃO (antes ficava INCONCLUSIVO só porque ninguém lia a matrícula sem IA)."""
     c, _ = client
     pid = _cadastrar_caso01(c, lance=120000)
     corpo = c.post(f"/api/imoveis/{pid}/analisar", json={}).json()
-    assert corpo["veredito"] == "INCONCLUSIVO"
+    assert corpo["veredito"] == "ATENCAO"
     decisao_api = corpo["financeiro"]["decisao"]
-    assert decisao_api["avaliacao_financeira"]["status"] == "VIAVEL"
-    assert decisao_api["recomendacao"]["codigo"] == "COMPLETAR_ANALISE"
+    # v2 (consistência financeira): com regularização e IPTU da posse sem valor o cálculo é provisório, então o
+    # financeiro não pode ser declarado VIÁVEL (antes esses custos contavam como zero silencioso).
+    assert decisao_api["avaliacao_financeira"]["status"] == "INDETERMINADO"
+    assert any(f.startswith("Cálculo provisório") for f in decisao_api["avaliacao_financeira"]["faltantes"])
+    assert decisao_api["recomendacao"]["codigo"] == "ARREMATAR_SOMENTE_APOS_RESOLVER_RISCOS"
     assert any(f["tipo"] == "ANALISE_AUTOMATICA_INDISPONIVEL" for f in decisao_api["fundamentos"])
+    impedimentos = decisao_api["fatores"]["grupos"]["impedimentos"]
+    penhora = [f for f in impedimentos if f.get("chave") == "PENHORA_INDISPONIBILIDADE"]
+    assert len(penhora) == 1 and penhora[0]["gravidade"] == "ALTA"          # risco e item do checklist: um fator só
+    assert "penhora" in penhora[0]["justificativa"].lower() and penhora[0]["acao"]
+    itens = {i["canonical_key"]: i for i in c.get(f"/api/imoveis/{pid}").json()["checklist"]}
+    assert itens["PENHORA_INDISPONIBILIDADE"]["state"] == "RISCO_IDENTIFICADO"
 
 
 def test_visao_de_evidencias_traz_trecho_literal_e_mascara_dados_pessoais(client):

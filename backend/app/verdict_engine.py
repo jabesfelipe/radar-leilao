@@ -169,6 +169,85 @@ def assess_financial(financial: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+# Grupos de fatores do veredito (v2). Não mudam a decisão: explicam o que a impede e como resolver cada pendência.
+FATOR_IMPEDIMENTO = "impedimentos"
+FATOR_INFORMACAO = "informacoes_essenciais"
+FATOR_PREMISSA = "premissas_nao_configuradas"
+FATOR_RISCO_CONFIANCA = "riscos_confianca"
+FATOR_NAO_APLICAVEL = "nao_aplicaveis"
+FATORES_ORDEM = (FATOR_IMPEDIMENTO, FATOR_INFORMACAO, FATOR_PREMISSA, FATOR_RISCO_CONFIANCA, FATOR_NAO_APLICAVEL)
+FATORES_TITULO = {
+    FATOR_IMPEDIMENTO: "Impedimentos jurídicos ou documentais",
+    FATOR_INFORMACAO: "Informações essenciais ainda desconhecidas",
+    FATOR_PREMISSA: "Premissas financeiras não configuradas",
+    FATOR_RISCO_CONFIANCA: "Riscos que reduzem a confiança",
+    FATOR_NAO_APLICAVEL: "Não aplicáveis à modalidade",
+}
+_ACAO_PREMISSA = "Informar em Financeiro > Premissas e salvar para recalcular."
+_PREMISSA_TERMOS = ("valor de venda", "meta", "corretagem", "tributo", "prazo")
+
+
+def _is_premise_text(text: str) -> bool:
+    lowered = text.lower()
+    if lowered.startswith(("custo", "cálculo provisório", "preço máximo é")):   # custos desconhecidos, não premissa
+        return False
+    return any(word in lowered for word in _PREMISSA_TERMOS)
+
+
+def consolidate_factors(current_risks: list[Any], checklist_results: Iterable[Any], assessment: dict[str, Any], financial_pending: list[str]) -> dict[str, Any]:
+    """Separa, sem perder nenhuma pendência, o que impede a recomendação, o que falta saber, o que falta configurar,
+    o que só reduz a confiança e o que não se aplica. Cada fator traz a justificativa e a ação que o resolve."""
+    from . import modality_rules
+    groups: dict[str, list[dict[str, Any]]] = {key: [] for key in FATORES_ORDEM}
+    # Risco gerado de um item do checklist (RiskEngine: risk_key "CHECKLIST_<chave>_<estado>") aparece uma vez só:
+    # o fator do risco recebe a justificativa e a ação do item.
+    risk_by_item: dict[str, dict[str, Any]] = {}
+    for risk in current_risks:
+        severity = _normalize(_value(risk, "severity"))
+        target = FATOR_IMPEDIMENTO if severity in {"CRITICA", "ALTA"} else FATOR_RISCO_CONFIANCA
+        entry = {"origem": "RISCO", "descricao": str(_value(risk, "description") or "Risco ativo"), "gravidade": severity or None,
+                 "acao": "Resolver ou precificar o risco antes de decidir; validar com advogado." if target == FATOR_IMPEDIMENTO else "Avaliar e precificar o risco."}
+        groups[target].append(entry)
+        # RiskCandidate tem risk_key; o models.Risk persistido guarda em origin ("RiskEngine:ChecklistResult:<risk_key>").
+        risk_key = str(_value(risk, "risk_key") or str(_value(risk, "origin") or "").rsplit(":", 1)[-1])
+        if risk_key.startswith("CHECKLIST_"):
+            for state_suffix in ("_RISCO_IDENTIFICADO", "_ATENCAO"):
+                if risk_key.endswith(state_suffix):
+                    risk_by_item[risk_key[len("CHECKLIST_"):-len(state_suffix)]] = entry
+    for result in checklist_results:
+        item = _value(result, "item")
+        if item is None:
+            continue
+        key = _value(item, "canonical_key")
+        purpose = modality_rules.ITEM_PURPOSE.get(key, {"grupo": modality_rules.GRUPO_DOCUMENTACAO, "acao": ""})
+        state = _normalize(_value(result, "state"))
+        entry = {"origem": "CHECKLIST", "chave": key, "descricao": _value(item, "question"), "estado": state, "grupo_item": purpose["grupo"],
+                 "justificativa": (_value(result, "interpretation") or _value(result, "answer") or "").strip() or None, "acao": purpose["acao"]}
+        if state in {"RISCO_IDENTIFICADO", "ATENCAO"} and key in risk_by_item:
+            linked = risk_by_item[key]
+            linked.update({"chave": key, "estado": state, "grupo_item": purpose["grupo"], "descricao": entry["descricao"],
+                           "justificativa": " ".join(t for t in ((_value(result, "answer") or "").strip(), (_value(result, "interpretation") or "").strip()) if t) or None,
+                           "acao": purpose["acao"] or linked["acao"]})
+            continue
+        if not _value(result, "applicable", True) or state == "NAO_APLICAVEL":
+            groups[FATOR_NAO_APLICAVEL].append({**entry, "justificativa": (_value(result, "answer") or "").strip() or entry["justificativa"], "acao": None})
+        elif state == "RISCO_IDENTIFICADO" and purpose["grupo"] in (modality_rules.GRUPO_SITUACAO_REGISTRAL, modality_rules.GRUPO_DOCUMENTACAO):
+            groups[FATOR_IMPEDIMENTO].append(entry)
+        elif state in {"PENDENTE", "EM_ANALISE"}:
+            if purpose["grupo"] == modality_rules.GRUPO_FINANCEIRO_PREMISSAS:
+                groups[FATOR_PREMISSA].append(entry)
+            elif purpose["grupo"] in (modality_rules.GRUPO_PROCEDIMENTO_ORIGEM, modality_rules.GRUPO_PREFERENCIA):
+                groups[FATOR_RISCO_CONFIANCA].append(entry)
+            else:
+                groups[FATOR_INFORMACAO].append(entry)
+    for text in _unique(list(assessment.get("faltantes") or []) + list(financial_pending)):
+        # Premissa do investidor (venda, meta, corretagem, tributo, prazo) x dado desconhecido (custos, débitos, lance).
+        premissa = _is_premise_text(text)
+        groups[FATOR_PREMISSA if premissa else FATOR_INFORMACAO].append(
+            {"origem": "FINANCEIRO", "descricao": text, "acao": _ACAO_PREMISSA if premissa else "Cadastrar o dado em Financeiro (custos, dívidas ou lance)."})
+    return {"grupos": groups, "titulos": FATORES_TITULO, "contagem": {key: len(groups[key]) for key in FATORES_ORDEM}}
+
+
 class VerdictEngine:
     """Motor puro que decide o estado a partir de resultados já persistidos (determinístico)."""
 
@@ -183,6 +262,7 @@ class VerdictEngine:
         financial: dict[str, Any] | None = None,
         automated_analysis_available: bool | None = None,
     ) -> VerdictDecision:
+        checklist_results = list(checklist_results)   # percorrido duas vezes (pendências e fatores)
         current_risks = [risk for risk in risks if _normalize(_value(risk, "status", "ATIVO")) not in {"INATIVO", "SUPERADO"}]
         risk_ids = _unique(_value(risk, "id") for risk in current_risks if _value(risk, "id") is not None)
         risk_evidence_ids = [
@@ -272,6 +352,7 @@ class VerdictEngine:
             "recomendacao": recomendacao,
             "avaliacao_financeira": assessment,
             "fundamentos": fundamentos,
+            "fatores": consolidate_factors(current_risks, checklist_results, assessment, financial_pending),
             "analise_automatica_disponivel": automated_analysis_available,
         }
 

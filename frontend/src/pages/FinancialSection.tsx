@@ -6,6 +6,8 @@ import {
   saveFinanceAssumptions, updateCost, updateDebt,
   type Cost, type Debt, type FinanceAssumptions, type FinanceResult,
 } from '../services/finance'
+import { CostComposition } from './CostComposition'
+import { PremisesSuggestions, type SuggestibleField } from './PremisesSuggestions'
 
 type FinancialSectionProps = {
   propertyId: number
@@ -100,6 +102,8 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
   // Premissas financeiras e resultado (Task 3).
   const [result, setResult] = useState<FinanceResult | null>(null)
   const [assumptions, setAssumptions] = useState<AssumptionsForm>(initialAssumptions)
+  // Premissas gravadas além dos campos deste formulário (ITBI, condições Caixa, reservas — v1.0.8): preservadas ao salvar.
+  const [storedAssumptions, setStoredAssumptions] = useState<FinanceAssumptions>({})
   const [savingAssumptions, setSavingAssumptions] = useState(false)
   const [assumptionsError, setAssumptionsError] = useState('')
   const [assumptionsFeedback, setAssumptionsFeedback] = useState('')
@@ -112,7 +116,10 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
       setCosts(loadedCosts)
       setDebts(loadedDebts)
       setResult(finance.financeiro)
-      if (finance.premissas) setAssumptions(mergeAssumptions(finance.premissas))
+      if (finance.premissas) {
+        setAssumptions(mergeAssumptions(finance.premissas))
+        setStoredAssumptions(finance.premissas)
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar os dados financeiros.')
     } finally {
@@ -130,7 +137,9 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
       const goalValue = assumptions.goal_kind === 'LUCRO_MINIMO'
         ? numOrNull(assumptions.goal_value)
         : pctOrNull(assumptions.goal_value)
+      // O PUT grava o objeto inteiro: parte das premissas já salvas e sobrepõe só os campos deste formulário.
       const payload: FinanceAssumptions = {
+        ...storedAssumptions,
         goal_kind: assumptions.goal_kind || null,
         goal_value: assumptions.goal_kind ? goalValue : null,
         corretagem_pct: pctOrNull(assumptions.corretagem_pct),
@@ -142,6 +151,7 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
       }
       const finance = await saveFinanceAssumptions(propertyId, payload)
       setResult(finance.financeiro)
+      if (finance.premissas) setStoredAssumptions(finance.premissas)
       setAssumptionsFeedback('Premissas financeiras salvas. O resultado foi recalculado.')
     } catch (cause) {
       setAssumptionsError(cause instanceof Error ? cause.message : 'Não foi possível salvar as premissas.')
@@ -329,6 +339,22 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
             </Select>
             <Input label="Prazo da operação (meses)" type="number" step="1" value={assumptions.prazo_meses} onChange={(e) => setAssumptions((a) => ({ ...a, prazo_meses: e.target.value }))} />
             <Input label="Carregamento mensal (R$/mês)" type="number" step="0.01" value={assumptions.carregamento_mensal} onChange={(e) => setAssumptions((a) => ({ ...a, carregamento_mensal: e.target.value }))} />
+            <PremisesSuggestions
+              propertyId={propertyId}
+              current={{ valor_venda_estimado: assumptions.valor_venda_estimado, corretagem_pct: assumptions.corretagem_pct, tributo_pct: assumptions.tributo_pct,
+                prazo_meses: assumptions.prazo_meses, carregamento_mensal: assumptions.carregamento_mensal }}
+              onApply={(field: SuggestibleField, value: string) => {
+                setAssumptionsFeedback('')
+                // Sugestão de IR vale para a base "ganho" (cálculo do motor de viabilidade).
+                setAssumptions((a) => ({ ...a, [field]: value, ...(field === 'tributo_pct' ? { tax_base: 'GANHO' as const } : {}) }))
+              }}
+            />
+            {(!assumptions.valor_venda_estimado || !assumptions.goal_kind) && (
+              <Alert tone="info" title="Premissas essenciais pendentes">
+                {!assumptions.valor_venda_estimado && 'Sem valor de venda estimado o resultado líquido não é calculado. '}
+                {!assumptions.goal_kind && 'Sem meta financeira o preço máximo não é calculado e o veredito fica inconclusivo.'}
+              </Alert>
+            )}
             <div className="dossier-form-actions">
               {assumptionsError && <Alert tone="danger">{assumptionsError}</Alert>}
               {assumptionsFeedback && <Alert tone="success">{assumptionsFeedback}</Alert>}
@@ -356,13 +382,18 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
             {result.break_even != null && (
               <p className="finance-hint">Break-even: preço mínimo de saída para recuperar o investimento considerando os custos de venda parametrizados.</p>
             )}
+            {Array.isArray(result.composicao_custos) && result.composicao_custos.length > 0 && <CostComposition items={result.composicao_custos} />}
             {result.resultado_provisorio && (
               <Alert tone="warning" title="Resultado provisório">Há custos materiais ainda desconhecidos. Este resultado é uma simulação parcial, não um valor validado.</Alert>
             )}
             {result.preco_maximo != null && result.preco_maximo_provisorio && (
               <Alert tone="warning" title="Preço máximo provisório">
-                Este preço máximo é uma estimativa provisória: há custos materiais desconhecidos
-                {result.preco_maximo_detalhe?.custos_desconhecidos?.length ? ` (${result.preco_maximo_detalhe.custos_desconhecidos.join(', ')})` : ''}.
+                Este preço máximo é uma estimativa provisória: há custos ou premissas não confirmados
+                {(() => {
+                  const d = result.preco_maximo_detalhe
+                  const list = d?.custos_desconhecidos_descricao?.length ? d.custos_desconhecidos_descricao : d?.custos_desconhecidos
+                  return list?.length ? ` (${list.join(', ')})` : ''
+                })()}.
                 O teto real tende a ser menor. Informe essas premissas para um limite confiável.
               </Alert>
             )}

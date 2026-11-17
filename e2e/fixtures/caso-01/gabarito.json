@@ -6,12 +6,22 @@
     "decisao": "NAO pelo lance mínimo; só abaixo do preço máximo",
     "veredito_aceitavel": ["DESFAVORAVEL", "ATENCAO", "INCONCLUSIVO"],
     "veredito_falha_critica": "FAVORAVEL",
-    "preco_maximo_referencia_brl": 136266,
+    "preco_maximo_referencia_brl": 130804,
     "preco_maximo_tolerancia_pct": 2,
-    "resultado_no_lance_minimo_brl": -26550,
-    "custo_total_no_lance_minimo_brl": 341450,
+    "preco_maximo_definitivo_esperado": false,
+    "custos_pendentes_esperados": ["certidoes", "regularizacao", "iptu_posse"],
+    "resultado_no_lance_minimo_brl": -30458,
+    "custo_total_no_lance_minimo_brl": 342050,
     "margem_minima": 0.20,
-    "observacao_preco_maximo": "Calculado à mão com os insumos de insumos.json e a fórmula documentada em insumos.json (mesma do finance.py), ANTES de rodar o Radar. Corrigido uma vez antes da 1ª execução: a 1ª versão (R$ 150.900) contava a desocupação em dobro e ignorava o tributo sobre o ganho."
+    "observacao_preco_maximo": "Regra financeira atual (consistência financeira v2): a mesma composição de custos e o mesmo IR da inteligência de mercado (conta em insumos.json > conta_de_referencia). Preço máximo PROVISÓRIO: certidões entram pela reserva do sistema (R$ 600) e regularização e IPTU da posse estão sem valor (fora da soma, nunca zero).",
+    "referencia_regra_anterior": {
+      "preco_maximo_brl": 136266,
+      "resultado_no_lance_minimo_brl": -26550,
+      "custo_total_no_lance_minimo_brl": 341450,
+      "motor": "finance.calculate_financial (motor legado, mantido para os campos legados e testado em tests/test_verdict_financeiro.py)",
+      "historico": "Calculado à mão ANTES da 1ª execução (v1.0.2) com IR sobre (venda − custo total) e sem certidões. Corrigido uma vez antes da 1ª execução: a 1ª versão (R$ 150.900) contava a desocupação em dobro e ignorava o tributo sobre o ganho.",
+      "motivo_da_mudanca": "Na regra atual a corretagem reduz a base do IR e só lance, comissão, ITBI, registro e reforma são dedutíveis (dívidas, desocupação e condomínio da posse não): IR R$ 4.275 maior; a reserva de certidões soma R$ 600. Resultado no teto 4.875 menor, teto 4.875 / 0,8925 = R$ 5.462 menor."
+    }
   },
   "fatos": [
     {"id": "F1", "tema": "documental", "peso": 2, "fato": "Propriedade consolidada em nome do credor fiduciário (AV.5); leilão extrajudicial da Lei 9.514/1997", "termos": ["consolid", "fiduci"]},

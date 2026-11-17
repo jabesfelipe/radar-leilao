@@ -7,8 +7,10 @@ Estruturar a verificação do método (checklist), transformar achados em riscos
 
 ## Funcionalidades
 - **Checklist mestre** de 27 itens, editável (criar, alterar, ativar, desativar, histórico) e executado por imóvel, com resultados versionados por execução. Ver [evaluation-criteria.md](../../01-business/evaluation-criteria.md#1-checklist-mestre).
+- **Aplicabilidade por modalidade** (`modality_rules.py`, ruleset `modality-v2`): decidida pela finalidade de cada item; cada resultado guarda status, justificativa e a regra `modality-v2:<MODALIDADE>:<chave>`. Item condicional continua PENDENTE (nunca vira resposta). Tabela da venda direta em [MATRIZ-CHECKLIST-MODALIDADE](../specs/MATRIZ-CHECKLIST-MODALIDADE.md#regra-implementada-para-venda_direta-modality-v2).
+- **Itens respondidos pela cadeia registral** (sem IA, com os trechos da matrícula vinculados): CONSOLIDACAO_REGISTRADA (alienação + consolidação → CONFIRMADO; só alienação → INCONCLUSIVO) e PENHORA_INDISPONIBILIDADE (penhora/indisponibilidade encontrada → RISCO_IDENTIFICADO; ausência no texto lido não responde o item). RESPONSABILIDADE_DEBITOS fica INCONCLUSIVO com as condições da venda informadas nas premissas, até o documento ser anexado.
 - **Riscos** (`risk_engine.py`): RISCO_IDENTIFICADO gera ALTA, ATENCAO gera MEDIA, apenas com evidência.
-- **Veredito** (`verdict_engine.py`): DESFAVORAVEL, ATENCAO, INCONCLUSIVO ou FAVORAVEL.
+- **Veredito** (`verdict_engine.py`): DESFAVORAVEL, ATENCAO, INCONCLUSIVO ou FAVORAVEL. Os fatores (`decisao.fatores`) separam impedimentos, informações essenciais desconhecidas, premissas não configuradas, riscos que reduzem a confiança e não aplicáveis, com justificativa e ação; um risco gerado de item do checklist aparece uma vez só. O financeiro do veredito usa a composição única ([financial-debts.md](financial-debts.md)).
 - **Análises versionadas**: `POST /api/imoveis/{id}/analisar` executa o grafo LOAD_CONTEXT, RETRIEVE_RAG, RUN_AGENTS, CONSOLIDATE (LangGraph); agentes documental, jurídico, financeiro, mercado e checklist.
 - Comparação entre análises, reconciliação e impacto (`analysis_comparison.py`, `reconciliation.py`, `impact.py`), memória de conhecimento (`knowledge_memory.py`).
 - Registro de cada chamada de LLM em `llm_runs` (45 no imóvel de referência).
@@ -24,7 +26,7 @@ Checklist: PENDENTE, EM_ANALISE, CONFIRMADO, RISCO_IDENTIFICADO, ATENCAO, NAO_ID
 
 ## Divergências
 - Chave `COMPARAVEIS_SUFFICIENTES` com erro de grafia (preservada por ser chave canônica).
-- `MATRIZ-CHECKLIST-MODALIDADE` afirma "nada implementado", mas a aplicabilidade existe em `modality_rules.py`.
+- Vereditos anteriores à v2 não têm `fatores`; a tela mostra os fundamentos.
 
 ## Código
 `checklist.py`, `risk_engine.py`, `verdict_engine.py`, `ai/` (agentes e grafo), `services.py`, `evidence.py`, `incremental.py`.
