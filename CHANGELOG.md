@@ -2,7 +2,7 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
-## Não publicado
+## v1.0.11 — 2026-11-18
 
 Checklist por evidências (regra `evidencias-v1`). Sem migration; estados gravados e aplicabilidade por modalidade
 (`modality-v2`) sem mudança; análises anteriores preservadas e exibidas com o resultado derivado.
