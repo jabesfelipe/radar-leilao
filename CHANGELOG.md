@@ -2,9 +2,10 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
-## Não publicado (branch `fix/venda-direta-integracao`)
+## v1.0.10 — 2026-11-17
 
-Integração da análise de venda direta e consistência financeira. Sem migration (só campos JSON).
+Integração da análise de venda direta e consistência financeira. Sem migration (só campos JSON); rollback de imagem
+para a v1.0.9 é compatível com o schema.
 
 - **Checklist por finalidade do item (`modality-v2`).** Em VENDA_DIRETA só são não aplicáveis o lance abaixo de 50% e a
   leitura do edital (que volta a ser aplicável se um edital for anexado). Validade da execução de origem (itens 1–5) e
