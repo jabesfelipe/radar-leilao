@@ -2,6 +2,38 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
+## v1.0.11 — 2026-11-18
+
+Checklist por evidências (regra `evidencias-v1`). Sem migration; estados gravados e aplicabilidade por modalidade
+(`modality-v2`) sem mudança; análises anteriores preservadas e exibidas com o resultado derivado.
+
+- **Matrícula alimenta os itens que dependem dela.** A cadeia registral passa a ler os atos em sequência (R-n/Av-n) e os
+  fatos de intimação (pessoal, edital, não pagamento), leilões negativos ou termo de quitação, notificação dos leilões,
+  locação, vaga, ação averbada, cessão de direitos, garantia (mútuo da própria aquisição ou de terceiro) e valor da dívida.
+  Itens 1–5, 7, 8, 10, 11, 12 e 16 usam esses fatos, com o trecho vinculado. Penhora, indisponibilidade, arresto e
+  sequestro: vigente → risco; cancelada depois → inconclusivo; matrícula lida sem lacuna de atos e sem restrição → "sem
+  restrição identificada" (NAO_IDENTIFICADO), com o aviso de que não é garantia de inexistência.
+- **Condições oficiais da venda.** Novo tipo de documento `CONDICOES_VENDA` (também aceito "Condições da venda"; opção no
+  cadastro). Leitura determinística das cláusulas de condomínio, IPTU/tributos, evicção, FGTS e pagamento. Itens 14 e 15
+  respondidos com o trecho; a regra de limite é a do texto (excedente ou integral acima do limite, "até" ou "abaixo de"); o
+  valor dos débitos aparece separado da regra. Sem o documento, os itens pedem o documento certo (na venda direta não há
+  edital).
+- **Módulos do Radar no checklist.** Ocupação (11, 27), processos vinculados (7), checklist de localização (20), liquidez da
+  inteligência de mercado (17), premissa de reforma (21) comparada à referência de análise `checklist.reforma_grande_pct`
+  (padrão 10% da aquisição; ajustável por imóvel no formulário de premissas ou no catálogo; não é regra jurídica), mediana do condomínio dos
+  comparáveis (18), ROI anualizado do cenário base (22) e quantidade de comparáveis (19).
+- **Justificativa própria em cada item.** Itens 1–5 dizem qual fato provar e onde; itens pendentes dizem o que já se sabe,
+  o que falta e a fonte necessária.
+- **Rastreabilidade.** Evidência "informação não localizada" (`origin` NAO_LOCALIZADA) registra o documento examinado e os
+  atos lidos. Tipos exibidos: fato documental, regra oficial da venda, cálculo, inferência da IA, informação do usuário,
+  informação não localizada. Novo endpoint `GET /api/imoveis/{id}/checklist/{resultado_id}/evidencias`.
+- **Tela do checklist.** Resumo por resultado (Comprovado, Risco identificado, Pendente, Inconclusivo, Não aplicável, Sem
+  restrição identificada), conclusão, fundamentação, o que fazer, fonte necessária e "Ver evidências" (tipo, documento,
+  página, trecho original, confiança, responsável, data). Na venda direta, a pergunta do item 15 passa a ser "Quais são as
+  responsabilidades do comprador e do vendedor pelos débitos de IPTU e condomínio anteriores à aquisição?".
+- Testes: `tests/test_checklist_evidencias.py` (documentos sintéticos; caso de referência do imóvel 7 com os 27 itens). O
+  teste da v1.0.10 que esperava o item 10 pendente com a matrícula lida inteira foi atualizado para a nova regra.
+
 ## v1.0.10 — 2026-11-17
 
 Integração da análise de venda direta e consistência financeira. Sem migration (só campos JSON); rollback de imagem

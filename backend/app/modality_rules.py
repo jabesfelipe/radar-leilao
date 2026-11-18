@@ -114,46 +114,86 @@ GRUPO_MERCADO = "MERCADO"
 GRUPO_FINANCEIRO_PREMISSAS = "FINANCEIRO_PREMISSAS"    # depende das premissas financeiras do investidor
 GRUPO_PREFERENCIA = "PREFERENCIA_INVESTIDOR"           # decisão pessoal do investidor
 
+# "fonte" (v1.0.11): de onde a resposta precisa vir. O checklist só confirma item jurídico/documental com essa fonte.
 ITEM_PURPOSE: dict[str, dict[str, str]] = {
-    "INTIMACAO_PESSOAL": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "acao": "Solicitar ao vendedor a comprovação da intimação para purgar a mora (art. 26 da Lei 9.514/97)."},
-    "INTIMACAO_EDITAL": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "acao": "Se a intimação pessoal foi negativa, solicitar a comprovação da intimação por edital."},
-    "NOTIFICACAO_DOIS_LEILOES": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "acao": "Solicitar a comprovação da notificação ao devedor sobre as datas dos leilões."},
-    "QUITACAO_80": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "acao": "Verificar o percentual quitado do contrato original (risco de questionamento da execução)."},
-    "GARANTIA_DIVIDA_TERCEIRO": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "acao": "Verificar no contrato registrado se a garantia era de dívida de terceiro."},
-    "LANCE_MENOR_50_AVALIACAO": {"grupo": GRUPO_PROCEDIMENTO_LEILAO, "acao": "Cadastrar avaliação e valor do 2º leilão."},
-    "ACAO_QUESTIONAMENTO": {"grupo": GRUPO_DOCUMENTACAO, "acao": "Pesquisar ações judiciais contra o vendedor/ex-devedor sobre o imóvel (certidões dos distribuidores)."},
-    "LEILOES_NEGATIVOS_AVERBADOS": {"grupo": GRUPO_SITUACAO_REGISTRAL, "acao": "Conferir na matrícula atualizada a averbação dos leilões negativos e confirmar com o cartório se é exigida para registrar a compra."},
-    "CONSOLIDACAO_REGISTRADA": {"grupo": GRUPO_SITUACAO_REGISTRAL, "acao": "Anexar a matrícula atualizada (inteiro teor) para conferir o registro da alienação fiduciária e a averbação da consolidação."},
-    "PENHORA_INDISPONIBILIDADE": {"grupo": GRUPO_SITUACAO_REGISTRAL, "acao": "Conferir na matrícula/certidão de ônus atualizada se há penhora ou indisponibilidade averbada."},
-    "TERCEIRO_OCUPANTE": {"grupo": GRUPO_OCUPACAO, "acao": "Registrar a verificação de ocupação (vistoria, vizinhos, condomínio)."},
-    "LOCACAO_REGISTRADA": {"grupo": GRUPO_OCUPACAO, "acao": "Conferir na matrícula se há contrato de locação registrado/averbado."},
-    "EDITAL_LIDO": {"grupo": GRUPO_PROCEDIMENTO_LEILAO, "acao": "Anexar e ler integralmente o edital."},
-    "EVICCAO": {"grupo": GRUPO_CONDICOES_VENDA, "acao": "Conferir no edital ou nas condições da venda a cláusula de evicção."},
-    "RESPONSABILIDADE_DEBITOS": {"grupo": GRUPO_CONDICOES_VENDA, "acao": "Anexar o edital ou as condições oficiais da venda e informar os limites de responsabilidade nas premissas."},
-    "VAGA_MATRICULA": {"grupo": GRUPO_DOCUMENTACAO, "acao": "Conferir na matrícula se a vaga é unidade autônoma ou vinculada."},
-    "ILIQUIDEZ": {"grupo": GRUPO_MERCADO, "acao": "Cadastrar comparáveis de venda e avaliar a liquidez."},
-    "CONDOMINIO_ALTO": {"grupo": GRUPO_MERCADO, "acao": "Informar o condomínio do imóvel e comparar com os comparáveis."},
-    "COMPARAVEIS_SUFFICIENTES": {"grupo": GRUPO_MERCADO, "acao": "Cadastrar ao menos 7 comparáveis de venda e 7 de aluguel."},
-    "REGIAO_SERVICOS": {"grupo": GRUPO_MERCADO, "acao": "Registrar a avaliação da região (segurança, serviços, acesso)."},
-    "REFORMA_GRANDE": {"grupo": GRUPO_MERCADO, "acao": "Vistoriar o imóvel ou estimar a reforma com fonte."},
-    "RETORNO_SELIC": {"grupo": GRUPO_FINANCEIRO_PREMISSAS, "acao": "Configurar as premissas financeiras (meta, venda, prazo) para calcular o retorno."},
-    "PRAZO_DOIS_ANOS": {"grupo": GRUPO_FINANCEIRO_PREMISSAS, "acao": "Informar o prazo da operação nas premissas."},
-    "DISTANCIA_USUARIO": {"grupo": GRUPO_PREFERENCIA, "acao": "Decisão do investidor."},
-    "REFORMA_LIQUIDEZ": {"grupo": GRUPO_MERCADO, "acao": "Vistoriar o imóvel e avaliar a necessidade de obras para revenda."},
-    "CONDOMINIO_PORTARIA": {"grupo": GRUPO_PREFERENCIA, "acao": "Registrar se o condomínio tem portaria (relevante para venda sem corretor)."},
-    "ETICA_OCUPACAO": {"grupo": GRUPO_PREFERENCIA, "acao": "Decisão do investidor."},
+    "INTIMACAO_PESSOAL": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "fonte": "Matrícula (averbação da consolidação) ou certidão do procedimento de intimação no Registro de Imóveis",
+                          "acao": "Solicitar ao Registro de Imóveis a certidão das diligências de intimação para purgar a mora (art. 26 da Lei 9.514/97)."},
+    "INTIMACAO_EDITAL": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "fonte": "Matrícula (averbação da consolidação) ou cópia dos editais de intimação publicados",
+                         "acao": "Se a intimação pessoal foi negativa, solicitar ao cartório a cópia dos editais publicados e a certidão das tentativas de intimação pessoal."},
+    "NOTIFICACAO_DOIS_LEILOES": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "fonte": "Comprovante da comunicação ao devedor das datas dos leilões (raramente averbado)",
+                                 "acao": "Solicitar ao vendedor o comprovante da comunicação ao devedor das datas e locais dos leilões (art. 27, § 2º-A, da Lei 9.514/97)."},
+    "QUITACAO_80": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "fonte": "Extrato ou planilha de evolução do contrato de financiamento (não consta da matrícula)",
+                    "acao": "Solicitar ao vendedor o extrato do contrato original para conhecer o percentual pago pelo ex-devedor."},
+    "GARANTIA_DIVIDA_TERCEIRO": {"grupo": GRUPO_PROCEDIMENTO_ORIGEM, "fonte": "Matrícula (registro da alienação fiduciária) e contrato registrado",
+                                 "acao": "Conferir no registro da alienação fiduciária e no contrato quem era o devedor e se a garantia cobria dívida de terceiro."},
+    "LANCE_MENOR_50_AVALIACAO": {"grupo": GRUPO_PROCEDIMENTO_LEILAO, "fonte": "Edital ou cadastro do leilão (avaliação e valor do 2º leilão)", "acao": "Cadastrar avaliação e valor do 2º leilão."},
+    "ACAO_QUESTIONAMENTO": {"grupo": GRUPO_DOCUMENTACAO, "fonte": "Certidões dos distribuidores (Justiça Estadual e Federal) e averbações de ação na matrícula",
+                            "acao": "Pesquisar ações judiciais contra o vendedor/ex-devedor sobre o imóvel (certidões dos distribuidores)."},
+    "LEILOES_NEGATIVOS_AVERBADOS": {"grupo": GRUPO_SITUACAO_REGISTRAL, "fonte": "Matrícula atualizada (averbação dos leilões negativos ou do termo de quitação)",
+                                    "acao": "Conferir na matrícula atualizada a averbação dos leilões negativos e confirmar com o cartório se é exigida para registrar a compra."},
+    "CONSOLIDACAO_REGISTRADA": {"grupo": GRUPO_SITUACAO_REGISTRAL, "fonte": "Matrícula (registro da alienação fiduciária e averbação da consolidação)",
+                                "acao": "Anexar a matrícula atualizada (inteiro teor) para conferir o registro da alienação fiduciária e a averbação da consolidação."},
+    "PENHORA_INDISPONIBILIDADE": {"grupo": GRUPO_SITUACAO_REGISTRAL, "fonte": "Matrícula e certidão de ônus reais atualizadas; consulta à CNIB",
+                                  "acao": "Solicitar certidão de ônus reais atualizada (30 dias) e consultar a CNIB em nome do vendedor e do ex-devedor."},
+    "TERCEIRO_OCUPANTE": {"grupo": GRUPO_OCUPACAO, "fonte": "Vistoria do imóvel (cadastro de ocupação) e matrícula (cessão de direitos)",
+                          "acao": "Verificar ocupação por vistoria (vizinhos, portaria, síndico) e registrar em Ocupação."},
+    "LOCACAO_REGISTRADA": {"grupo": GRUPO_OCUPACAO, "fonte": "Matrícula (registro ou averbação de contrato de locação)",
+                           "acao": "Confirmar na matrícula atualizada e com o ocupante se existe contrato de locação."},
+    "EDITAL_LIDO": {"grupo": GRUPO_PROCEDIMENTO_LEILAO, "fonte": "Edital do leilão", "acao": "Anexar e ler integralmente o edital."},
+    "EVICCAO": {"grupo": GRUPO_CONDICOES_VENDA, "fonte": "Condições oficiais da venda (venda direta) ou edital (leilão)",
+                "acao": "Anexar as condições oficiais da venda (tipo de documento CONDICOES_VENDA) ou o edital e conferir a cláusula de evicção."},
+    "RESPONSABILIDADE_DEBITOS": {"grupo": GRUPO_CONDICOES_VENDA, "fonte": "Condições oficiais da venda ou edital (regra) e declarações de débito (valor)",
+                                 "acao": "Anexar as condições oficiais da venda (tipo de documento CONDICOES_VENDA); solicitar declaração de débitos do condomínio e certidão de débitos de IPTU."},
+    "VAGA_MATRICULA": {"grupo": GRUPO_DOCUMENTACAO, "fonte": "Matrícula (descrição da unidade) ou matrícula própria da vaga",
+                       "acao": "Conferir na matrícula ou na convenção se a vaga é unidade autônoma, vinculada ou de uso comum."},
+    "ILIQUIDEZ": {"grupo": GRUPO_MERCADO, "fonte": "Comparáveis de venda (inteligência de mercado)", "acao": "Cadastrar comparáveis de venda e avaliar a liquidez."},
+    "CONDOMINIO_ALTO": {"grupo": GRUPO_MERCADO, "fonte": "Valor do condomínio do imóvel (boleto/síndico) e dos comparáveis",
+                        "acao": "Informar o condomínio do imóvel e comparar com os comparáveis."},
+    "COMPARAVEIS_SUFFICIENTES": {"grupo": GRUPO_MERCADO, "fonte": "Comparáveis cadastrados", "acao": "Cadastrar ao menos 7 comparáveis de venda e 7 de aluguel."},
+    "REGIAO_SERVICOS": {"grupo": GRUPO_MERCADO, "fonte": "Checklist de localização (avaliação do entorno)", "acao": "Registrar a avaliação da região (segurança, serviços, acesso) em Localização."},
+    "REFORMA_GRANDE": {"grupo": GRUPO_MERCADO, "fonte": "Vistoria ou estimativa de reforma nas premissas", "acao": "Vistoriar o imóvel ou estimar a reforma com fonte."},
+    "RETORNO_SELIC": {"grupo": GRUPO_FINANCEIRO_PREMISSAS, "fonte": "Premissas financeiras e taxa Selic de referência",
+                      "acao": "Configurar as premissas financeiras (meta, venda, prazo) para calcular o retorno."},
+    "PRAZO_DOIS_ANOS": {"grupo": GRUPO_FINANCEIRO_PREMISSAS, "fonte": "Prazo da operação nas premissas", "acao": "Informar o prazo da operação nas premissas."},
+    "DISTANCIA_USUARIO": {"grupo": GRUPO_PREFERENCIA, "fonte": "Decisão do investidor", "acao": "Decisão do investidor."},
+    "REFORMA_LIQUIDEZ": {"grupo": GRUPO_MERCADO, "fonte": "Vistoria do imóvel", "acao": "Vistoriar o imóvel e avaliar a necessidade de obras para revenda."},
+    "CONDOMINIO_PORTARIA": {"grupo": GRUPO_PREFERENCIA, "fonte": "Visita ao condomínio ou administradora", "acao": "Registrar se o condomínio tem portaria (relevante para venda sem corretor)."},
+    "ETICA_OCUPACAO": {"grupo": GRUPO_PREFERENCIA, "fonte": "Decisão do investidor (depende da ocupação)", "acao": "Decisão do investidor."},
 }
+
+# Pergunta adequada à modalidade (v1.0.11). A pergunta do catálogo (``ChecklistItem.question``) não muda; a modalidade só
+# troca o texto exibido quando a original não faz sentido para ela.
+QUESTION_BY_MODALITY: dict[str, dict[str, str]] = {
+    MODALITY_VENDA_DIRETA: {
+        "RESPONSABILIDADE_DEBITOS": "Quais são as responsabilidades do comprador e do vendedor pelos débitos de IPTU e condomínio anteriores à aquisição?",
+    },
+}
+
+
+def item_question(modality: str | None, canonical_key: str, default: str) -> str:
+    return QUESTION_BY_MODALITY.get(normalize(modality), {}).get(canonical_key, default)
 
 # Regras de VENDA_DIRETA por item: (aplicabilidade, justificativa). Itens não listados: APLICAVEL.
 _ORIGEM = ("A venda direta dispensa o leilão, mas, quando o título do vendedor decorre de consolidação fiduciária, a validade "
            "dessa execução de origem ainda pode ser questionada pelo ex-devedor. Verificação do procedimento de origem: reduz a "
            "confiança se não comprovada; não é etapa da compra.")
+# v1.0.11: cada item do procedimento de origem diz qual fato precisa ser comprovado e onde ele costuma estar.
 VENDA_DIRETA_ITEM_RULES: dict[str, tuple[str, str]] = {
-    "INTIMACAO_PESSOAL": (APPLICABILITY_CONDICIONAL, _ORIGEM),
-    "INTIMACAO_EDITAL": (APPLICABILITY_CONDICIONAL, _ORIGEM),
-    "NOTIFICACAO_DOIS_LEILOES": (APPLICABILITY_CONDICIONAL, _ORIGEM),
-    "QUITACAO_80": (APPLICABILITY_CONDICIONAL, _ORIGEM),
-    "GARANTIA_DIVIDA_TERCEIRO": (APPLICABILITY_CONDICIONAL, _ORIGEM),
+    "INTIMACAO_PESSOAL": (APPLICABILITY_CONDICIONAL, "Quando o título do vendedor decorre de consolidação fiduciária: comprovar que o devedor foi "
+                          "intimado pessoalmente para purgar a mora (art. 26 da Lei 9.514/97). A averbação da consolidação às vezes indica o meio "
+                          "da intimação; a prova completa está na certidão do procedimento no Registro de Imóveis. Falha aqui é o argumento mais "
+                          "comum do ex-devedor para anular a consolidação."),
+    "INTIMACAO_EDITAL": (APPLICABILITY_CONDICIONAL, "Quando o título decorre de consolidação e a intimação pessoal não se concretizou: comprovar a "
+                         "intimação por edital, só admitida após tentativas pessoais frustradas (art. 26, § 4º, da Lei 9.514/97). A averbação da "
+                         "consolidação pode citar o edital; publicações e tentativas estão no procedimento do cartório."),
+    "NOTIFICACAO_DOIS_LEILOES": (APPLICABILITY_CONDICIONAL, "Quando o título decorre de consolidação: comprovar que o devedor foi comunicado das "
+                                 "datas dos leilões (art. 27, § 2º-A, da Lei 9.514/97). Essa comunicação raramente aparece na matrícula: exige "
+                                 "comprovante do vendedor."),
+    "QUITACAO_80": (APPLICABILITY_CONDICIONAL, "Quando o título decorre de consolidação: conhecer o percentual pago do financiamento original. A "
+                    "matrícula registra a dívida garantida, não os pagamentos; quitação alta reforça eventual alegação do ex-devedor contra a execução."),
+    "GARANTIA_DIVIDA_TERCEIRO": (APPLICABILITY_CONDICIONAL, "Quando o título decorre de consolidação: verificar se o imóvel residencial de pessoa "
+                                 "física garantia dívida de terceiro, situação mais sujeita a questionamento. O registro da alienação fiduciária "
+                                 "na matrícula costuma mostrar se o mútuo financiou a própria aquisição."),
     _PRECO_VIL: (APPLICABILITY_NAO_APLICAVEL, "Não há segundo leilão nem lance na venda direta: o preço é fixado pelo vendedor e comparado ao mercado na análise financeira."),
     "EDITAL_LIDO": (APPLICABILITY_NAO_APLICAVEL, "Venda direta sem edital: as condições da venda substituem o edital (ver item de responsabilidades por débitos). "
                     "Se um edital for anexado, o item volta a ser aplicável."),
@@ -176,7 +216,7 @@ def item_rule(modality: str, canonical_key: str) -> dict[str, str]:
     justification = VENDA_DIRETA_ITEM_RULES.get(canonical_key, (None, ""))[1] if mod == MODALITY_VENDA_DIRETA else ""
     purpose = ITEM_PURPOSE.get(canonical_key, {"grupo": GRUPO_DOCUMENTACAO, "acao": ""})
     return {"aplicabilidade": applicability, "justificativa": justification, "grupo": purpose["grupo"], "acao": purpose["acao"],
-            "regra": f"{MODALITY_RULESET_VERSION}:{mod}:{canonical_key}"}
+            "fonte": purpose.get("fonte", ""), "regra": f"{MODALITY_RULESET_VERSION}:{mod}:{canonical_key}"}
 
 # --- Hard stops por modalidade (quais do catálogo do workflow fazem sentido) ---
 # Alguns hard stops do workflow só se aplicam ao extrajudicial de AF. Em judicial/

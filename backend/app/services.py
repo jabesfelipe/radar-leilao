@@ -645,18 +645,20 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     return evidence_ids
 
 
-def resolve_checklist_from_registry(db: Session, execution, registry, evidence_by_kind: dict[str, list[int]]) -> list[str]:
+def resolve_checklist_from_registry(db: Session, execution, registry, evidence_by_kind: dict[str, list[int]], *, prop=None, analysis=None,
+                                    evidence_by_fact: dict[int, int] | None = None, created_evidence: list[int] | None = None) -> list[str]:
     """Itens de SITUAÇÃO REGISTRAL que a cadeia registral comprova pelo trecho da matrícula (v2, sem IA).
 
     - CONSOLIDACAO_REGISTRADA: registro da alienação fiduciária E averbação da consolidação, ambos com trecho lido →
       CONFIRMADO, com as duas evidências vinculadas. Só a alienação, sem consolidação no texto lido → INCONCLUSIVO
       (o vendedor pode não ser o proprietário; nunca vira "sim").
-    - PENHORA_INDISPONIBILIDADE: penhora/indisponibilidade encontrada e não cancelada → RISCO_IDENTIFICADO. A ausência
-      no texto lido NÃO responde o item (OCR e matrícula desatualizada não provam inexistência).
+    - Demais itens de situação registral e do procedimento de origem (01 a 05, 07, 08, 10, 11, 12, 16): regra
+      ``evidencias-v1`` em ``checklist_evidence.resolve_registry_items`` (v1.0.11). Penhora/indisponibilidade só vira
+      "sem restrição identificada" com a matrícula lida em sequência contínua de atos; nunca é garantia de inexistência.
     Só toca item aplicável ainda PENDENTE/INCONCLUSIVO; decisão de agente ou do usuário prevalece."""
     if not execution or registry is None or registry.is_empty():
         return []
-    from .registry_chain import ALIENACAO_FIDUCIARIA, CONSOLIDACAO, ONUS
+    from .registry_chain import ALIENACAO_FIDUCIARIA, CONSOLIDACAO
     by_key = {r.item.canonical_key: r for r in execution.results if r.item is not None}
     resolved: list[str] = []
 
@@ -685,13 +687,11 @@ def resolve_checklist_from_registry(db: Session, execution, registry, evidence_b
               "", f"INCONCLUSIVO: alienação fiduciária registrada ({af.act or 'ato não identificado'}), mas a averbação da consolidação "
               "não foi identificada no texto lido. Sem ela o vendedor pode não ser o proprietário: conferir a matrícula atualizada.",
               evidence_by_kind.get(ALIENACAO_FIDUCIARIA, []), confidence="BAIXA")
-    blocking = [f for f in registry.of(ONUS) if str(f.value or "").lower() in ("penhora", "indisponibilidade")]
-    if blocking:
-        kinds = ", ".join(sorted({f"{f.value} ({f.act})" if f.act else str(f.value) for f in blocking}))
-        apply("PENHORA_INDISPONIBILIDADE", "RISCO_IDENTIFICADO", f"Sim. Consta na matrícula: {kinds}.",
-              "Lido da cadeia registral; confirmar na certidão de ônus atualizada se segue vigente.", evidence_by_kind.get(ONUS, []))
     if resolved:
         db.flush()
+    if prop is not None:
+        from .checklist_evidence import resolve_registry_items
+        resolved += resolve_registry_items(db, prop, analysis, execution, registry, evidence_by_fact or {}, created_evidence)
     return resolved
 
 
@@ -712,6 +712,7 @@ def persist_registry_findings(db: Session, prop: models.Property, analysis: mode
         return []
     evidence_ids: list[int] = []
     evidence_by_kind: dict[str, list[int]] = {}
+    evidence_by_fact: dict[int, int] = {}
     for item in conclusions(registry, prop.area_m2, prop.private_area_m2):
         fact = item["fact"]
         if fact is not None and fact.chunk_id is not None:
@@ -728,10 +729,16 @@ def persist_registry_findings(db: Session, prop: models.Property, analysis: mode
         # Só fatos com trecho da matrícula sustentam resposta de checklist (evidência DOCUMENTO).
         if fact is not None and fact.chunk_id is not None and not item["text"].startswith("Situação de ônus"):
             evidence_by_kind.setdefault(fact.kind, []).append(evidence.id)
+            evidence_by_fact.setdefault(id(fact), evidence.id)
     analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
     analysis.documents_considered = sorted(set((analysis.documents_considered or []) + [version.document_id]))
     db.flush()
-    resolve_checklist_from_registry(db, execution, registry, evidence_by_kind)
+    created: list[int] = []
+    resolve_checklist_from_registry(db, execution, registry, evidence_by_kind, prop=prop, analysis=analysis, evidence_by_fact=evidence_by_fact,
+                                    created_evidence=created)
+    if created:   # evidências de "não localizado" criadas pela regra do checklist também são da análise
+        evidence_ids += created
+        analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + created))
     return evidence_ids
 
 

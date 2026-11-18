@@ -489,6 +489,13 @@ button:disabled { cursor: not-allowed; opacity: .58; }
 .checklist-form-full { grid-column: 1 / -1; }
 .checklist-form-actions { display: flex; align-items: flex-end; justify-content: flex-end; gap: .75rem; grid-column: 1 / -1; }
 .checklist-form-actions .ui-alert { flex: 1; }
+.checklist-summary { display: flex; flex-wrap: wrap; gap: .5rem; }
+.checklist-evidence { display: grid; gap: .5rem; }
+.checklist-evidence-list { display: grid; gap: .65rem; margin: 0; padding: 0; list-style: none; }
+.checklist-evidence-list li { display: grid; gap: .3rem; padding: .65rem .75rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.checklist-evidence-list p { margin: 0; }
+.checklist-evidence-list blockquote { margin: 0; padding-left: .65rem; border-left: 3px solid var(--color-border); color: var(--color-text-muted, inherit); font-size: var(--font-size-sm, .9rem); white-space: pre-wrap; }
+.checklist-evidence-list small { color: var(--color-text-muted, inherit); }
 
 @media (max-width: 680px) {
   .checklist-item-head { flex-direction: column; }

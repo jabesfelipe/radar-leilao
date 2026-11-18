@@ -42,6 +42,16 @@ CANCELAMENTO = "CANCELAMENTO"
 ONUS = "ONUS"
 AREA_PRIVATIVA = "AREA_PRIVATIVA"
 AREA_TOTAL = "AREA_TOTAL"
+# Fatos usados pelo checklist (v1.0.11, evidencias-v1). Cada um aponta para o trecho e o ato da matrícula.
+LEILAO = "LEILAO"                            # valor: NEGATIVO | QUITACAO | MENCAO
+INTIMACAO = "INTIMACAO"                      # valor: PESSOAL | EDITAL | NAO_PURGACAO
+NOTIFICACAO_LEILOES = "NOTIFICACAO_LEILOES"
+LOCACAO = "LOCACAO"
+VAGA = "VAGA"                                # valor: PROPRIA | VINCULADA | MENCIONADA
+ACAO_JUDICIAL = "ACAO_JUDICIAL"
+GARANTIA = "GARANTIA"                        # valor: PROPRIA (mútuo da própria aquisição) | TERCEIRO
+VALOR_DIVIDA = "VALOR_DIVIDA"
+CESSAO = "CESSAO"
 
 
 def _fold_char(char: str) -> str:
@@ -116,14 +126,47 @@ class RegistryFact:
 
 
 @dataclass
+class RegistryAct:
+    """Ato da matrícula (registro R-n ou averbação Av-n) reconhecido no início de linha, com o seu trecho."""
+    label: str
+    number: int | None
+    kind: str          # "R" | "Av"
+    start: int
+    end: int
+
+
+@dataclass
 class RegistryChain:
     facts: list[RegistryFact] = field(default_factory=list)
     document_version_id: int | None = None
     chunk_texts: dict[int, str] = field(default_factory=dict)
+    acts: list[RegistryAct] = field(default_factory=list)
 
     # ---- consultas -------------------------------------------------------
     def of(self, kind: str) -> list[RegistryFact]:
         return [fact for fact in self.facts if fact.kind == kind]
+
+    def act_labels(self) -> list[str]:
+        return [act.label for act in self.acts]
+
+    def missing_act_numbers(self) -> list[int]:
+        """Números de ato ausentes na sequência lida (R e Av compartilham a numeração da matrícula)."""
+        numbers = sorted({act.number for act in self.acts if act.number is not None})
+        if not numbers:
+            return []
+        return [n for n in range(1, numbers[-1] + 1) if n not in numbers]
+
+    def readable_for_absence(self) -> tuple[bool, str]:
+        """A matrícula foi lida o bastante para afirmar "não identificado" dentro dos limites da análise?
+
+        Exige ao menos dois atos reconhecidos e sequência sem lacunas: com OCR falho ou páginas faltando a ausência de um
+        registro no texto não diz nada (fica INCONCLUSIVO)."""
+        if len(self.acts) < 2:
+            return False, "menos de dois atos registrais reconhecidos no texto lido"
+        missing = self.missing_act_numbers()
+        if missing:
+            return False, "sequência de atos com lacunas (não lidos: " + ", ".join(str(n) for n in missing[:8]) + ")"
+        return True, f"{len(self.acts)} atos lidos em sequência contínua ({self.acts[0].label} a {self.acts[-1].label})"
 
     @property
     def original_owner(self) -> RegistryFact | None:
@@ -365,8 +408,105 @@ def read_registry(chunks: Iterable[dict[str, Any]], document_version_id: int | N
         if match:
             add(kind, original[match.start(1):match.end(1)], match.start(), match.end() + 10)
 
+    chain.acts = _read_acts(folded)
+    _read_checklist_facts(chain, folded, add)
+
     chain.facts.sort(key=lambda fact: fact.position)
     return chain
+
+
+# ---------------------------------------------------------------------------
+# Atos e fatos usados pelo checklist (evidencias-v1)
+# ---------------------------------------------------------------------------
+
+def _read_acts(folded: str) -> list[RegistryAct]:
+    """Atos que começam uma linha ("R-3 - ...", "Av-5 - ...", OCR "Avy-S/M-5"). Menções no meio do texto ("conforme R-3")
+    não abrem ato."""
+    heads = []
+    for match in _ACT.finditer(folded):
+        line_start = folded.rfind("\n", 0, match.start()) + 1
+        if folded[line_start:match.start()].strip():
+            continue
+        kind = "R" if match.group(1) == "R" else "Av"
+        digits = match.group(2).replace("L", "1").replace("I", "1").replace("S", "5")
+        number = int(digits) if digits.isdigit() else None
+        heads.append((match.start(), kind, number))
+    acts = []
+    for index, (start, kind, number) in enumerate(heads):
+        end = heads[index + 1][0] if index + 1 < len(heads) else len(folded)
+        acts.append(RegistryAct(f"{kind}-{number if number is not None else '?'}", number, kind, start, end))
+    return acts
+
+
+def act_at(chain: RegistryChain, position: int) -> RegistryAct | None:
+    for act in chain.acts:
+        if act.start <= position < act.end:
+            return act
+    return None
+
+
+_LEILAO_RE = re.compile(r"\bLEIL(AO|OES)\b")
+_LEILAO_NEGATIVO = re.compile(r"NEGATIV|NAO\s+HOUVE\s+(LICITANTE|LANCE|ARREMATANTE|INTERESSAD)|SEM\s+(LICITANTE|LANCE|ARREMATANTE)|DESERT|FRUSTRAD"
+                              r"|INEXISTENCIA\s+DE\s+(LICITANTE|LANCE)")
+_QUITACAO = re.compile(r"TERMO\s+DE\s+QUITACAO|EXTINCAO\s+DA\s+DIVIDA|QUITACAO\s+DA\s+DIVIDA")
+_INTIMACAO_PESSOAL = re.compile(r"INTIMAD[OA]S?\s+PESSOALMENTE|INTIMACAO\s+PESSOAL|NOTIFICAD[OA]S?\s+PESSOALMENTE")
+_INTIMACAO_EDITAL = re.compile(r"\b(POS|APOS)[\s-]+EDITA|INTIMAC\w*\s+(POR|VIA|MEDIANTE)\s+EDITA|EDITA(L|IS)\s+DE\s+INTIMAC|INTIMAD[OA]S?\s+POR\s+EDITA")
+_NAO_PURGACAO = re.compile(r"NAO\s+PAGAMENTO|NAO\s+PURG|SEM\s+PURGA|DECURSO\s+D[OE]\s+PRAZO")
+_NOTIFICACAO_LEILOES = re.compile(r"(NOTIFICAD|COMUNICAD|CIENTIFICAD|INTIMAD)\w*[^.]{0,160}?DATAS?\s+D[OE]S?\s+(\w+\s+)?LEIL")
+_LOCACAO_RE = re.compile(r"\bLOCACAO\b|\bLOCATARI[OA]S?\b|CLAUSULA\s+DE\s+VIGENCIA|CONTRATO\s+DE\s+ALUGUEL")
+_VAGA_RE = re.compile(r"\bVAGAS?\b")
+_VAGA_PROPRIA = re.compile(r"MATRICULA\s+PROPRIA|MATRICULADA\s+SOB|UNIDADE\s+AUTONOMA|MATRICULA\s+N\W{0,3}\s*\d")
+_VAGA_VINCULADA = re.compile(r"VINCULAD|ACESSORI|USO\s+COMUM|INDETERMINAD|DIREITO\s+(AO|DE)\s+USO|INDIVISA|ROTATIV")
+_ACAO_RE = re.compile(r"(AJUIZAMENTO|EXISTENCIA|DISTRIBUICAO|PROPOSITURA)\s+D[AE]\s+ACAO|\bACAO\s+(ANULATORIA|REVISIONAL|DECLARATORIA|DE\s+NULIDADE"
+                      r"|DE\s+ANULACAO|REIVINDICATORIA|DE\s+USUCAPIAO)|\bCITACAO\b|ART(IGO)?\.?\s*828|PROTESTO\s+CONTRA\s+ALIENACAO")
+_GARANTIA_TERCEIRO = re.compile(r"DIVIDA\s+DE\s+TERCEIR|INTERVENIENTE\s+(GARANTIDOR|FIDUCIANTE|HIPOTECANTE)|GARANTIDOR\s+FIDUCIANTE|GARANTE\s+HIPOTECARI")
+_MUTUO_AQUISICAO = (re.compile(r"\bMUTUO\b"), re.compile(r"COMPRA\s+E\s+VENDA|AQUISICAO"))
+_VALOR_DIVIDA = re.compile(r"DIVIDA[^.\n]{0,80}?R\$\s*([0-9.]+,[0-9]{2})")
+_CESSAO_RE = re.compile(r"CESSAO\s+(E\s+TRANSFERENCIA\s+)?(DE\s+)?(DIREITOS|POSICAO\s+CONTRATUAL)")
+
+
+def _read_checklist_facts(chain: RegistryChain, folded: str, add) -> None:
+    """Fatos objetivos para o checklist, lidos por ato. Só registra o que está no texto; nada é deduzido de ausência."""
+    for act in chain.acts:
+        segment = folded[act.start:act.end]
+
+        def at(match, offset=0):
+            return act.start + match.start() + offset
+
+        leilao = _LEILAO_RE.search(segment)
+        quitacao = _QUITACAO.search(segment)
+        if leilao:
+            value = "NEGATIVO" if _LEILAO_NEGATIVO.search(segment) else ("QUITACAO" if quitacao else "MENCAO")
+            add(LEILAO, value, at(leilao), at(leilao) + 220, act.label)
+        elif quitacao:
+            add(LEILAO, "QUITACAO", at(quitacao), at(quitacao) + 220, act.label)
+        for pattern, value in ((_INTIMACAO_PESSOAL, "PESSOAL"), (_INTIMACAO_EDITAL, "EDITAL"), (_NAO_PURGACAO, "NAO_PURGACAO")):
+            match = pattern.search(segment)
+            if match:
+                add(INTIMACAO, value, at(match), at(match) + 200, act.label)
+        for pattern, kind in ((_NOTIFICACAO_LEILOES, NOTIFICACAO_LEILOES), (_LOCACAO_RE, LOCACAO), (_ACAO_RE, ACAO_JUDICIAL), (_CESSAO_RE, CESSAO)):
+            match = pattern.search(segment)
+            if match and not _CANCEL.search(segment[max(0, match.start() - 120):match.start()]):
+                add(kind, kind.lower(), at(match), at(match) + 220, act.label)
+    for af in chain.of(ALIENACAO_FIDUCIARIA):
+        act = act_at(chain, af.position)
+        segment = folded[act.start:act.end] if act else folded[af.position:af.position + 1500]
+        base = act.start if act else af.position
+        terceiro = _GARANTIA_TERCEIRO.search(segment)
+        if terceiro:
+            add(GARANTIA, "TERCEIRO", base + terceiro.start(), base + terceiro.end() + 200, af.act)
+        elif _MUTUO_AQUISICAO[0].search(segment) and _MUTUO_AQUISICAO[1].search(segment):
+            mutuo = _MUTUO_AQUISICAO[0].search(segment)
+            add(GARANTIA, "PROPRIA", base + max(0, mutuo.start() - 80), base + mutuo.end() + 120, af.act)
+        valor = _VALOR_DIVIDA.search(segment)
+        if valor:
+            add(VALOR_DIVIDA, f"R$ {valor.group(1)}", base + valor.start(), base + valor.end() + 20, af.act)
+    vaga = _VAGA_RE.search(folded)
+    if vaga:
+        window = folded[vaga.start():vaga.start() + 260]
+        value = "PROPRIA" if _VAGA_PROPRIA.search(window) else ("VINCULADA" if _VAGA_VINCULADA.search(window) else "MENCIONADA")
+        act = act_at(chain, vaga.start())
+        add(VAGA, value, vaga.start(), vaga.start() + 260, act.label if act else None)
 
 
 def conclusions(chain: RegistryChain, area_total: Any = None, area_private: Any = None) -> list[dict[str, Any]]:
@@ -403,6 +543,29 @@ def conclusions(chain: RegistryChain, area_total: Any = None, area_private: Any 
         out.append({"category": "JURIDICO", "fact": cancel, "text": "Cancelamento/baixa averbado" + (f" ({cancel.act})" if cancel.act else "") + (f" referente a {cancel.value.lower().replace('_', ' ')}." if cancel.value else ".")})
     for onus in chain.of(ONUS):
         out.append({"category": "JURIDICO", "fact": onus, "text": f"Gravame encontrado na matrícula: {onus.value}" + (f" ({onus.act})" if onus.act else "") + "."})
+    for fact in chain.of(LEILAO):
+        label = {"NEGATIVO": "Leilões negativos averbados", "QUITACAO": "Termo de quitação/extinção da dívida averbado",
+                 "MENCAO": "Menção a leilão sem resultado identificado"}[fact.value or "MENCAO"]
+        out.append({"category": "JURIDICO", "fact": fact, "text": f"{label}" + (f" ({fact.act})" if fact.act else "") + "."})
+    for fact in chain.of(INTIMACAO):
+        label = {"PESSOAL": "Intimação pessoal do devedor mencionada", "EDITAL": "Intimação por edital mencionada",
+                 "NAO_PURGACAO": "Não pagamento/purgação da mora certificado"}[fact.value or "NAO_PURGACAO"]
+        out.append({"category": "JURIDICO", "fact": fact, "text": f"{label}" + (f" ({fact.act})" if fact.act else "") + "."})
+    simple = {NOTIFICACAO_LEILOES: "Notificação do devedor sobre as datas dos leilões mencionada", LOCACAO: "Locação registrada ou averbada",
+              ACAO_JUDICIAL: "Ação judicial averbada ou citada", CESSAO: "Cessão de direitos registrada"}
+    for kind, label in simple.items():
+        for fact in chain.of(kind):
+            out.append({"category": "JURIDICO", "fact": fact, "text": f"{label}" + (f" ({fact.act})" if fact.act else "") + "."})
+    for fact in chain.of(GARANTIA):
+        text = ("Alienação fiduciária constituída no contrato de compra e venda com mútuo: garante o financiamento da própria aquisição"
+                if fact.value == "PROPRIA" else "Indicação de garantia de dívida de terceiro (interveniente garantidor)")
+        out.append({"category": "JURIDICO", "fact": fact, "text": text + (f" ({fact.act})." if fact.act else ".")})
+    for fact in chain.of(VALOR_DIVIDA):
+        out.append({"category": "JURIDICO", "fact": fact, "text": f"Valor da dívida garantida registrado: {fact.value}" + (f" ({fact.act})." if fact.act else ".")})
+    for fact in chain.of(VAGA):
+        text = {"PROPRIA": "Vaga de garagem descrita como unidade com matrícula própria", "VINCULADA": "Vaga de garagem descrita como vinculada/de uso",
+                "MENCIONADA": "Vaga de garagem mencionada sem indicação de matrícula própria"}[fact.value or "MENCIONADA"]
+        out.append({"category": "DOCUMENTAL", "fact": fact, "text": text + "."})
     situacao, justificativa = chain.encumbrance_status()
     out.append({"category": "JURIDICO", "fact": af or (chain.of(ONUS) or [None])[0],
                 "text": f"Situação de ônus e gravames: {'EXISTENTES' if situacao == ONUS_EXISTENTE else 'INCONCLUSIVA'}. {justificativa}"})

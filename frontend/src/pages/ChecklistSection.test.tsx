@@ -170,6 +170,37 @@ describe('ChecklistSection', () => {
     expect(screen.getByText('Intimação para purgar mora foi pessoal?')).toBeInTheDocument()
   })
 
+  it('mostra o resultado do backend, o resumo, o que fazer e a pergunta da modalidade', async () => {
+    mockLoad([
+      { ...result, question: 'Pergunta da venda direta?', resultado: 'PENDENTE', resultado_label: 'Pendente', acao_recomendada: 'Solicitar a certidão das diligências.', fonte_necessaria: 'Certidão do procedimento' },
+      { ...result, id: 31, canonical_key: 'ITEM_NAO_APLICAVEL', state: 'NAO_IDENTIFICADO', resultado: 'SEM_RESTRICAO_IDENTIFICADA', resultado_label: 'Sem restrição identificada', answer: 'Sem restrição identificada. Nenhuma penhora.' },
+    ])
+    render(<ChecklistSection propertyId={5} />)
+
+    expect(await screen.findByText('Pergunta da venda direta?')).toBeInTheDocument()   // pergunta do backend prevalece sobre o catálogo
+    expect(screen.queryByText('Intimação para purgar mora foi pessoal?')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Resumo do checklist')).toHaveTextContent('Pendente: 1')
+    expect(screen.getByLabelText('Resumo do checklist')).toHaveTextContent('Sem restrição identificada: 1')
+    expect(screen.getByText('Solicitar a certidão das diligências.')).toBeInTheDocument()
+    expect(screen.getByText('Certidão do procedimento')).toBeInTheDocument()
+    expect(screen.getByText('Sem restrição identificada. Nenhuma penhora.')).toBeInTheDocument()
+  })
+
+  it('carrega as evidências do item com tipo, documento e trecho original', async () => {
+    mockLoad([{ ...result, evidence_ids: [7], resultado: 'CONFIRMADO', resultado_label: 'Comprovado', state: 'CONFIRMADO' }])
+    vi.mocked(fetch).mockReturnValueOnce(response({ evidencias: [{ id: 7, tipo_evidencia: 'REGRA_OFICIAL_VENDA', tipo_evidencia_label: 'Regra oficial da venda', documento: 'condicoes.txt', version: 1, fact: 'Regra de condomínio.', source_excerpt: 'Condomínio: até o limite de 10%.', agent: 'condicoes_venda', confidence: 'ALTA' }] }))
+    render(<ChecklistSection propertyId={5} />)
+    await screen.findByText('Intimação para purgar mora foi pessoal?')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ver evidências (1)' }))
+    expect(await screen.findByText('Regra oficial da venda')).toBeInTheDocument()
+    expect(screen.getByText('Condomínio: até o limite de 10%.')).toBeInTheDocument()
+    expect(screen.getByText(/Documento: condicoes.txt \(v1\)/)).toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls[2][0]).toContain('/api/imoveis/5/checklist/30/evidencias')
+    fireEvent.click(screen.getByRole('button', { name: 'Ocultar evidências' }))
+    expect(screen.queryByText('Regra oficial da venda')).not.toBeInTheDocument()
+  })
+
   it('trata erro de carregamento e permite retry', async () => {
     vi.mocked(fetch).mockReturnValueOnce(response({ detail: 'Falha' }, false, 500))
     render(<ChecklistSection propertyId={5} />)

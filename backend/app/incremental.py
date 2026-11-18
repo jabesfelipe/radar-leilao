@@ -75,6 +75,11 @@ class IncrementalAnalysisService:
             # Mesmo fluxo da análise completa: itens que os dados cadastrados respondem (sem IA).
             from .services import resolve_checklist_from_data
             resolve_checklist_from_data(self.db, prop, execution)
+            from .checklist_evidence import resolve_checklist_evidence
+            checklist_evidence_ids = resolve_checklist_evidence(self.db, prop, analysis, execution, registry)
+            if checklist_evidence_ids:
+                evidence_ids += checklist_evidence_ids
+                analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + checklist_evidence_ids))
             recalculate_risks(self.db, prop, analysis.version)
             verdict = create_verdict(self.db, prop, analysis, None)
             event.processed = True

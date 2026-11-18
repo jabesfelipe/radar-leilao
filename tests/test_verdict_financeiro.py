@@ -242,11 +242,19 @@ def test_api_caso01_sem_ia_recomenda_nao_arrematar(client):
     assert round(fin["custo_total"]) == gabarito["custo_total_no_lance_minimo_brl"]
     assert fin["preco_maximo_definitivo"] is gabarito["preco_maximo_definitivo_esperado"]
     assert set(gabarito["custos_pendentes_esperados"]) <= set(fin["preco_maximo_detalhe"]["custos_desconhecidos"])
-    # Avisos "LLM não configurada" não viram evidência. v1.0.7: sem IA, só a leitura determinística da cadeia
-    # registral da matrícula (que não depende de IA) gera evidências.
+    # Avisos "LLM não configurada" não viram evidência. v1.0.7: sem IA, só leituras determinísticas geram evidências: a cadeia
+    # registral da matrícula e (v1.0.11, evidencias-v1) as condições do edital e os módulos do Radar. Nenhuma é inferência da IA.
     evs = session.query(models.Evidence).filter(models.Evidence.property_id == pid).all()
     assert {e.id for e in evs if e.id in corpo["evidencias"]} == set(corpo["evidencias"])
-    assert all(e.agent == "cadeia_registral" for e in evs if e.id in corpo["evidencias"])
+    deterministicos = {"cadeia_registral", "condicoes_venda", "inteligencia_mercado", "cadastro", "cadastro_ocupacao", "cadastro_processos",
+                       "cadastro_localizacao", "premissas"}
+    assert {e.agent for e in evs if e.id in corpo["evidencias"]} <= deterministicos
+    assert not any(e.origin == "INFERENCIA_IA" for e in evs if e.id in corpo["evidencias"])
+    # o edital (débitos por conta do arrematante, sem limite) responde o item 15 com o trecho; a evicção, ausente, fica inconclusiva
+    itens_ = {i["canonical_key"]: i for i in c.get(f"/api/imoveis/{pid}").json()["checklist"]}
+    assert itens_["RESPONSABILIDADE_DEBITOS"]["state"] == "CONFIRMADO" and "sem limite indicado" in itens_["RESPONSABILIDADE_DEBITOS"]["answer"]
+    assert itens_["EVICCAO"]["resultado"] == "INCONCLUSIVO"
+    assert itens_["PENHORA_INDISPONIBILIDADE"]["state"] == "RISCO_IDENTIFICADO" and "Av-3" in itens_["PENHORA_INDISPONIBILIDADE"]["answer"]
     assert not any("não configurada" in (e.fact or "") for e in evs)
     # Pendência resolvida pelos dados: 2º leilão = 60% da avaliação.
     detalhe = c.get(f"/api/imoveis/{pid}").json()

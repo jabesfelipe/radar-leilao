@@ -90,6 +90,8 @@ class FinanceAssumptions(BaseModel):
     iptu_anual_reserva_conservador: Decimal | None = Field(default=None, ge=0)
     iptu_reserva_origem: str | None = Field(default=None, max_length=240)
     condicoes_caixa: CaixaConditions | None = None
+    # v1.0.11: referência de análise para "grande reforma" no checklist (fração da aquisição; 0.10 = 10%). Sem valor: catálogo/padrão.
+    reforma_grande_pct: Decimal | None = Field(default=None, gt=0, le=1)
 
     @model_validator(mode="after")
     def _reservas_com_origem(self):

@@ -28,16 +28,17 @@ type AssumptionsForm = {
   valor_venda_estimado: string
   prazo_meses: string
   carregamento_mensal: string
+  reforma_grande_pct: string
 }
 
 const initialAssumptions: AssumptionsForm = {
   goal_kind: '', goal_value: '', corretagem_pct: '', tributo_pct: '', tax_base: 'GANHO',
-  valor_venda_estimado: '', prazo_meses: '', carregamento_mensal: '',
+  valor_venda_estimado: '', prazo_meses: '', carregamento_mensal: '', reforma_grande_pct: '',
 }
 
 // Percentuais são exibidos ao usuário em % (5 = 5%) e convertidos para fração na API.
 function mergeAssumptions(p: FinanceAssumptions): AssumptionsForm {
-  const pct = (v?: number | null) => (v === null || v === undefined ? '' : String(v * 100))
+  const pct = (v?: number | string | null) => (v === null || v === undefined || v === '' ? '' : String(Number(v) * 100))
   const num = (v?: number | null) => (v === null || v === undefined ? '' : String(v))
   return {
     goal_kind: (p.goal_kind as AssumptionsForm['goal_kind']) || '',
@@ -48,6 +49,7 @@ function mergeAssumptions(p: FinanceAssumptions): AssumptionsForm {
     valor_venda_estimado: num(p.valor_venda_estimado),
     prazo_meses: p.prazo_meses == null ? '' : String(p.prazo_meses),
     carregamento_mensal: num(p.carregamento_mensal),
+    reforma_grande_pct: pct(p.reforma_grande_pct),
   }
 }
 
@@ -148,6 +150,7 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
         valor_venda_estimado: numOrNull(assumptions.valor_venda_estimado),
         prazo_meses: intOrNull(assumptions.prazo_meses),
         carregamento_mensal: numOrNull(assumptions.carregamento_mensal),
+        reforma_grande_pct: pctOrNull(assumptions.reforma_grande_pct),
       }
       const finance = await saveFinanceAssumptions(propertyId, payload)
       setResult(finance.financeiro)
@@ -339,6 +342,9 @@ export function FinancialSection({ propertyId }: FinancialSectionProps) {
             </Select>
             <Input label="Prazo da operação (meses)" type="number" step="1" value={assumptions.prazo_meses} onChange={(e) => setAssumptions((a) => ({ ...a, prazo_meses: e.target.value }))} />
             <Input label="Carregamento mensal (R$/mês)" type="number" step="0.01" value={assumptions.carregamento_mensal} onChange={(e) => setAssumptions((a) => ({ ...a, carregamento_mensal: e.target.value }))} />
+            <Input label="Referência de grande reforma (% da aquisição)" type="number" step="0.1" min="0" max="100" placeholder="Padrão: 10"
+              hint="Premissa de análise do item 21 do checklist, não regra jurídica. Vazio usa o padrão de 10%."
+              value={assumptions.reforma_grande_pct} onChange={(e) => setAssumptions((a) => ({ ...a, reforma_grande_pct: e.target.value }))} />
             <PremisesSuggestions
               propertyId={propertyId}
               current={{ valor_venda_estimado: assumptions.valor_venda_estimado, corretagem_pct: assumptions.corretagem_pct, tributo_pct: assumptions.tributo_pct,

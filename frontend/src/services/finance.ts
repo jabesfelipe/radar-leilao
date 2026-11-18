@@ -148,6 +148,8 @@ export type FinanceAssumptions = {
   valor_venda_estimado?: number | null
   prazo_meses?: number | null
   carregamento_mensal?: number | null
+  /** v1.0.11: referência de análise para "grande reforma" no checklist (fração da aquisição). Vazio = catálogo/padrão de 10%. */
+  reforma_grande_pct?: number | string | null
   cenarios?: unknown[]
 }
 

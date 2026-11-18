@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .database import get_db
 from .logging_config import configure_logging, get_logger
-from . import models, schemas, secrets_crypto
+from . import modality_rules, models, schemas, secrets_crypto
 from .parameters import parameter_snapshot
 from .ai.agents import ChecklistAgent, DocumentAgent, FinancialAgent, LegalAgent, MarketAgent
 from .ai.gateway import build_gateway, sanitize_error
@@ -28,7 +28,8 @@ from .market import calculate_market
 from .rag.service import RAGService
 from .rag.retriever import RetrieverFilters
 from . import legal_service
-from .checklist import standard_justification, standard_status
+from .checklist import (EVIDENCE_TYPE_LABELS, RESULT_LABELS, RESULTADO_CONFIRMADO, RESULTADO_NAO_APLICAVEL, checklist_outcome, evidence_type,
+                        standard_justification, standard_status)
 from .services import (aggregate_llm_usage, build_finance, current_auction, checklist_item_snapshot, create_analysis, create_checklist_item, create_execution, create_verdict, ensure_checklist_master, impacted_domains, juridical_overview, latest_execution, latest_occupancy, persist_agent_findings, persist_checklist_agent_findings, persist_llm_runs, recalculate_risks, record_event, record_history, record_checklist_event, record_checklist_history, record_global_event, record_global_history, serialize, update_checklist_item, get_post_auction, seed_default_stages, post_auction_cost_summary, due_diligence_overview, location_out, ensure_property_location, get_property_location, validate_location_checklist, upsert_due_diligence_front, get_due_diligence_front, reflect_due_diligence_signals)
 
 from .https_guard import HttpsGuardMiddleware
@@ -307,11 +308,44 @@ def checklist_rule_history(item_id: int, db: Session = Depends(get_db)):
     if not db.get(models.ChecklistItem, item_id): raise HTTPException(404, "Regra do Checklist Mestre não encontrada")
     return db.scalars(select(models.EntityHistory).where(models.EntityHistory.entity_type == "ChecklistItem", models.EntityHistory.entity_id == item_id).order_by(models.EntityHistory.created_at)).all()
 
+def _checklist_guidance(result: models.ChecklistResult, modality: str | None) -> dict:
+    """Campos de leitura do item (v1.0.11, aditivos): pergunta adequada à modalidade, resultado para o investidor, o que fazer
+    e de onde a resposta precisa vir. Tudo derivado do que está gravado: análises anteriores ganham os mesmos campos."""
+    key = result.item.canonical_key
+    purpose = modality_rules.ITEM_PURPOSE.get(key, {})
+    outcome = checklist_outcome(result.state, result.applicable)
+    resolved = outcome in (RESULTADO_CONFIRMADO, RESULTADO_NAO_APLICAVEL)
+    return {"question": modality_rules.item_question(modality, key, result.item.question), "pergunta_catalogo": result.item.question,
+            "resultado": outcome, "resultado_label": RESULT_LABELS[outcome], "grupo": purpose.get("grupo"),
+            "acao_recomendada": None if resolved else (purpose.get("acao") or None), "fonte_necessaria": purpose.get("fonte") or None}
+
+
 @app.get("/api/imoveis/{property_id}/checklist")
 def property_checklist(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     executions = db.scalars(select(models.ChecklistExecution).where(models.ChecklistExecution.property_id == prop.id).order_by(models.ChecklistExecution.created_at)).all()
-    return [{"id": execution.id, "analysis_version": execution.analysis_version, "triggered_by": execution.triggered_by, "created_at": execution.created_at, "results": [{"id": result.id, "checklist_item_id": result.checklist_item_id, "canonical_key": result.item.canonical_key, "item_version": result.item_version, "applicable": result.applicable, "state": result.state, "status_padrao": standard_status(result.state, result.applicable), "justificativa": standard_justification(result.state, result.applicable, result.answer, result.interpretation), "evidence_ids": sorted(link.evidence_id for link in result.evidence_links), "answer": result.answer, "confidence": result.confidence, "interpretation": result.interpretation, "risk": result.risk, "previous_result_id": result.previous_result_id} for result in execution.results]} for execution in executions]
+    return [{"id": execution.id, "analysis_version": execution.analysis_version, "triggered_by": execution.triggered_by, "created_at": execution.created_at, "results": [{"id": result.id, "checklist_item_id": result.checklist_item_id, "canonical_key": result.item.canonical_key, "item_version": result.item_version, "applicable": result.applicable, "state": result.state, "status_padrao": standard_status(result.state, result.applicable), "justificativa": standard_justification(result.state, result.applicable, result.answer, result.interpretation), "evidence_ids": sorted(link.evidence_id for link in result.evidence_links), "answer": result.answer, "confidence": result.confidence, "interpretation": result.interpretation, "risk": result.risk, "previous_result_id": result.previous_result_id, "resolution_origin": result.resolution_origin, **_checklist_guidance(result, prop.modality)} for result in execution.results]} for execution in executions]
+
+
+@app.get("/api/imoveis/{property_id}/checklist/{result_id}/evidencias")
+def checklist_result_evidences(property_id: int, result_id: int, db: Session = Depends(get_db)):
+    """Evidências de um item do checklist (v1.0.11): documento, página, trecho original, tipo, confiança, agente ou regra e data.
+
+    O texto da conclusão nunca substitui o trecho do documento: ``source_excerpt`` é o trecho gravado (ou o do chunk)."""
+    property_or_404(db, property_id)
+    result = db.get(models.ChecklistResult, result_id)
+    if result is None or result.execution is None or result.execution.property_id != property_id:
+        raise HTTPException(404, "Item do checklist não encontrado para o imóvel")
+    ids = sorted(link.evidence_id for link in result.evidence_links)
+    view = verdict_evidences_view(db, ids)
+    for item in view:
+        evidence = db.get(models.Evidence, item["id"])
+        kind = evidence_type(evidence.origin, evidence.category, evidence.document_version_id is not None)
+        item["tipo_evidencia"] = kind
+        item["tipo_evidencia_label"] = EVIDENCE_TYPE_LABELS[kind]
+        item["created_at"] = evidence.created_at
+    return {"checklist_result_id": result.id, "canonical_key": result.item.canonical_key, "analysis_version": result.execution.analysis_version,
+            "state": result.state, "resultado": checklist_outcome(result.state, result.applicable), "evidencias": view}
 
 @app.get("/api/imoveis/{property_id}/checklist/historico")
 def property_checklist_history(property_id: int, db: Session = Depends(get_db)):
@@ -712,7 +746,7 @@ def get_property(property_id: int, db: Session = Depends(get_db)):
     latest = db.scalar(select(models.Verdict).where(models.Verdict.property_id == property_id).order_by(models.Verdict.analysis_version.desc(), models.Verdict.id.desc()))
     veredito_evidencias = verdict_evidences_view(db, latest.evidence_ids if latest else [])
     juridico = juridical_overview(db, prop)
-    checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "status_padrao": standard_status(r.state, r.applicable), "justificativa": standard_justification(r.state, r.applicable, r.answer, r.interpretation), "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk, "resolution_origin": r.resolution_origin, "evidence_ids": sorted(link.evidence_id for link in r.evidence_links)} for r in (execution.results if execution else [])]
+    checklist = [{"id": r.id, "item_number": r.item.priority, "canonical_key": r.item.canonical_key, "question": r.item.question, "description": r.item.description, "category": r.item.category, "domain": r.item.domain, "origin": r.item.origin, "active": r.item.active, "applicable": r.applicable, "required": r.item.required, "item_version": r.item_version, "state": r.state, "status_padrao": standard_status(r.state, r.applicable), "justificativa": standard_justification(r.state, r.applicable, r.answer, r.interpretation), "answer": r.answer, "confidence": r.confidence, "interpretation": r.interpretation, "risk": r.risk, "resolution_origin": r.resolution_origin, "evidence_ids": sorted(link.evidence_id for link in r.evidence_links), **_checklist_guidance(r, prop.modality)} for r in (execution.results if execution else [])]
     return {"imovel": _property_columns(prop), "leilao": prop.auctions[-1] if prop.auctions else None, "edital": prop.notices[-1] if prop.notices else None, "matricula": prop.registrations[-1] if prop.registrations else None, "fontes": sorted(prop.sources, key=lambda s: s.id), "documentos": [{"id": d.id, "name": d.name, "document_type": d.document_type, "status": d.status, "source": d.source, "versions": [{"id": v.id, "version": v.version, "hash": v.content_hash, "status": v.status} for v in d.versions]} for d in prop.documents], "evidencias": [masked_evidence(e) for e in prop.evidences], "processos": prop.processes, "custos": prop.costs, "dividas": prop.debts, "comparaveis": prop.comparables, "checklist": checklist, "riscos": prop.risks, "analises": sorted(prop.analyses, key=lambda a: a.version), "eventos": prop.events, "veredito": latest, "veredito_evidencias": veredito_evidencias, "juridico": juridico, "financeiro": serialize(build_finance(prop)), "analise_em_processamento": _analysis_running_safe(db, property_id), "analise_ultima": _last_analysis_state(prop), "confronto_documental": _document_comparison_view(prop)}
 
 
@@ -1347,6 +1381,13 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     # pendência sem depender de IA; só itens ainda PENDENTES são tocados.
     from .services import resolve_checklist_from_data
     resolve_checklist_from_data(db, prop, execution)
+    # Condições da venda, ocupação, localização, mercado e premissas respondem os itens que podem responder (evidencias-v1);
+    # os que seguem em aberto recebem justificativa própria.
+    from .checklist_evidence import resolve_checklist_evidence
+    checklist_evidence_ids = resolve_checklist_evidence(db, prop, analysis, execution, registry)
+    if checklist_evidence_ids:
+        evidence_ids += checklist_evidence_ids
+        analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + checklist_evidence_ids))
     recalculate_risks(db, prop, analysis.version)
     verdict = create_verdict(db, prop, analysis, orchestration.get("verdict"), automated_analysis_available=bool(status_info.get("ia_disponivel")))
     db.commit()

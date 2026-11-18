@@ -308,6 +308,9 @@ describe('FinancialSection: sugestões da inteligência de mercado', () => {
     expect(screen.getByLabelText('Valor de venda estimado (R$)')).toHaveValue(212062.3)
     expect(within(within(tabela).getByRole('row', { name: /Valor de venda estimado/ })).getByText('Em uso')).toBeInTheDocument()
     expect(screen.getByLabelText('Corretagem na venda (%)')).toHaveValue(5)        // outro campo não muda
+    // v1.0.11: referência de "grande reforma" do checklist é premissa ajustável (informada em %, gravada em fração)
+    expect(screen.getByText(/Premissa de análise do item 21 do checklist, não regra jurídica/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Referência de grande reforma (% da aquisição)'), { target: { value: '15' } })
 
     fireEvent.click(screen.getByRole('button', { name: /Salvar premissas/ }))
     expect(await screen.findByText('Premissas financeiras salvas. O resultado foi recalculado.')).toBeInTheDocument()
@@ -318,6 +321,7 @@ describe('FinancialSection: sugestões da inteligência de mercado', () => {
     expect(body.goal_kind).toBeNull()                                               // meta continua decisão do usuário
     expect(body.itbi_aliquota).toBe('0.025')
     expect(body.condicoes_caixa).toEqual(premissasSalvas.condicoes_caixa)
+    expect(body.reforma_grande_pct).toBeCloseTo(0.15)
   })
 
   it('sem inteligência de mercado o formulário segue manual, sem sugestão', async () => {

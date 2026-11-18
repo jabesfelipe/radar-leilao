@@ -154,8 +154,10 @@ def test_item09_confirmado_pela_matricula_com_alienacao_e_consolidacao(db):
     assert all(e.chunk_id is not None and e.source_excerpt for e in evs)                 # trecho da matrícula
     textos = " ".join(e.fact for e in evs)
     assert "Alienação fiduciária registrada (R-3)" in textos and "Av-5" in textos
-    # ausência de penhora no texto lido NÃO responde o item 10
-    assert _por_chave(execution)["PENHORA_INDISPONIBILIDADE"].state == "PENDENTE"
+    # v1.0.11 (evidencias-v1): matrícula lida em sequência contínua (Av-1 a Av-5) sem penhora → "sem restrição identificada",
+    # com o limite da conclusão explícito; nunca "inexistência" e nunca CONFIRMADO.
+    penhora = _por_chave(execution)["PENHORA_INDISPONIBILIDADE"]
+    assert penhora.state == "NAO_IDENTIFICADO" and "não é garantia de inexistência" in penhora.interpretation
 
 
 def test_item09_so_com_alienacao_fica_inconclusivo(db):

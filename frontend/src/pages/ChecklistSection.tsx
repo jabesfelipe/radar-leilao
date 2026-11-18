@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ClipboardCheck, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section, Select, Textarea } from '../components/ui'
-import { CHECKLIST_CONFIDENCES, CHECKLIST_STATES, listChecklist, updateChecklistItem, type ChecklistConfidence, type ChecklistItem, type ChecklistState } from '../services/checklist'
+import { CHECKLIST_CONFIDENCES, CHECKLIST_STATES, listChecklist, listChecklistEvidence, updateChecklistItem, type ChecklistConfidence, type ChecklistEvidence, type ChecklistItem, type ChecklistOutcome, type ChecklistState } from '../services/checklist'
 
 type ChecklistSectionProps = {
   propertyId: number
@@ -33,6 +33,18 @@ const stateTone: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | '
   NAO_APLICAVEL: 'neutral',
 }
 
+// Resultado para o investidor (v1.0.11): vem pronto do backend; aqui só a ordem e o tom de exibição.
+const OUTCOME_ORDER: ChecklistOutcome[] = ['RISCO_IDENTIFICADO', 'PENDENTE', 'INCONCLUSIVO', 'CONFIRMADO', 'SEM_RESTRICAO_IDENTIFICADA', 'NAO_APLICAVEL']
+
+const outcomeTone: Record<ChecklistOutcome, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
+  CONFIRMADO: 'success',
+  RISCO_IDENTIFICADO: 'danger',
+  PENDENTE: 'warning',
+  INCONCLUSIVO: 'info',
+  NAO_APLICAVEL: 'neutral',
+  SEM_RESTRICAO_IDENTIFICADA: 'success',
+}
+
 function stateLabel(state: string) {
   return stateLabels[state] ?? state
 }
@@ -60,7 +72,30 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
   const [rowError, setRowError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [draft, setDraft] = useState<{ state: ChecklistState; confidence: ChecklistConfidence | ''; answer: string }>({ state: 'PENDENTE', confidence: '', answer: '' })
+  const [evidence, setEvidence] = useState<Record<number, { loading: boolean; error: string; items: ChecklistEvidence[] }>>({})
   const submittingRef = useRef(false)
+
+  const toggleEvidence = async (item: ChecklistItem) => {
+    if (evidence[item.id] && !evidence[item.id].loading) {
+      setEvidence((current) => {
+        const next = { ...current }
+        delete next[item.id]
+        return next
+      })
+      return
+    }
+    setEvidence((current) => ({ ...current, [item.id]: { loading: true, error: '', items: [] } }))
+    try {
+      const items = await listChecklistEvidence(propertyId, item.id)
+      setEvidence((current) => ({ ...current, [item.id]: { loading: false, error: '', items } }))
+    } catch (cause) {
+      setEvidence((current) => ({ ...current, [item.id]: { loading: false, error: cause instanceof Error ? cause.message : 'Não foi possível carregar as evidências.', items: [] } }))
+    }
+  }
+
+  const outcomeCounts = OUTCOME_ORDER
+    .map((outcome) => ({ outcome, label: items.find((i) => i.resultado === outcome)?.resultado_label ?? outcome, count: items.filter((i) => i.resultado === outcome).length }))
+    .filter((entry) => entry.count > 0)
 
   const loadChecklist = useCallback(async () => {
     setLoading(true)
@@ -126,9 +161,18 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
         <Card padding="none"><EmptyState title="Checklist não disponível" description="Ainda não há itens de checklist para este imóvel." icon={<ClipboardCheck size={24} />} /></Card>
       ) : (
         <div className="checklist-list">
+          {outcomeCounts.length > 0 && (
+            <Card padding="md" className="checklist-summary" aria-label="Resumo do checklist">
+              {outcomeCounts.map((entry) => (
+                <Badge key={entry.outcome} tone={outcomeTone[entry.outcome]} size="sm">{`${entry.label}: ${entry.count}`}</Badge>
+              ))}
+            </Card>
+          )}
           {items.map((item) => {
             const isEditing = editingId === item.id
             const isSaving = savingId === item.id
+            const itemEvidence = evidence[item.id]
+            const evidenceCount = item.evidence_ids?.length ?? 0
             return (
               <Card key={item.id} padding="lg" className="checklist-item">
                 <div className="checklist-item-head">
@@ -136,6 +180,9 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
                     {item.item_number != null && <span className="checklist-number">{String(item.item_number).padStart(2, '0')}</span>}
                     <h3>{item.question}</h3>
                   </div>
+                  {item.resultado && item.resultado_label && (
+                    <Badge tone={outcomeTone[item.resultado] ?? 'neutral'} size="sm">{item.resultado_label}</Badge>
+                  )}
                   <Badge tone={stateTone[item.state] ?? 'neutral'} size="sm">{stateLabel(item.state)}</Badge>
                 </div>
 
@@ -145,10 +192,41 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
                   {item.origin && <Fact label="Origem" value={item.origin} />}
                   <Fact label="Aplicabilidade" value={applicabilityLabel(item.applicable)} />
                   <Fact label="Confiança" value={item.confidence ? (confidenceLabels[item.confidence] ?? item.confidence) : 'Não informado'} />
-                  {item.answer && <Fact label="Resposta" value={item.answer} />}
-                  {item.interpretation && <Fact label="Interpretação" value={item.interpretation} />}
+                  {item.answer && <Fact label="Conclusão" value={item.answer} />}
+                  {item.interpretation && <Fact label="Fundamentação" value={item.interpretation} />}
+                  {item.acao_recomendada && <Fact label="O que fazer" value={item.acao_recomendada} />}
+                  {item.fonte_necessaria && <Fact label="Fonte necessária" value={item.fonte_necessaria} />}
                   {item.risk && <Fact label="Risco" value={item.risk} />}
                 </dl>
+
+                {evidenceCount > 0 && (
+                  <div className="checklist-evidence">
+                    <Button variant="ghost" onClick={() => void toggleEvidence(item)} aria-expanded={Boolean(itemEvidence && !itemEvidence.loading)}>
+                      {itemEvidence && !itemEvidence.loading ? 'Ocultar evidências' : `Ver evidências (${evidenceCount})`}
+                    </Button>
+                    {itemEvidence?.loading && <LoadingState label="Carregando evidências…" />}
+                    {itemEvidence?.error && <Alert tone="danger">{itemEvidence.error}</Alert>}
+                    {itemEvidence && !itemEvidence.loading && !itemEvidence.error && (
+                      <ul className="checklist-evidence-list">
+                        {itemEvidence.items.map((ev) => (
+                          <li key={ev.id}>
+                            <strong>{ev.tipo_evidencia_label ?? ev.tipo_evidencia ?? 'Evidência'}</strong>
+                            {ev.fact && <p>{ev.fact}</p>}
+                            {ev.source_excerpt && <blockquote>{ev.source_excerpt}</blockquote>}
+                            <small>
+                              {[ev.documento ? `Documento: ${ev.documento}${ev.version ? ` (v${ev.version})` : ''}` : null,
+                                ev.page != null ? `Página ${ev.page}` : ev.section ?? null,
+                                ev.agent ? `Responsável: ${ev.agent}` : null,
+                                ev.confidence ? `Confiança: ${confidenceLabels[ev.confidence] ?? ev.confidence}` : null,
+                                ev.created_at ? `Registrada em ${new Date(ev.created_at).toLocaleDateString('pt-BR')}` : null,
+                                `#${ev.id}`].filter(Boolean).join(' · ')}
+                            </small>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
 
                 {isEditing ? (
                   <form className="checklist-form" onSubmit={(event) => submit(event, item)} noValidate>
