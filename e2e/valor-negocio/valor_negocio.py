@@ -186,10 +186,17 @@ def avaliar_financeiro(fin: dict[str, Any], gab: dict[str, Any], ins: dict[str, 
     resultado = num(fin.get("resultado_liquido"))
     margem = num(fin.get("margem_liquida"))
     meta = ((fin.get("preco_maximo_detalhe") or {}).get("premissas_utilizadas") or {}).get("meta") or {}
+    # Regra financeira atual: o preço máximo do caso é PROVISÓRIO (custos pendentes listados no gabarito); o Radar precisa
+    # chegar ao valor de referência E declarar corretamente se é definitivo ou provisório, apontando os mesmos pendentes.
+    definitivo_esperado = bool(esperado.get("preco_maximo_definitivo_esperado", True))
+    pendentes_esperados = set(esperado.get("custos_pendentes_esperados") or [])
+    desconhecidos = set(((fin.get("preco_maximo_detalhe") or {}).get("custos_desconhecidos")) or [])
     criterios = {
         "Q1_calcula_preco_maximo": {
-            "ok": pm is not None and abs(pm - ref) <= ref * tol and bool(fin.get("preco_maximo_definitivo")),
-            "radar": pm, "referencia": ref, "definitivo": fin.get("preco_maximo_definitivo")},
+            "ok": (pm is not None and abs(pm - ref) <= ref * tol and bool(fin.get("preco_maximo_definitivo")) == definitivo_esperado
+                   and pendentes_esperados <= desconhecidos),
+            "radar": pm, "referencia": ref, "definitivo": fin.get("preco_maximo_definitivo"), "definitivo_esperado": definitivo_esperado,
+            "custos_pendentes_radar": sorted(desconhecidos), "custos_pendentes_esperados": sorted(pendentes_esperados)},
         "Q2_identifica_prejuizo": {
             "ok": resultado is not None and resultado < 0, "resultado_liquido_radar": resultado,
             "referencia": esperado.get("resultado_no_lance_minimo_brl")},

@@ -44,9 +44,27 @@ export type VerdictGround = {
   categoria?: string | null
 }
 
+export type VerdictFactor = {
+  origem: 'RISCO' | 'CHECKLIST' | 'FINANCEIRO' | string
+  descricao: string
+  acao?: string | null
+  justificativa?: string | null
+  estado?: string | null
+  chave?: string | null
+  gravidade?: string | null
+}
+
+/** Fatores do veredito (v2): o que impede a recomendação e como resolver cada pendência. */
+export type VerdictFactors = {
+  grupos: Record<string, VerdictFactor[]>
+  titulos: Record<string, string>
+  contagem: Record<string, number>
+}
+
 export type VerdictDecisionDetail = {
   recomendacao?: VerdictRecommendation | null
   fundamentos?: VerdictGround[] | null
+  fatores?: VerdictFactors | null
   avaliacao_financeira?: { status?: 'VIAVEL' | 'INVIAVEL' | 'INDETERMINADO' | string; motivos?: string[]; faltantes?: string[] } | null
   analise_automatica_disponivel?: boolean | null
 }

@@ -1334,7 +1334,7 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     from .services import persist_registry_findings
     registry = registry_for_property(db, prop.id)
     evidence_ids = persist_agent_findings(db, prop, analysis, execution, orchestration.get("agent_results", []), registry)
-    evidence_ids += persist_registry_findings(db, prop, analysis, registry)
+    evidence_ids += persist_registry_findings(db, prop, analysis, registry, execution)
     llm_runs = persist_llm_runs(db, prop, analysis, orchestration.get("llm_runs", []))
     analysis.token_usage = {**analysis.token_usage, **serialize(aggregate_llm_usage(llm_runs))}
     # Status HONESTO: calculado das chamadas reais dos agentes e da prontidão dos documentos

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BadgeCheck, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section } from '../components/ui'
-import { getAssessment, verdictDecision, type ComparisonSide, type DocumentComparison, type Verdict, type VerdictEvidence, type VerdictGround } from '../services/assessment'
+import { getAssessment, verdictDecision, type ComparisonSide, type DocumentComparison, type Verdict, type VerdictEvidence, type VerdictFactors, type VerdictGround } from '../services/assessment'
 
 // Natureza de cada fundamento: o investidor precisa distinguir risco jurídico, pendência documental
 // e inviabilidade financeira (e saber quando a leitura automática simplesmente não rodou).
@@ -14,6 +14,8 @@ const groundGroups: { tipo: string; titulo: string; tone: 'danger' | 'warning' |
   { tipo: 'PENDENCIA_DOCUMENTAL', titulo: 'Pendências documentais', tone: 'info' },
   { tipo: 'ANALISE_AUTOMATICA_INDISPONIVEL', titulo: 'Leitura automática dos documentos', tone: 'neutral' },
 ]
+// Tipos de fundamento que os fatores do veredito (v2) já mostram, com justificativa e ação.
+const groundsCoveredByFactors = new Set(['RISCO_JURIDICO', 'RISCO_OPERACIONAL', 'PENDENCIA_FINANCEIRA', 'PENDENCIA_DOCUMENTAL'])
 
 const recommendationTone: Record<string, 'danger' | 'warning' | 'success' | 'info'> = {
   NAO_ARREMATAR: 'danger',
@@ -229,9 +231,11 @@ function RecommendationBlock({ verdict }: { verdict: Verdict }) {
           {maxBid && <Fact label={recommendation.lance_maximo_definitivo ? 'Preço máximo (meta)' : 'Preço máximo (provisório)'} value={maxBid} />}
         </dl>
       )}
+      {decision?.fatores && <FactorsBlock factors={decision.fatores} />}
       {grounds.length > 0 && (
         <div className="verdict-grounds">
-          {groundGroups.map((group) => {
+          {/* Com fatores (v2), riscos e pendências aparecem nos fatores; aqui ficam viabilidade e leitura automática. */}
+          {(decision?.fatores ? groundGroups.filter((group) => !groundsCoveredByFactors.has(group.tipo)) : groundGroups).map((group) => {
             const items = grounds.filter((ground: VerdictGround) => ground.tipo === group.tipo)
             if (items.length === 0) return null
             return (
@@ -247,6 +251,45 @@ function RecommendationBlock({ verdict }: { verdict: Verdict }) {
         </div>
       )}
     </Card>
+  )
+}
+
+// Fatores do veredito (v2): separa impedimentos, informações desconhecidas, premissas não configuradas, riscos que reduzem
+// a confiança e itens não aplicáveis, com a ação que resolve cada um. Vereditos antigos (sem fatores) usam os fundamentos.
+const factorOrder: { key: string; tone: 'danger' | 'warning' | 'info' | 'success' | 'neutral' }[] = [
+  { key: 'impedimentos', tone: 'danger' },
+  { key: 'informacoes_essenciais', tone: 'warning' },
+  { key: 'premissas_nao_configuradas', tone: 'info' },
+  { key: 'riscos_confianca', tone: 'warning' },
+  { key: 'nao_aplicaveis', tone: 'neutral' },
+]
+
+function FactorsBlock({ factors }: { factors: VerdictFactors }) {
+  return (
+    <div className="verdict-grounds" aria-label="Fatores do veredito">
+      {factorOrder.map(({ key, tone }) => {
+        const items = factors.grupos?.[key] ?? []
+        if (items.length === 0) return null
+        const collapsed = key === 'nao_aplicaveis'
+        const list = (
+          <ul className="verdict-pending">
+            {items.map((item, index) => (
+              <li key={`${key}-${index}`}>
+                {item.descricao}
+                {item.justificativa ? <small className="market-obs"> {item.justificativa}</small> : null}
+                {item.acao ? <small className="market-obs"> Ação: {item.acao}</small> : null}
+              </li>
+            ))}
+          </ul>
+        )
+        return (
+          <div key={key} className="verdict-ground-group">
+            <p className="verdict-ground-title"><Badge tone={tone} size="sm">{factors.titulos?.[key] ?? key}</Badge> <span className="verdict-ground-count">{items.length}</span></p>
+            {collapsed ? <details><summary>Ver itens não aplicáveis e a regra de cada um</summary>{list}</details> : list}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

@@ -39,12 +39,17 @@
     "goal_kind": "MARGEM_MINIMA", "goal_value": 0.20
   },
   "conta_de_referencia": {
-    "formula": "Mesma do finance.py: custo_total = lance + comissão + ITBI + registro + reforma + desocupação + débitos + carregamento; resultado = V - corretagem - tributo_sobre_ganho - custo_total; margem = resultado / V; preço máximo (margem ≥ 20%, tributo sobre ganho): A = [(1-t)V - corretagem - 0,2V - (1-t)F] / [(1-t)(1+comissão)].",
-    "custos_fixos_F_brl": 89450,
-    "custo_total_no_lance_minimo_brl": 341450,
-    "resultado_no_lance_minimo_brl": -26550,
-    "margem_no_lance_minimo": -0.0793,
-    "preco_maximo_margem_20pct_brl": 136266,
-    "leitura": "No lance mínimo do 2º leilão (R$ 240.000) a operação dá PREJUÍZO de ~R$ 26,5 mil; para margem de 20% o lance não pode passar de ~R$ 136 mil."
+    "formula": "Regra atual (viability: mesma composição do veredito e da inteligência de mercado): custo total CT = lance A + comissão 5% + ITBI + registro + certidões (reserva R$ 600) + débitos + reforma + desocupação + condomínio da posse (8 × R$ 900); venda líquida Vn = V − corretagem; IR = 15% × (Vn − D), D = custo dedutível = A + comissão + ITBI + registro + reforma; resultado = Vn − IR − CT; margem = resultado / V. Preço máximo (margem ≥ 20%): CT = 1,05A + 90.050; D = 1,05A + 40.850; resultado = 0,85 × 314.900 + 0,15 × D − CT = 183.742,50 − 0,8925A ≥ 67.000 ⇒ A ≤ 130.803,92.",
+    "custos_fixos_F_brl": 90050,
+    "custo_total_no_lance_minimo_brl": 342050,
+    "resultado_no_lance_minimo_brl": -30457.50,
+    "ir_no_lance_minimo_brl": 3307.50,
+    "margem_no_lance_minimo": -0.0909,
+    "preco_maximo_margem_20pct_brl": 130804,
+    "preco_maximo_provisorio": "regularização e IPTU da posse sem valor; certidões pela reserva do sistema",
+    "leitura": "No lance mínimo do 2º leilão (R$ 240.000) a operação dá PREJUÍZO de ~R$ 30,5 mil (há IR de R$ 3.307,50 sobre o ganho de capital porque dívidas, desocupação e condomínio não reduzem a base); para margem de 20% o lance não pode passar de ~R$ 130,8 mil (estimativa provisória).",
+    "regra_anterior": {"custos_fixos_F_brl": 89450, "custo_total_no_lance_minimo_brl": 341450, "resultado_no_lance_minimo_brl": -26550,
+                       "preco_maximo_margem_20pct_brl": 136266,
+                       "formula": "finance.py legado: IR = t × (V − custo total), sem dedução da corretagem; A = [(1-t)V - corretagem - 0,2V - (1-t)F] / [(1-t)(1+comissão)]."}
   }
 }

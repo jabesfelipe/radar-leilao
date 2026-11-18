@@ -8,6 +8,7 @@
 - **Endpoints:** `GET /api/imoveis/{id}/mercado` (router `market.py`), rotas de comparáveis em `main.py`, hub `GET /api/mercado`.
 - **Telas:** hub `/mercado`; seção "Mercado" do imóvel.
 - **Integração:** Google Geocoding (`geocoding_client.py`), opcional.
+- **Inteligência de mercado** (`viability.py`, `GET /api/imoveis/{id}/inteligencia-mercado`, v1.0.8): estimativa com confiança, cenários conservador/base/otimista e preço máximo. O cenário BASE usa o valor de venda do usuário quando informado e a mesma composição de custos do veredito. O preço máximo segue a **meta do usuário** (ROI, margem ou lucro mínimo), igual ao do veredito; sem meta configurada, mostra uma referência pelo ROI padrão, identificada como "meta do investidor não configurada".
 - **Limitação:** a coleta de comparáveis é manual; portais de anúncio não estão integrados.
 
 ## Ocupação
@@ -19,4 +20,4 @@
 - **Observação de arquitetura:** não existe agente de IA separado para ocupação; a situação alimenta os demais domínios.
 
 ## Código
-`market.py`, `routers/market.py`, `geocoding_client.py`, `main.py`; frontend `pages` e `services` (market, hub).
+`market.py`, `viability.py`, `routers/market.py`, `geocoding_client.py`, `main.py`; frontend `pages` e `services` (market, hub).

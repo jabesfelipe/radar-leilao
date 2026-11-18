@@ -85,11 +85,22 @@ def _add_custo(client, pid, categoria, valor):
 
 
 # Premissas completas materiais: corretagem e tributo informados; ITBI/registro via custos.
+# Consistência financeira (v2): o veredito usa a MESMA composição de custos da inteligência de mercado, em que
+# certidões, regularização, IPTU e condomínio da posse também são itens; sem valor declarado eles ficam pendentes
+# (nunca zero) e o cálculo é provisório. Por isso as premissas "completas" declaram esses itens.
 _PREMISSAS_COMPLETAS = {
     "goal_kind": "LUCRO_MINIMO", "goal_value": 40000,
     "corretagem_pct": 0.05, "tributo_pct": 0.0, "tax_base": "VENDA",
     "valor_venda_estimado": 320000,
+    "prazo_meses": 6, "carregamento_mensal": 400, "iptu_anual": 1200, "iptu_anual_origem": "carnê (teste)",
+    "certidoes": 600, "regularizacao": 0, "regularizacao_origem": "sem pendências (teste)",
 }
+
+
+def _declarar_custos_sem_pendencia(client, pid):
+    """Reforma, desocupação e débitos em atraso declarados como zero (conhecidos), para o cálculo poder ser definitivo."""
+    for categoria in ("REFORMA", "DESOCUPACAO", "CONDOMINIO", "IPTU"):
+        _add_custo(client, pid, categoria, "0")
 
 
 def _set_premissas(client, pid, **overrides):
@@ -106,6 +117,7 @@ def _set_premissas(client, pid, **overrides):
 
 def test_c1_premissas_completas_preco_maximo_definitivo(client):
     pid = _criar_imovel_com_leilao(client)
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "ITBI", "10000")
     _add_custo(client, pid, "REGISTRO", "20000")
     # comissão informada no leilão para não ser desconhecida:
@@ -130,6 +142,7 @@ def _preco_maximo_provisorio_por_custo_ausente(client, pid, expect_unknown):
 
 def test_c2_itbi_desconhecido_provisorio(client):
     pid = _criar_imovel_com_leilao(client)
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "REGISTRO", "20000")
     client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "200000", "appraisal_value": "300000", "commission_percent": "5"})
     _set_premissas(client, pid)
@@ -138,6 +151,7 @@ def test_c2_itbi_desconhecido_provisorio(client):
 
 def test_c3_registro_desconhecido_provisorio(client):
     pid = _criar_imovel_com_leilao(client)
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "ITBI", "10000")
     client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "200000", "appraisal_value": "300000", "commission_percent": "5"})
     _set_premissas(client, pid)
@@ -146,6 +160,7 @@ def test_c3_registro_desconhecido_provisorio(client):
 
 def test_c4_comissao_desconhecida_provisorio(client):
     pid = _criar_imovel_com_leilao(client)  # leilão sem comissão informada
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "ITBI", "10000")
     _add_custo(client, pid, "REGISTRO", "20000")
     _set_premissas(client, pid)
@@ -154,6 +169,7 @@ def test_c4_comissao_desconhecida_provisorio(client):
 
 def test_c5_corretagem_desconhecida_provisorio(client):
     pid = _criar_imovel_com_leilao(client)
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "ITBI", "10000")
     _add_custo(client, pid, "REGISTRO", "20000")
     client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "200000", "appraisal_value": "300000", "commission_percent": "5"})
@@ -164,6 +180,7 @@ def test_c5_corretagem_desconhecida_provisorio(client):
 
 def test_c6_tributo_desconhecido_provisorio(client):
     pid = _criar_imovel_com_leilao(client)
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "ITBI", "10000")
     _add_custo(client, pid, "REGISTRO", "20000")
     client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "200000", "appraisal_value": "300000", "commission_percent": "5"})
@@ -215,6 +232,7 @@ def test_c8_nova_analise_preserva_snapshot_anterior(client):
 
 def test_c9_metas_lucro_margem_roi_e_inviavel(client):
     pid = _criar_imovel_com_leilao(client)
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "ITBI", "10000")
     _add_custo(client, pid, "REGISTRO", "20000")
     client.post(f"/api/imoveis/{pid}/leilao", json={"bid_value": "200000", "appraisal_value": "300000", "commission_percent": "5"})
@@ -263,6 +281,7 @@ def test_c10_imovel_inexistente_404(client):
 
 def test_reg_multiplos_leiloes_premissas_consistentes(client):
     pid = _criar_imovel_com_leilao(client)
+    _declarar_custos_sem_pendencia(client, pid)
     _add_custo(client, pid, "ITBI", "10000")
     _add_custo(client, pid, "REGISTRO", "20000")
     # Segundo leilão (novo Auction) com comissão informada:

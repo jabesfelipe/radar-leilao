@@ -14,7 +14,9 @@ Princípios: nada é inventado. Premissas padrão existem só onde o mercado tem
 entra o teto contratual (Caixa) ou a reserva parametrizada, sempre identificada. Desconto sobre a avaliação da Caixa
 é diferente de desconto sobre o valor de mercado estimado, e os dois são mostrados separados.
 
-O cálculo do veredito da análise (``build_finance``/``VerdictEngine``) não é alterado por este módulo.
+Consistência (v2): o cálculo financeiro do veredito (``build_finance``) usa ``verdict_finance``, que reaproveita as MESMAS
+entradas (``_inputs``), a MESMA composição de custos e o MESMO cenário BASE daqui. Resultado, ROI, break-even e preço máximo
+do veredito e da inteligência de mercado coincidem para as mesmas premissas.
 """
 from __future__ import annotations
 
@@ -23,7 +25,8 @@ from decimal import Decimal
 from typing import Any
 
 from . import market as mk
-from .finance import GOAL_ROI_MINIMO, SaleAssumptions, TAX_BASE_GANHO, canonical_cost_key
+from .finance import (GOAL_LUCRO_MINIMO, GOAL_MARGEM_MINIMA, GOAL_ROI_MINIMO, SUPPORTED_GOALS, SaleAssumptions, TAX_BASE_GANHO, TAX_BASE_VENDA,
+                      canonical_cost_key)
 
 ZERO = Decimal("0")
 ONE = Decimal("1")
@@ -80,6 +83,10 @@ def resolve_premises(db, assumptions: dict | None) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for key, (default, label) in DEFAULTS.items():
         local_key = key.split(".", 1)[1]
+        # A tela de premissas grava o IR como ``tributo_pct`` (base GANHO): é a mesma premissa do motor de viabilidade.
+        # Com base VENDA o significado é outro (alíquota sobre a venda) e não é reaproveitado aqui.
+        if key == "venda.tributo_ganho_pct" and assumptions.get(local_key) in (None, "") and str(assumptions.get("tax_base") or "GANHO").upper() == "GANHO":
+            local_key = "tributo_pct"
         if assumptions.get(local_key) not in (None, ""):
             out[key] = {"valor": _d(assumptions[local_key]) if not isinstance(default, int) else int(assumptions[local_key]), "origem": "premissa do imóvel", "descricao": label}
             continue
@@ -214,6 +221,7 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     for key, label, tokens, limit_key in (("condominio_atraso", "Condomínio em atraso", ("CONDOM",), "condominio_limite_pct_avaliacao"),
                                           ("tributos_atraso", "IPTU e demais tributos em atraso", ("IPTU", "TRIBUT", "TAXA"), "tributos_limite_pct_avaliacao")):
         debt = debt_total(*tokens)
+        source = "DIVIDA" if debt is not None else None   # dívida cadastrada x custo cadastrado (detalhamento legado do motor financeiro)
         if debt is None and key == "condominio_atraso" and "condominio" in costs_by_key:
             debt = costs_by_key["condominio"]
         if debt is None and key == "tributos_atraso" and "iptu" in costs_by_key:
@@ -228,7 +236,8 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
                     f"a Caixa paga integralmente. {PREMISSA_IGUALDADE_IPTU}"
                     if cap is not None else None)
         caixa_fields = {"divida_total": None, "responsabilidade_comprador": None, "assumido_caixa": None, "limite_responsabilidade": cap, "regra": rule,
-                        "premissa_conservadora": PREMISSA_IGUALDADE_IPTU if (key == "tributos_atraso" and cap is not None) else None}
+                        "premissa_conservadora": PREMISSA_IGUALDADE_IPTU if (key == "tributos_atraso" and cap is not None) else None,
+                        "fonte_valor": source or ("CUSTO" if debt is not None else None)}
         if debt is not None:
             debt = _q(debt)
             if cap is None:
@@ -410,10 +419,16 @@ def _scenario(name: str, value: Decimal | None, lines: list[dict], *, conservati
         return out
     brokerage = _q(value * c)
     net_sale = value - brokerage
-    tax_base = max(net_sale - deductible, ZERO)
-    tax = _q(tax_base * t)
+    if sale.tax_base == TAX_BASE_VENDA:
+        # Tributo sobre o valor de venda (premissa do usuário com base VENDA): não depende do custo de aquisição.
+        tax_base = value
+        tax = _q(value * t)
+        break_even = investment / (ONE - c - t) if (ONE - c - t) > ZERO else None
+    else:
+        tax_base = max(net_sale - deductible, ZERO)
+        tax = _q(tax_base * t)
+        break_even = _break_even(investment, deductible, c, t)
     result = net_sale - tax - investment
-    break_even = _break_even(investment, deductible, c, t)
     composition.update({
         "venda_bruta": value,
         "corretagem_venda": {"valor": brokerage, "percentual": c, "origem": premises["venda.corretagem_pct"]["origem"]},
@@ -498,37 +513,53 @@ def _lines_at(lines: list[dict], price: Decimal, costs: dict, commission_pct: De
     return out
 
 
-def _solve_max_price(scen: dict, conservative: bool, roi_goal: Decimal, costs: dict, commission_pct: Decimal | None, common: dict, unknown: list[str]) -> dict:
-    """Maior preço de aquisição com ROI ≥ meta, calculado com a MESMA função do cenário (mesma composição, mesmo IR).
-    O ROI cai quando o preço sobe, então a busca binária converge ao centavo; comprando pelo teto, o cenário dá a meta."""
+def _solve_max_price(scen: dict, conservative: bool, roi_goal: Decimal, costs: dict, commission_pct: Decimal | None, common: dict, unknown: list[str],
+                     goal_kind: str = GOAL_ROI_MINIMO) -> dict:
+    """Maior preço de aquisição que atende a meta, calculado com a MESMA função do cenário (mesma composição, mesmo IR).
+    Metas: ROI mínimo (resultado ÷ investimento), margem mínima (resultado ÷ venda) ou lucro mínimo (R$); ``roi_goal`` é o valor
+    da meta. O indicador cai quando o preço sobe, então a busca binária converge ao centavo; comprando pelo teto, o cenário dá a meta."""
     value = scen["valor_venda"]
     base = {"cenario": scen["cenario"], "usa_reservas_conservadoras": conservative}
     if value is None:
         return {**base, "preco_maximo": None, "definitivo": False, "provisorio": False, "razao": "SEM_VALOR_DE_VENDA", "pendencias": []}
     kwargs = {k: v for k, v in common.items() if k not in ("lines", "acquisition")}
 
-    def roi(price: Decimal) -> Decimal | None:
+    def at_price(price: Decimal) -> tuple[Decimal | None, Decimal | None]:
+        """(indicador da meta, ROI) comprando por ``price``."""
         s = _scenario(scen["cenario"], value, _lines_at(common["lines"], price, costs, commission_pct), conservative=conservative,
                       months=scen["prazo_meses"], acquisition=price, **kwargs)
-        return None if s["resultado_liquido"] is None else s["resultado_liquido"] / s["investimento_total"]
+        if s["resultado_liquido"] is None:
+            return None, None
+        roi_value = s["resultado_liquido"] / s["investimento_total"]
+        if goal_kind == GOAL_LUCRO_MINIMO:
+            return s["resultado_liquido"], roi_value
+        if goal_kind == GOAL_MARGEM_MINIMA:
+            return s["resultado_liquido"] / value, roi_value
+        return roi_value, roi_value
+
+    def meets(price: Decimal) -> bool:
+        indicator = at_price(price)[0]
+        return indicator is not None and indicator >= roi_goal
 
     low, high = Decimal("0.01"), value
-    if (roi(low) or Decimal("-1")) < roi_goal:
-        return {**base, "preco_maximo": None, "definitivo": False, "provisorio": False, "razao": "META_INATINGIVEL",
-                "pendencias": ["Meta de retorno inatingível mesmo com preço próximo de zero (custos fixos e de venda altos demais)."]}
-    if (roi(high) or Decimal("-1")) >= roi_goal:
+    if not meets(low):
+        return {**base, "preco_maximo": None, "definitivo": False, "provisorio": False, "razao": "META_INATINGIVEL", "meta_tipo": goal_kind,
+                "pendencias": ["Meta financeira inatingível mesmo com preço próximo de zero (custos fixos e de venda altos demais)."]}
+    if meets(high):
         low = high
     while high - low > Decimal("0.005"):
         mid = (low + high) / 2
-        if roi(mid) >= roi_goal:
+        if meets(mid):
             low = mid
         else:
             high = mid
     price = low.quantize(Decimal("0.01"), rounding="ROUND_FLOOR")
     definitive = not unknown
     notes = [] if definitive else ["Preço máximo é ESTIMATIVA PROVISÓRIA: há custos sem valor (" + ", ".join(unknown) + "). O teto real tende a ser MENOR."]
+    indicator, roi_at = at_price(price)
     return {**base, "preco_maximo": price, "definitivo": definitive, "provisorio": not definitive, "razao": "DEFINITIVO" if definitive else "PROVISORIO",
-            "pendencias": notes, "roi_no_teto": _q(roi(price), "0.0001")}
+            "pendencias": notes, "meta_tipo": goal_kind, "roi_no_teto": _q(roi_at, "0.0001"),
+            "indicador_no_teto": _q(indicator, "0.01" if goal_kind == GOAL_LUCRO_MINIMO else "0.0001")}
 
 
 def _fill_base_with_ceiling(line: dict) -> dict:
@@ -553,7 +584,7 @@ def _without(lines: list[dict], key: str) -> list[dict]:
 
 
 def _reserve_impacts(scen: dict, conservative: bool, roi_goal: Decimal, costs: dict, commission_pct: Decimal | None, common: dict,
-                     max_price: Decimal | None) -> list[dict]:
+                     max_price: Decimal | None, goal_kind: str = GOAL_ROI_MINIMO) -> list[dict]:
     """Quanto cada reserva/teto usado no lugar de um custo PENDENTE pesa no cenário: investimento, resultado, ROI e preço máximo.
     Calculado com a mesma função do cenário, retirando só aquela reserva (o resto da composição é idêntico)."""
     if scen["valor_venda"] is None or "composicao" not in scen:
@@ -565,7 +596,7 @@ def _reserve_impacts(scen: dict, conservative: bool, roi_goal: Decimal, costs: d
         alt_common = {**common, "lines": _without(common["lines"], item["chave"])}
         kwargs = {k: v for k, v in alt_common.items() if k != "lines"}
         alt = _scenario(scen["cenario"], scen["valor_venda"], alt_common["lines"], conservative=conservative, months=scen["prazo_meses"], **kwargs)
-        alt_max = _solve_max_price(alt, conservative, roi_goal, costs, commission_pct, alt_common, [])["preco_maximo"]
+        alt_max = _solve_max_price(alt, conservative, roi_goal, costs, commission_pct, alt_common, [], goal_kind=goal_kind)["preco_maximo"]
         line = next((l for l in common["lines"] if l["chave"] == item["chave"]), {})
         impacts.append({
             "chave": item["chave"], "descricao": item["descricao"], "reserva": item["valor"], "base_valor": item["base_valor"],
@@ -658,8 +689,31 @@ def consolidate(dims: dict) -> dict:
             "ressalvas": caveats}
 
 
-def market_intelligence(db, prop) -> dict:
-    """Visão consolidada de inteligência de mercado e viabilidade do imóvel (leitura; não grava nada)."""
+def _sale_assumptions(assumptions: dict, premises: dict) -> SaleAssumptions:
+    """Premissas de venda usadas pelos DOIS motores. Tributo com base VENDA só quando o usuário o informou assim; caso contrário,
+    IR sobre o ganho (premissa do imóvel ou padrão declarado)."""
+    if str(assumptions.get("tax_base") or "").upper() == TAX_BASE_VENDA and assumptions.get("tributo_pct") not in (None, ""):
+        return SaleAssumptions(corretagem_pct=premises["venda.corretagem_pct"]["valor"], tributo_pct=_d(assumptions["tributo_pct"]), tax_base=TAX_BASE_VENDA)
+    return SaleAssumptions(corretagem_pct=premises["venda.corretagem_pct"]["valor"], tributo_pct=premises["venda.tributo_ganho_pct"]["valor"], tax_base=TAX_BASE_GANHO)
+
+
+def user_goal(assumptions: dict, premises: dict) -> dict:
+    """Meta financeira usada pelo preço máximo nos DOIS motores: a do usuário (ROI, margem ou lucro mínimo) quando configurada.
+    Sem meta do usuário, devolve o ROI padrão declarado com ``do_usuario=False``: a inteligência de mercado o mostra como referência
+    identificada; o veredito não calcula preço máximo sem meta do usuário."""
+    kind, value = assumptions.get("goal_kind"), _d(assumptions.get("goal_value"))
+    if kind in SUPPORTED_GOALS and value is not None:
+        label = {GOAL_ROI_MINIMO: f"ROI mínimo de {_pct(value)}", GOAL_MARGEM_MINIMA: f"Margem mínima de {_pct(value)}",
+                 GOAL_LUCRO_MINIMO: f"Lucro mínimo de {_brl(value)}"}[kind]
+        return {"tipo": kind, "valor": value, "descricao": label, "origem": "meta configurada pelo usuário", "do_usuario": True}
+    default = premises["viabilidade.roi_minimo"]
+    return {"tipo": GOAL_ROI_MINIMO, "valor": default["valor"], "descricao": f"ROI mínimo de {_pct(default['valor'])}",
+            "origem": f"{default['origem']}; meta do investidor não configurada", "do_usuario": False}
+
+
+def _inputs(db, prop) -> dict:
+    """Entradas comuns da inteligência de mercado e do cálculo financeiro do veredito: premissas resolvidas, estimativas de mercado,
+    composição de custos (uma só) e premissas de venda. Ponto único para os dois consumidores não divergirem."""
     from .services import current_auction
     auction = current_auction(prop)
     assumptions = (getattr(auction, "financial_assumptions", None) or {}) if auction else {}
@@ -674,11 +728,30 @@ def market_intelligence(db, prop) -> dict:
     sale_est["_condo_fees"] = [_d(c["condo_fee"]) for c in comps if c["id"] in used_ids and c.get("condo_fee") not in (None, "")]
     costs = acquisition_costs(prop, auction, premises, assumptions, sale_est)
     sale_est.pop("_condo_fees", None)
+    sale = _sale_assumptions(assumptions, premises)
+    area = sale_est["area_referencia"]
+    rent_value = rent_est["valor_estimado"] if rent_est["valor_estimado"] is not None else (
+        mk.median([r["valor_m2_ajustado"] for r in rent_est["comparaveis"] if r["usado"]]) * area if rent_est["quantidade_usada"] and area else None)
+    common = {"lines": costs["linhas"], "monthly": costs["carregamento_mensal"], "acquisition": costs["aquisicao"], "appraisal": costs["avaliacao"], "sale": sale,
+              "rent": rent_value, "premises": premises, "rent_indicative": rent_est["valor_estimado"] is None and rent_value is not None}
+    commission_pct = (_d(auction.commission_percent) / Decimal("100")) if (auction is not None and auction.commission_fixed is None
+                                                                            and auction.commission_percent is not None) else None
+    # Valor de venda do cenário BASE: premissa do usuário (quando informada) > estimativa dos comparáveis.
+    user_value = _d(assumptions.get("valor_venda_estimado"))
+    return {"auction": auction, "assumptions": assumptions, "premises": premises, "subject": subject, "sale_est": sale_est, "rent_est": rent_est,
+            "costs": costs, "sale": sale, "months": int(premises["venda.prazo_meses"]["valor"]), "common": common, "commission_pct": commission_pct,
+            "base_value": _q(user_value) if user_value is not None else sale_est["valor_estimado"],
+            "base_value_origin": "premissa do imóvel" if user_value is not None else (
+                f"estimativa de mercado ({sale_est['quantidade_usada']} comparáveis, confiança {sale_est['confianca']})" if sale_est["valor_estimado"] is not None else None)}
+
+
+def market_intelligence(db, prop) -> dict:
+    """Visão consolidada de inteligência de mercado e viabilidade do imóvel (leitura; não grava nada)."""
+    inp = _inputs(db, prop)
+    auction, assumptions, premises, subject = inp["auction"], inp["assumptions"], inp["premises"], inp["subject"]
+    sale_est, rent_est, costs, months, common = inp["sale_est"], inp["rent_est"], inp["costs"], inp["months"], inp["common"]
     acquisition, appraisal = costs["aquisicao"], costs["avaliacao"]
     liq = mk.liquidity(sale_est, rent_est, subject, acquisition=acquisition)
-
-    sale = SaleAssumptions(corretagem_pct=premises["venda.corretagem_pct"]["valor"], tributo_pct=premises["venda.tributo_ganho_pct"]["valor"], tax_base=TAX_BASE_GANHO)
-    months = int(premises["venda.prazo_meses"]["valor"])
     area = sale_est["area_referencia"]
     stats = sale_est["estatisticas_m2"]
     n = sale_est["quantidade_usada"]
@@ -688,22 +761,20 @@ def market_intelligence(db, prop) -> dict:
 
     low = stats["m2_ajustado_p25"] if n >= 4 else stats["m2_ajustado_min"]
     high = stats["m2_ajustado_p75"] if n >= 4 else stats["m2_ajustado_max"]
-    rent_value = rent_est["valor_estimado"] if rent_est["valor_estimado"] is not None else (
-        mk.median([r["valor_m2_ajustado"] for r in rent_est["comparaveis"] if r["usado"]]) * area if rent_est["quantidade_usada"] and area else None)
-    common = {"lines": costs["linhas"], "monthly": costs["carregamento_mensal"], "acquisition": acquisition, "appraisal": appraisal, "sale": sale,
-              "rent": rent_value, "premises": premises, "rent_indicative": rent_est["valor_estimado"] is None and rent_value is not None}
+    rent_value = common["rent"]
     cons_f, opt_f = premises["cenario.prazo_conservador_fator"]["valor"], premises["cenario.prazo_otimista_fator"]["valor"]
     scenarios = [
         _scenario("CONSERVADOR", at(low), conservative=True, months=int((Decimal(months) * cons_f).to_integral_value()), **common),
-        _scenario("BASE", sale_est["valor_estimado"], conservative=False, months=months, **common),
+        _scenario("BASE", inp["base_value"], conservative=False, months=months, **common),
         _scenario("OTIMISTA", at(high), conservative=False, months=max(1, int((Decimal(months) * opt_f).to_integral_value())), **common),
     ]
+    scenarios[1]["valor_venda_origem"] = inp["base_value_origin"]
     base = scenarios[1]
 
-    # Preço máximo: maior aquisição que entrega o ROI mínimo, com ITBI proporcional ao preço e demais custos fixos.
-    goal_value = _d(assumptions.get("goal_value")) if assumptions.get("goal_kind") == GOAL_ROI_MINIMO else None
-    roi_goal = goal_value if goal_value is not None else premises["viabilidade.roi_minimo"]["valor"]
-    roi_origin = "premissa do imóvel (goal_value)" if goal_value is not None else premises["viabilidade.roi_minimo"]["origem"]
+    # Preço máximo: maior aquisição que entrega a META do usuário (ROI, margem ou lucro), com ITBI proporcional ao preço. Sem meta
+    # configurada, a referência é o ROI padrão declarado, identificado como tal (o veredito não calcula preço máximo sem meta).
+    goal = user_goal(assumptions, premises)
+    roi_goal, goal_kind = goal["valor"], goal["tipo"]
     max_prices = {}
     pending_keys = [l["descricao"] for l in costs["linhas"] if l["status"] == PENDENTE]
     commission_pct = (_d(auction.commission_percent) / Decimal("100")) if (auction is not None and auction.commission_fixed is None
@@ -712,19 +783,20 @@ def market_intelligence(db, prop) -> dict:
         conservative = scen["cenario"] == "CONSERVADOR"
         # Teto provisório quando o cenário tem item sem valor fora da soma (pendência nunca conta como zero).
         unknown = list(scen["custos_pendentes_nao_incluidos"])
-        max_prices[scen["cenario"]] = _solve_max_price(scen, conservative, roi_goal, costs, commission_pct, common, unknown)
+        max_prices[scen["cenario"]] = _solve_max_price(scen, conservative, roi_goal, costs, commission_pct, common, unknown, goal_kind=goal_kind)
         if not conservative and scen.get("efeito_pendencias_no_teto"):
             # Mesmo cenário (venda e prazo), mas com os itens fora da soma no teto/reserva conhecido: mostra quanto o teto provisório cai.
             filled = [_fill_base_with_ceiling(l) for l in common["lines"]]
             filled_common = {**common, "lines": filled}
             kw = {k: v for k, v in filled_common.items() if k != "lines"}
             alt = _scenario(scen["cenario"], scen["valor_venda"], filled, conservative=False, months=scen["prazo_meses"], **kw)
-            alt_max = _solve_max_price(alt, False, roi_goal, costs, commission_pct, filled_common, alt["custos_pendentes_nao_incluidos"])
+            alt_max = _solve_max_price(alt, False, roi_goal, costs, commission_pct, filled_common, alt["custos_pendentes_nao_incluidos"], goal_kind=goal_kind)
             max_prices[scen["cenario"]]["com_pendencias_no_teto"] = {
-                "preco_maximo": alt_max.get("preco_maximo"), "roi_no_teto": alt_max.get("roi_no_teto"),
+                "preco_maximo": alt_max.get("preco_maximo"), "roi_no_teto": alt_max.get("roi_no_teto"), "indicador_no_teto": alt_max.get("indicador_no_teto"),
                 "itens": [d["descricao"] for d in scen["efeito_pendencias_no_teto"]["detalhe"]],
                 "sem_teto_conhecido": scen["efeito_pendencias_no_teto"]["sem_teto_conhecido"]}
-        scen["impacto_reservas"] = _reserve_impacts(scen, conservative, roi_goal, costs, commission_pct, common, max_prices[scen["cenario"]].get("preco_maximo"))
+        scen["impacto_reservas"] = _reserve_impacts(scen, conservative, roi_goal, costs, commission_pct, common, max_prices[scen["cenario"]].get("preco_maximo"),
+                                                    goal_kind=goal_kind)
     recommended = max_prices.get("CONSERVADOR", {}).get("preco_maximo")
     base_max = max_prices.get("BASE", {}).get("preco_maximo")
     critical = [l["descricao"] for l in costs["linhas"] if l["critico"] and l["status"] == PENDENTE]
@@ -732,7 +804,8 @@ def market_intelligence(db, prop) -> dict:
         "documentacao": {}, "risco_juridico": {}, "mercado": {"confianca": sale_est["confianca"], "comparaveis_venda": n, "comparaveis_aluguel": rent_est["quantidade_usada"],
                      "somente_anunciados": bool(n and sale_est["quantidade_anunciada"] == n)},
         "custos": {"criticos_pendentes": critical, "pendentes": pending_keys},
-        "rentabilidade": {"roi_base": base.get("roi"), "resultado_base": base.get("resultado_liquido"), "meta_roi": roi_goal,
+        "rentabilidade": {"roi_base": base.get("roi"), "resultado_base": base.get("resultado_liquido"),
+                          "meta_roi": roi_goal if goal_kind == GOAL_ROI_MINIMO else None, "meta": goal,
                           "preco_maximo_recomendado": recommended, "preco_maximo_base": base_max,
                           "preco_acima_do_teto": bool(base_max is not None and acquisition is not None and acquisition > base_max),
                           "preco_acima_do_teto_conservador": bool(recommended is not None and acquisition is not None and acquisition > recommended),
@@ -761,10 +834,216 @@ def market_intelligence(db, prop) -> dict:
         },
         "custos": costs["linhas"], "carregamento_mensal": {"valor": _q(costs["carregamento_mensal"]), "origem": costs["carregamento_origem"]},
         "cenarios": scenarios,
-        "preco_maximo": {"recomendado": recommended, "criterio": f"ROI mínimo de {roi_goal * 100:.0f}% no cenário conservador ({roi_origin})",
-                         "por_cenario": max_prices, "provisorio": bool(max_prices.get("CONSERVADOR", {}).get("provisorio"))},
+        "preco_maximo": {"recomendado": recommended, "criterio": f"{goal['descricao']} no cenário conservador ({goal['origem']})",
+                         "meta": goal, "por_cenario": max_prices, "provisorio": bool(max_prices.get("CONSERVADOR", {}).get("provisorio"))},
         "premissas": {k: {**v, "valor": str(v["valor"])} for k, v in premises.items()},
         "dimensoes": dims, "conclusao": conclusion,
         "fontes": sorted({(r["fonte"] or "", r["url"] or "", str(r["consultado_em"] or "")) for r in sale_est["comparaveis"] + rent_est["comparaveis"]}),
         "custo_ia_usd": 0,
     }
+
+
+# ------------------------------------------------------------------ cálculo financeiro do veredito (mesma composição do cenário BASE)
+
+# Natureza de cada valor no cálculo do veredito (o que é confirmado, estimado, premissa do usuário, reserva, pendente ou não aplicável).
+NAT_CONFIRMADO, NAT_PREMISSA, NAT_ESTIMADO, NAT_RESERVA, NAT_PENDENTE, NAT_NAO_APLICAVEL = (
+    "CONFIRMADO", "PREMISSA_USUARIO", "ESTIMADO", "RESERVA", "PENDENTE", "NAO_APLICAVEL")
+# Status no vocabulário do motor financeiro (custos_status): INFORMADO, ESTIMADO, RESERVA, DESCONHECIDO (pendente), NAO_APLICAVEL.
+_STATUS_FINANCEIRO = {NAT_CONFIRMADO: "INFORMADO", NAT_PREMISSA: "INFORMADO", NAT_ESTIMADO: "ESTIMADO", NAT_RESERVA: "RESERVA",
+                      NAT_PENDENTE: "DESCONHECIDO", NAT_NAO_APLICAVEL: "NAO_APLICAVEL"}
+# Itens da composição → chave do detalhamento legado (``custos``) do motor financeiro.
+_CHAVE_LEGADA = {"aquisicao": "aquisicao", "comissao": "comissao", "itbi": "itbi", "registro": "registro", "certidoes": "outros",
+                 "condominio_atraso": "condominio", "tributos_atraso": "iptu", "reforma": "reforma", "regularizacao": "outros",
+                 "desocupacao": "desocupacao", "outras_dividas": "debitos", "iptu_posse": "carregamento", "manutencao_posse": "carregamento",
+                 "custo_custos_juridicos": "custos_juridicos", "custo_debitos": "debitos", "custo_carregamento": "carregamento", "custo_outros": "outros"}
+ORIGEM_USUARIO = "premissa do imóvel"
+
+
+def _nature(item: dict, assumptions: dict) -> str:
+    kind = item.get("tipo_valor")
+    if kind == "FORA_DA_SOMA":
+        return NAT_PENDENTE
+    if kind == "NAO_APLICAVEL":
+        return NAT_NAO_APLICAVEL
+    if kind in ("RESERVA", "RESERVA_MANUAL", "TETO_CAIXA"):
+        return NAT_RESERVA
+    key = item["chave"]
+    typed = {"certidoes": "certidoes", "registro": "registro_estimado", "reforma": "reforma", "regularizacao": "regularizacao",
+             "iptu_posse": "iptu_anual", "manutencao_posse": "carregamento_mensal"}
+    if key in typed and assumptions.get(typed[key]) not in (None, "") and (kind == "ESTIMADO" or key == "certidoes"):
+        return NAT_PREMISSA   # valor digitado pelo usuário nas premissas
+    return NAT_CONFIRMADO if kind == "CONFIRMADO" else NAT_ESTIMADO
+
+
+def verdict_finance(db, prop) -> dict:
+    """Cálculo financeiro do veredito com a MESMA composição, o MESMO IR e o MESMO preço máximo do cenário BASE da inteligência de
+    mercado. Diferenças em relação ao cenário BASE exibido lá: a meta é a do usuário (nunca uma meta padrão), e tudo o que não foi
+    confirmado pelo usuário (venda estimada, corretagem/IR/prazo padrão, reserva do sistema, custo sem valor) torna o cálculo
+    PROVISÓRIO e aparece nas pendências. Custo sem valor fica fora da soma: nunca entra como zero."""
+    inp = _inputs(db, prop)
+    assumptions, premises, costs, common, sale = inp["assumptions"], inp["premises"], inp["costs"], inp["common"], inp["sale"]
+    months, value = inp["months"], inp["base_value"]
+    solve_common = {**common, "rent": None, "rent_indicative": False}
+    scen = _scenario("BASE", value, common["lines"], conservative=False, months=months, monthly=common["monthly"], acquisition=common["acquisition"],
+                     appraisal=common["appraisal"], sale=sale, rent=None, premises=premises)
+    items = scen["composicao"]["itens"]
+    lines_by_key = {l["chave"]: l for l in common["lines"]}
+    pending: list[str] = []
+    unknown: list[str] = []
+
+    # Venda e premissas de saída: confirmadas pelo usuário ou padrão declarado (este torna o cálculo provisório).
+    def user(key: str) -> bool:
+        return premises[key]["origem"] == ORIGEM_USUARIO
+    c_user = user("venda.corretagem_pct")
+    t_user = sale.tax_base == TAX_BASE_VENDA or user("venda.tributo_ganho_pct")
+    unknown_desc: list[str] = []
+
+    def mark(code: str, description: str) -> None:
+        unknown.append(code)
+        unknown_desc.append(description)
+
+    if value is None:
+        pending.append("Valor de venda estimado ausente: resultado líquido, margem e ROI não calculados.")
+    elif inp["base_value_origin"] != ORIGEM_USUARIO:
+        mark("valor_venda", "valor de venda (estimativa de mercado não confirmada)")
+        pending.append(f"Valor de venda não confirmado: o cálculo usa a estimativa de mercado de {_brl(value)} ({inp['base_value_origin']}). "
+                       "Confirme ou ajuste em Financeiro > Premissas.")
+    if not c_user:
+        mark("corretagem_venda", "corretagem de venda (padrão não confirmado)")
+        pending.append(f"Percentual de corretagem de venda não informado: o cálculo usa o padrão de {_pct(sale.corretagem_pct)} "
+                       f"({premises['venda.corretagem_pct']['origem']}). Resultado e preço máximo ficam PROVISÓRIOS até a premissa ser informada.")
+    if not t_user:
+        mark("tributo_venda", "tributo na venda (padrão não confirmado)")
+        pending.append(f"Percentual de tributo na venda não informado: o cálculo usa IR de {_pct(sale.tributo_pct)} sobre o ganho "
+                       f"({premises['venda.tributo_ganho_pct']['origem']}). Resultado e preço máximo ficam PROVISÓRIOS até a premissa ser informada.")
+    depends_on_months = any(i["chave"] in ("manutencao_posse", "iptu_posse") and i["incluido"] for i in items)
+    if not user("venda.prazo_meses") and depends_on_months:
+        mark("prazo_meses", "prazo da operação (padrão não confirmado)")
+        pending.append(f"Prazo da operação não informado: o condomínio e o IPTU da posse usam o padrão de {months} meses "
+                       f"({premises['venda.prazo_meses']['origem']}).")
+
+    # Composição: natureza, status e origem de cada item; pendente fora da soma e reserva do sistema tornam o cálculo provisório.
+    composition, breakdown, status, origin = [], {}, {}, {}
+    for item in items:
+        nature = _nature(item, assumptions)
+        line = lines_by_key.get(item["chave"], {})
+        composition.append({"chave": item["chave"], "descricao": item["descricao"], "valor": item["valor"], "incluido": item["incluido"],
+                            "natureza": nature, "origem": item["origem"], "base_valor": item["base_valor"], "dedutivel_ir": item["dedutivel_ir"]})
+        legacy = "debitos" if line.get("fonte_valor") == "DIVIDA" else _CHAVE_LEGADA.get(item["chave"], "outros")
+        breakdown[legacy] = breakdown.get(legacy, ZERO) + (item["valor"] or ZERO)
+        status[item["chave"]] = _STATUS_FINANCEIRO[nature]
+        origin[item["chave"]] = item["origem"]
+        code = "comissao_arrematacao" if item["chave"] == "comissao" else item["chave"]
+        if nature == NAT_PENDENTE:
+            mark(code, item["descricao"])
+            label = item["descricao"] if item["descricao"][:2].isupper() else item["descricao"][0].lower() + item["descricao"][1:]   # sigla (ITBI, IPTU) intacta
+            pending.append(f"Custo de {label} não informado: fora da soma, não é zero (cálculo provisório).")
+        elif nature == NAT_RESERVA:
+            if not line.get("reserva_manual"):
+                mark(code, f"{item['descricao']} (reserva do sistema)")
+            pending.append(f"{item['descricao']}: valor real não informado; o cálculo usa {item['base_valor']}.")
+    investment = scen["investimento_total"]
+    result = scen.get("resultado_liquido")
+    goal = user_goal(assumptions, premises)
+    goal_kind, goal_value = (goal["tipo"], goal["valor"]) if goal["do_usuario"] else (assumptions.get("goal_kind"), None)   # nunca meta padrão
+
+    # Preço máximo: meta do usuário (sem meta, não há preço máximo), mesma função de cenário.
+    meta = {"tipo": goal_kind, "valor": goal_value}
+    detail = {"premissas_utilizadas": {"meta": meta, "valor_venda": value, "corretagem_pct": sale.corretagem_pct, "tributo_pct": sale.tributo_pct,
+                                       "tax_base": sale.tax_base},
+              "custos_desconhecidos": list(unknown), "custos_desconhecidos_descricao": list(unknown_desc)}
+    max_price = None
+    if value is None or goal_kind not in SUPPORTED_GOALS or goal_value is None:
+        notes = []
+        if value is None:
+            notes.append("Valor de venda estimado (V) é essencial e não foi informado.")
+        if goal_value is None:
+            notes.append("Meta financeira (valor/percentual) é essencial e não foi informada.")
+        detail.update({"preco_maximo": None, "viavel": False, "definitivo": False, "provisorio": False, "razao": "DADOS_ESSENCIAIS_AUSENTES", "pendencias": notes})
+        pending.extend(notes)
+        if goal_value is None:
+            pending.append("Meta de preço máximo não configurada; preço máximo não calculado.")
+    else:
+        solved = _solve_max_price(scen, False, goal_value, costs, inp["commission_pct"], solve_common, unknown, goal_kind=goal_kind)
+        max_price = solved["preco_maximo"]
+        detail.update({"preco_maximo": max_price, "viavel": max_price is not None, "definitivo": bool(solved["definitivo"]),
+                       "provisorio": bool(solved["provisorio"]), "razao": solved["razao"], "pendencias": solved["pendencias"],
+                       "indicador_no_teto": solved.get("indicador_no_teto"), "roi_no_teto": solved.get("roi_no_teto")})
+        if solved["razao"] == "META_INATINGIVEL":
+            detail["mensagem"] = "Meta inatingível para o valor de venda e custos informados."
+            pending.append(detail["mensagem"])
+        pending.extend(solved["pendencias"])
+    provisional = bool(result is not None and unknown)
+    user_scenarios = [_user_scenario(sc, inp, value, months, solve_common, goal_kind if goal_value is not None else None, goal_value, unknown)
+                      for sc in (assumptions.get("cenarios") or [])]
+    brokerage, tax = scen.get("corretagem_venda"), scen.get("tributo_venda")
+    exit_cost = (brokerage + tax) if (brokerage is not None and tax is not None) else None
+    return {
+        "motor": "viability.verdict_finance (mesma composição do cenário BASE da inteligência de mercado)",
+        "valor_mercado": value, "valor_mercado_origem": inp["base_value_origin"],
+        "custo_total": investment, "custos": breakdown, "custos_status": status, "custos_origem": origin,
+        "composicao_custos": composition, "memoria_calculo": scen["composicao"],
+        "custo_saida": exit_cost, "custo_saida_detalhe": {"corretagem_venda": brokerage, "tributos_venda": tax},
+        "saida_status": {"corretagem_venda": "INFORMADO" if c_user else "ESTIMADO", "tributos_venda": "INFORMADO" if t_user else "ESTIMADO"},
+        "premissas_origem": {"corretagem_pct": premises["venda.corretagem_pct"]["origem"],
+                             "tributo_pct": ORIGEM_USUARIO if sale.tax_base == TAX_BASE_VENDA else premises["venda.tributo_ganho_pct"]["origem"],
+                             "tax_base": sale.tax_base, "prazo_meses": premises["venda.prazo_meses"]["origem"],
+                             "carregamento_mensal": costs["carregamento_origem"], "valor_venda": inp["base_value_origin"]},
+        "carregamento_recorrente": scen.get("carregamento") or ZERO,
+        "resultado_liquido": result,
+        "margem_liquida": (result / value) if (result is not None and value) else None,
+        "roi_operacao": scen.get("roi"),
+        "break_even": scen.get("venda_equilibrio"),
+        "break_even_detalhe": {"break_even": scen.get("venda_equilibrio"), "razao": "OK" if scen.get("venda_equilibrio") is not None else "INDEFINIDO",
+                               "premissas": {"custo_total": investment, "corretagem_pct": sale.corretagem_pct, "tributo_pct": sale.tributo_pct,
+                                             "tax_base": sale.tax_base, "custo_dedutivel_ir": scen["composicao"].get("custo_aquisicao_dedutivel_ir")}},
+        "margem_absoluta": (value - investment) if value is not None else None,
+        "margem_percentual": ((value - investment) / value) if value else None,
+        "resultado_provisorio": provisional,
+        "resultado_completo": bool(result is not None and not provisional),
+        "custos_pendentes": [c["descricao"] for c in composition if c["natureza"] == NAT_PENDENTE],
+        "custos_com_reserva": [c["descricao"] for c in composition if c["natureza"] == NAT_RESERVA],
+        "preco_maximo": max_price, "preco_maximo_definitivo": bool(detail.get("definitivo")), "preco_maximo_provisorio": bool(detail.get("provisorio")),
+        "preco_maximo_detalhe": detail,
+        "pendencias": list(dict.fromkeys(pending)),
+        "prazo_meses": months,
+        "cenarios_usuario": user_scenarios,
+    }
+
+
+def _override(lines: list[dict], key: str, label: str, amount: Decimal) -> list[dict]:
+    """Linhas com ``key`` substituída pelo valor do cenário do usuário (premissa do cenário; se não existia, entra como linha nova)."""
+    new = _line(key, label, amount, ESTIMADO, "premissa do cenário do usuário")
+    out = [new if l["chave"] == key else l for l in lines]
+    return out if any(l["chave"] == key for l in lines) else out + [new]
+
+
+def _user_scenario(sc: dict, inp: dict, base_value: Decimal | None, base_months: int, common: dict, goal_kind: str | None,
+                   goal_value: Decimal | None, base_unknown: list[str]) -> dict:
+    """Cenário informado pelo usuário (Financeiro > premissas ``cenarios``) calculado com a MESMA composição, o MESMO IR e o MESMO
+    preço máximo do cenário BASE. Os parâmetros do usuário substituem só o que ele informou: venda, reforma, desocupação,
+    carregamento (custo único do cenário, além do condomínio mensal da posse) e prazo. Ausência mantém o valor do BASE."""
+    value = _q(_d(sc.get("valor_venda"))) if _d(sc.get("valor_venda")) is not None else base_value
+    months = int(sc["prazo_meses"]) if sc.get("prazo_meses") not in (None, "") else base_months
+    lines = list(common["lines"])
+    for key, label in (("reforma", "Reforma"), ("desocupacao", "Desocupação"), ("custo_carregamento", "Carregamento do cenário")):
+        field = "carregamento" if key == "custo_carregamento" else key
+        if _d(sc.get(field)) is not None:
+            lines = _override(lines, key, label, _d(sc[field]))
+    sc_common = {**common, "lines": lines}
+    kwargs = {k: v for k, v in sc_common.items() if k != "lines"}
+    out = _scenario(sc.get("nome", "BASE"), value, lines, conservative=False, months=months, **kwargs)
+    # Mesmas pendências do BASE, menos as que o cenário resolveu com valor próprio (reforma, desocupação).
+    unknown = [u for u in base_unknown if not (u in ("reforma", "desocupacao") and _d(sc.get(u)) is not None)]
+    unknown += [i["chave"] for i in out["composicao"]["itens"] if not i["incluido"] and i["chave"] not in unknown]
+    max_price = None
+    if goal_value is not None and value is not None:
+        max_price = _solve_max_price(out, False, goal_value, inp["costs"], inp["commission_pct"], sc_common, unknown, goal_kind=goal_kind)["preco_maximo"]
+    result = out.get("resultado_liquido")
+    return {"cenario": sc.get("nome", "BASE"), "motor": "composição única (mesma do veredito e da inteligência de mercado)",
+            "premissas": {"valor_venda": _d(sc.get("valor_venda")), "reforma": _d(sc.get("reforma")), "desocupacao": _d(sc.get("desocupacao")),
+                          "carregamento": _d(sc.get("carregamento")), "prazo_meses": sc.get("prazo_meses"), "justificativa": sc.get("justificativa", "")},
+            "custo_total": out["investimento_total"], "valor_mercado": value, "resultado_liquido": result,
+            "resultado_provisorio": bool(result is not None and unknown), "margem_liquida": (result / value) if (result is not None and value) else None,
+            "roi_operacao": out.get("roi"), "break_even": out.get("venda_equilibrio"), "preco_maximo": max_price,
+            "pendencias": [f"{d} (fora da soma)" for d in out["custos_pendentes_nao_incluidos"]]}

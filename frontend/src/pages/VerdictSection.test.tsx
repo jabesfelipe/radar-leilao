@@ -145,6 +145,50 @@ describe('VerdictSection', () => {
     expect(screen.queryByText('Risco jurídico')).not.toBeInTheDocument()
   })
 
+  it('com fatores (v2) separa impedimentos, informações, premissas, riscos e não aplicáveis, com a ação de cada um', async () => {
+    const comFatores = {
+      ...verdict, overall: 'ATENCAO',
+      financial: {
+        decisao: {
+          recomendacao: { codigo: 'ARREMATAR_SOMENTE_APOS_RESOLVER_RISCOS', texto: 'ATENÇÃO: 1 risco(s) ativo(s).', lance_maximo: null },
+          fundamentos: [
+            { tipo: 'VIABILIDADE_FINANCEIRA', descricao: 'Lance dentro do preço máximo.' },
+            { tipo: 'PENDENCIA_DOCUMENTAL', descricao: 'Pergunta repetida nos fatores' },
+            { tipo: 'ANALISE_AUTOMATICA_INDISPONIVEL', descricao: 'A leitura automática dos documentos não foi executada.' },
+          ],
+          fatores: {
+            titulos: { impedimentos: 'Impedimentos jurídicos ou documentais', informacoes_essenciais: 'Informações essenciais ainda desconhecidas',
+              premissas_nao_configuradas: 'Premissas financeiras não configuradas', riscos_confianca: 'Riscos que reduzem a confiança', nao_aplicaveis: 'Não aplicáveis à modalidade' },
+            contagem: { impedimentos: 1, informacoes_essenciais: 1, premissas_nao_configuradas: 1, riscos_confianca: 1, nao_aplicaveis: 1 },
+            grupos: {
+              impedimentos: [{ origem: 'RISCO', chave: 'PENHORA_INDISPONIBILIDADE', descricao: 'Há penhora ou indisponibilidade averbada?', justificativa: 'Sim. Consta na matrícula: penhora (Av-3).', acao: 'Conferir na certidão de ônus atualizada.', gravidade: 'ALTA' }],
+              informacoes_essenciais: [{ origem: 'CHECKLIST', chave: 'RESPONSABILIDADE_DEBITOS', descricao: 'Quem responde pelos débitos?', justificativa: 'INCONCLUSIVO: condições da venda informadas.', acao: 'Anexar as condições oficiais da venda.' }],
+              premissas_nao_configuradas: [{ origem: 'FINANCEIRO', descricao: 'Meta financeira (margem, ROI ou lucro mínimo) não configurada.', acao: 'Informar em Financeiro > Premissas e salvar para recalcular.' }],
+              riscos_confianca: [{ origem: 'CHECKLIST', chave: 'INTIMACAO_PESSOAL', descricao: 'A intimação foi pessoal?', acao: 'Solicitar a comprovação ao vendedor.' }],
+              nao_aplicaveis: [{ origem: 'CHECKLIST', chave: 'EDITAL_LIDO', descricao: 'O edital do leilão foi lido integralmente?', justificativa: 'Não aplicável à modalidade VENDA_DIRETA.', acao: null }],
+            },
+          },
+        },
+      },
+    }
+    vi.mocked(fetch).mockReturnValueOnce(detail(comFatores))
+    render(<VerdictSection propertyId={5} />)
+
+    expect(await screen.findByLabelText('Fatores do veredito')).toBeInTheDocument()
+    for (const titulo of ['Impedimentos jurídicos ou documentais', 'Informações essenciais ainda desconhecidas', 'Premissas financeiras não configuradas',
+      'Riscos que reduzem a confiança', 'Não aplicáveis à modalidade']) {
+      expect(screen.getByText(titulo)).toBeInTheDocument()
+    }
+    expect(screen.getByText('Ação: Conferir na certidão de ônus atualizada.')).toBeInTheDocument()
+    expect(screen.getByText('Sim. Consta na matrícula: penhora (Av-3).', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText('Ação: Informar em Financeiro > Premissas e salvar para recalcular.')).toBeInTheDocument()
+    expect(screen.getByText('Ver itens não aplicáveis e a regra de cada um')).toBeInTheDocument()
+    // viabilidade e leitura automática continuam visíveis; pendências não aparecem duas vezes
+    expect(screen.getByText('Viabilidade financeira')).toBeInTheDocument()
+    expect(screen.getByText('Leitura automática dos documentos')).toBeInTheDocument()
+    expect(screen.queryByText('Pergunta repetida nos fatores')).not.toBeInTheDocument()
+  })
+
   it('sem decisão no veredito (legado) não mostra bloco de recomendação', async () => {
     vi.mocked(fetch).mockReturnValueOnce(detail(verdict))
     render(<VerdictSection propertyId={5} />)

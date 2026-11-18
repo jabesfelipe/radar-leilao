@@ -151,6 +151,18 @@ export type FinanceAssumptions = {
   cenarios?: unknown[]
 }
 
+export type CostNature = 'CONFIRMADO' | 'PREMISSA_USUARIO' | 'ESTIMADO' | 'RESERVA' | 'PENDENTE' | 'NAO_APLICAVEL'
+
+export type CostCompositionItem = {
+  chave: string
+  descricao: string
+  valor: number | string | null
+  incluido: boolean
+  natureza: CostNature | string
+  origem?: string | null
+  base_valor?: string | null
+}
+
 export type FinanceResult = {
   custo_total?: number | string | null
   custo_saida?: number | string | null
@@ -167,10 +179,14 @@ export type FinanceResult = {
   preco_maximo?: number | string | null
   preco_maximo_definitivo?: boolean
   preco_maximo_provisorio?: boolean
-  preco_maximo_detalhe?: { viavel?: boolean; definitivo?: boolean; provisorio?: boolean; razao?: string; mensagem?: string; pendencias?: string[]; custos_desconhecidos?: string[]; premissas_utilizadas?: Record<string, unknown> }
+  preco_maximo_detalhe?: { viavel?: boolean; definitivo?: boolean; provisorio?: boolean; razao?: string; mensagem?: string; pendencias?: string[]; custos_desconhecidos?: string[]; custos_desconhecidos_descricao?: string[]; premissas_utilizadas?: Record<string, unknown> }
   cenarios?: Array<Record<string, unknown>>
   pendencias?: string[]
   custos_status?: Record<string, string>
+  /** Composição única de custos (a mesma do cenário BASE da inteligência de mercado), com a natureza de cada valor. */
+  composicao_custos?: CostCompositionItem[]
+  saida_status?: Record<string, string>
+  premissas_origem?: Record<string, string | null>
   [key: string]: unknown
 }
 

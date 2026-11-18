@@ -53,6 +53,7 @@ class CaixaConditions(BaseModel):
     """Condições da venda direta Caixa: limite de responsabilidade do comprador, em fração da avaliação (0.10 = 10%)."""
     condominio_limite_pct_avaliacao: Decimal | None = Field(default=None, ge=0, le=1)
     tributos_limite_pct_avaliacao: Decimal | None = Field(default=None, ge=0, le=1)
+    origem: str | None = Field(default=None, max_length=240)   # ex.: "condições da venda direta (anúncio do vendedor, 16/11/2026)"
 
 
 class FinanceAssumptions(BaseModel):

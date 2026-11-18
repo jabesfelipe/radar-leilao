@@ -36,28 +36,49 @@ Só gera risco **com evidência**. Severidade CRITICA existe como categoria (usa
 **Implementado** (`verdict_engine.py`), em ordem de precedência:
 
 1. risco CRITICA ativo: DESFAVORAVEL;
-2. risco ativo: ATENCAO;
-3. pendências ou ausência de evidência: INCONCLUSIVO;
-4. caso contrário: FAVORAVEL.
+2. financeiro inviável: DESFAVORAVEL;
+3. risco ativo: ATENCAO;
+4. pendências ou ausência de evidência: INCONCLUSIVO;
+5. caso contrário: FAVORAVEL.
+
+Os fatores do veredito (`decisao.fatores`) separam, sem perder pendência, impedimentos jurídicos ou documentais,
+informações essenciais desconhecidas, premissas financeiras não configuradas, riscos que reduzem a confiança e itens não
+aplicáveis à modalidade, cada um com justificativa e ação. Não alteram a decisão.
 
 O veredito deve apresentar o que se sabe, o que não se sabe, riscos, evidências, impacto financeiro, pendências e mudanças desde a
 análise anterior (princípio do produto).
 
 ## 4. Análise financeira
 
-**Implementado** (`finance.py`):
+**Implementado. Composição única (consistência financeira v2):** o cálculo do veredito (`services.build_finance` →
+`viability.verdict_finance`) e a inteligência de mercado (`viability.market_intelligence`) usam as mesmas entradas, a mesma
+composição de custos e as mesmas fórmulas. Para as mesmas premissas, custo total, resultado, ROI, break-even e preço máximo
+são iguais nos dois.
 
-- custos por categoria fixa (`COST_KEYS`: aquisição, comissão, ITBI, registro, débitos, condomínio, IPTU, custos jurídicos, desocupação, reforma, carregamento, outros), sem dupla contagem;
-- ITBI e registro **não são calculados**: são custos informados; se ausentes, ficam DESCONHECIDO e o resultado é **provisório**;
-- precedência da comissão do leiloeiro: AUCTION_FIXO, depois AUCTION_PERCENTUAL, depois CUSTO_CADASTRADO;
-- deságio = 100 × (1 − lance / avaliação); margem e yield;
-- custos de saída: corretagem e tributo, base GANHO ou VENDA (parametrizável);
-- resultado líquido, margem líquida, ROI da operação, break-even;
-- preço máximo por meta (LUCRO_MINIMO, MARGEM_MINIMA ou ROI_MINIMO), definitivo ou provisório;
-- carregamento mensal × prazo;
-- cenário BASE.
+- **Composição** (`viability.acquisition_costs`): aquisição, comissão (precedência AUCTION_FIXO, AUCTION_PERCENTUAL,
+  CUSTO_CADASTRADO), ITBI, escritura e registro, certidões, condomínio e tributos em atraso (com o teto de responsabilidade da
+  venda direta Caixa), reforma, regularização, desocupação, custos e dívidas cadastrados fora dessas linhas, IPTU e condomínio
+  durante a posse (mensal × prazo).
+- **ITBI:** custo cadastrado; senão alíquota informada × maior entre aquisição e base mínima (ESTIMADO, com origem). Sem
+  alíquota ou sem preço de aquisição: PENDENTE, fora da soma.
+- **Natureza de cada valor:** confirmado, premissa do usuário, estimado, pendente com reserva (reserva do sistema ou manual,
+  com origem), pendente fora da soma (nunca zero) e não aplicável.
+- **Saída:** corretagem sobre a venda; IR = alíquota × (venda − corretagem − custo dedutível), em que só lance, comissão, ITBI,
+  registro e reforma são dedutíveis (dívidas, desocupação, certidões, regularização e condomínio/IPTU da posse não: premissa
+  conservadora). Base VENDA quando o usuário a informa. Corretagem e IR não informados usam o padrão declarado (6% e 15%),
+  sinalizado.
+- **Provisório** quando há custo pendente fora da soma, reserva do sistema, valor de venda estimado (não confirmado) ou
+  corretagem/IR/prazo padrão: o veredito não declara o financeiro VIÁVEL.
+- **Preço máximo:** maior aquisição que atende a meta do usuário (LUCRO_MINIMO, MARGEM_MINIMA ou ROI_MINIMO), pela mesma função
+  do cenário (ITBI, comissão e reserva de registro acompanham o preço). Sem meta do usuário, o veredito não calcula preço máximo;
+  a inteligência de mercado mostra uma referência pelo ROI padrão, identificada como tal.
+- **Cenários do usuário** (`cenarios` nas premissas): mesma composição, IR e preço máximo; os valores informados no cenário
+  (venda, reforma, desocupação, carregamento, prazo) substituem só os itens correspondentes.
+- Deságio = 100 × (1 − lance / avaliação); yield sobre o custo total.
+- O motor `finance.calculate_financial` continua existindo e fornece os campos legados (desconto, aluguel, detalhe da comissão);
+  os indicadores acima vêm da composição única.
 
-**Planejado** (lacunas registradas em `MATRIZ-CUSTOS-TRIBUTOS-EMOLUMENTOS`): cenários OTIMISTA e PESSIMISTA no motor; TIR, VPL e fluxo
+**Planejado** (lacunas registradas em `MATRIZ-CUSTOS-TRIBUTOS-EMOLUMENTOS`): TIR, VPL e fluxo
 descontado; grid de sensibilidade; custo de capital; parametrização de tributos e emolumentos por jurisdição, ato, base, vigência e
 fonte oficial.
 
@@ -103,8 +124,9 @@ Hipóteses de anotações do proprietário, a validar com fonte oficial antes de
 | Checklist (27 itens) | Implementado |
 | Aplicabilidade por modalidade | Implementado (LICITACAO em aberto) |
 | Riscos e veredito | Implementado |
-| Motor financeiro BASE | Implementado |
-| Cenários OTIMISTA/PESSIMISTA, TIR/VPL, sensibilidade | Planejado |
+| Motor financeiro (composição única do veredito e da inteligência de mercado) | Implementado |
+| Cenários conservador/base/otimista e cenários do usuário | Implementado |
+| TIR/VPL, sensibilidade | Planejado |
 | Parametrização fiscal por jurisdição | Planejado |
 | Workflow F0-F13 e hard stops | Implementado |
 | Teses fiscais e de ocupação (§9) | Em discussão |

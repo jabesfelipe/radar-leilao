@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from . import models, modality_rules
 from .config import settings
@@ -68,27 +68,39 @@ def create_execution(db: Session, prop: models.Property, triggered_by: str = "MA
     previous_by_item = {r.checklist_item_id: r for r in previous.results} if previous else {}
     items = db.scalars(select(models.ChecklistItem).where(models.ChecklistItem.active.is_(True)).order_by(models.ChecklistItem.priority, models.ChecklistItem.canonical_key)).all()
     modality = modality_rules.normalize_property_modality(getattr(prop, "modality", None))
+    # Consulta no banco (a relationship em memória pode estar desatualizada logo após um upload).
+    has_edital = db.scalar(select(models.Document.id).where(models.Document.property_id == prop.id,
+                                                            func.upper(models.Document.document_type) == "EDITAL").limit(1)) is not None
     for item in items:
         old = previous_by_item.get(item.id)
         result = models.ChecklistResult(execution_id=execution.id, checklist_item_id=item.id, item_version=item.version, applicable=item.applicable, previous_result_id=old.id if old else None, state="PENDENTE", answer="", confidence="MEDIA")
-        apply_modality_applicability(result, item.canonical_key, modality)
+        apply_modality_applicability(result, item.canonical_key, modality, has_edital=has_edital)
         db.add(result)
     db.flush()
     return execution
 
 
-def apply_modality_applicability(result: models.ChecklistResult, canonical_key: str, modality: str) -> bool:
-    """Marca o item como NAO_APLICAVEL quando a regra de modalidade (a MESMA de
-    ``/api/oportunidades/{id}/checklist-aplicavel``, ``modality_rules``) o exclui (v1.0.7).
+def apply_modality_applicability(result: models.ChecklistResult, canonical_key: str, modality: str, *, has_edital: bool = False) -> bool:
+    """Aplica a regra de modalidade (a MESMA de ``/api/oportunidades/{id}/checklist-aplicavel``, ``modality_rules``).
 
-    Ex.: em VENDA_DIRETA não há edital, então EDITAL_LIDO não é pendência. O item continua no catálogo e segue
-    obrigatório nas modalidades com edital; INDEFINIDO (imóveis de leilão/legados) mantém tudo aplicável."""
-    if modality_rules.checklist_applicability(modality, canonical_key) != modality_rules.APPLICABILITY_NAO_APLICAVEL:
+    v2 (por finalidade do item): NAO_APLICAVEL só para etapa de leilão que a modalidade não tem; item CONDICIONAL ou
+    com justificativa própria continua PENDENTE (nunca vira resposta) e registra a regra e o motivo em
+    ``interpretation``. Em VENDA_DIRETA, o edital anexado volta a tornar EDITAL_LIDO aplicável. INDEFINIDO (leilão e
+    legados) mantém tudo aplicável, sem anotação. Retorna True quando o item ficou NAO_APLICAVEL."""
+    rule = modality_rules.item_rule(modality, canonical_key)
+    applicability = rule["aplicabilidade"]
+    if canonical_key == "EDITAL_LIDO" and has_edital and applicability == modality_rules.APPLICABILITY_NAO_APLICAVEL:
+        applicability = modality_rules.APPLICABILITY_APLICAVEL
+        rule = {**rule, "justificativa": "Há edital anexado ao imóvel: a leitura integral volta a ser exigida."}
+    if applicability != modality_rules.APPLICABILITY_NAO_APLICAVEL:
+        if rule["justificativa"]:
+            prefix = "Aplicável sob condição" if applicability == modality_rules.APPLICABILITY_CONDICIONAL else "Aplicável"
+            result.interpretation = f"{prefix} ({rule['regra']}): {rule['justificativa']}"
         return False
     result.applicable = False
     result.state = "NAO_APLICAVEL"
-    result.answer = f"Não aplicável à modalidade {modality} (regra {modality_rules.MODALITY_RULESET_VERSION})."
-    result.interpretation = "Item não exigido pela modalidade do imóvel; não conta como pendência."
+    result.answer = f"Não aplicável à modalidade {modality} (regra {modality_rules.MODALITY_RULESET_VERSION})." + (f" {rule['justificativa']}" if rule["justificativa"] else "")
+    result.interpretation = f"Item não exigido pela modalidade do imóvel; não conta como pendência. Regra {rule['regra']}."
     result.resolution_origin = "REGRA_MODALIDADE"
     return True
 
@@ -219,7 +231,7 @@ def build_finance(prop: models.Property):
     # Premissas financeiras persistidas (Task 3): meta, corretagem, tributo, valor de
     # venda, prazo, carregamento mensal e cenários. Ausência => dado desconhecido.
     assumptions = _build_finance_assumptions(getattr(auction, "financial_assumptions", None) if auction else None)
-    return calculate_financial(
+    result = calculate_financial(
         bid=acquisition,
         appraisal=auction.appraisal_value if auction else None,
         costs=costs, comparables=comparables, debts=debts, occupancy=occupancy_data,
@@ -228,6 +240,57 @@ def build_finance(prop: models.Property):
         commission_fixed=auction.commission_fixed if auction else None,
         **assumptions,
     )
+    return harmonize_finance(prop, result)
+
+
+def harmonize_finance(prop: models.Property, result: dict) -> dict:
+    """Consistência financeira (v2): custo total, resultado, ROI, break-even, preço máximo, status dos custos e pendências do
+    veredito vêm da MESMA composição e do MESMO cenário BASE da inteligência de mercado (``viability.verdict_finance``).
+
+    O motor legado continua fornecendo os demais campos (desconto, aluguel, comissão detalhada, cenários informados pelo usuário).
+    ``custos_informados`` reflete a composição única; o detalhamento legado de custos é recalculado a partir dela."""
+    from sqlalchemy.orm import object_session
+    from sqlalchemy.orm.exc import UnmappedInstanceError
+    from .viability import verdict_finance
+    try:
+        db = object_session(prop)
+    except UnmappedInstanceError:
+        db = None   # objeto não persistido (testes com dublês): parâmetros do catálogo indisponíveis, usa os padrões declarados
+    harmonized = verdict_finance(db, prop)
+    legacy_breakdown = result.get("custos") or {}
+    breakdown = {key: harmonized["custos"].get(key, Decimal("0")) for key in legacy_breakdown}
+    breakdown.update({k: v for k, v in harmonized["custos"].items() if k not in breakdown})
+    result.update({k: v for k, v in harmonized.items() if k != "custos"})
+    result["custos"] = breakdown
+    informed = {k: False for k in legacy_breakdown}
+    for item in harmonized["composicao_custos"]:
+        key = _legacy_cost_key(item["chave"])
+        informed[key] = informed.get(key, False) or harmonized["custos_status"].get(item["chave"]) in ("INFORMADO", "ESTIMADO", "NAO_APLICAVEL")
+    result["custos_informados"] = informed
+    result["outros_custos"], result["dividas"], result["desocupacao"] = breakdown.get("outros"), breakdown.get("debitos"), breakdown.get("desocupacao")
+    result["custos_informados"]["valor_mercado"] = harmonized["valor_mercado"] is not None
+    result["custos_informados"]["aluguel_mensal"] = result.get("aluguel_mensal") is not None
+    total = harmonized["custo_total"]
+    rent = result.get("aluguel_mensal")
+    result["yield_mensal"] = rent / total if rent is not None and total else None
+    result["yield_anual"] = rent * Decimal("12") / total if rent is not None and total else None
+    result["preco_m2"] = harmonized["valor_mercado"] / Decimal(str(prop.area_m2)) if harmonized["valor_mercado"] is not None and prop.area_m2 else None
+    result["roi_estimado_percentual"] = harmonized["margem_percentual"]
+    # Cenários do usuário: mesma composição, mesmo IR e mesmo preço máximo (parâmetros dele preservados em "premissas").
+    if harmonized.get("cenarios_usuario"):
+        result["cenarios"] = harmonized["cenarios_usuario"]
+    # Cenário BASE automático (sem cenários do usuário) passa a refletir o mesmo cálculo.
+    cenarios = result.get("cenarios") or []
+    if cenarios and cenarios[0].get("cenario") == "BASE" and "observacao" in (cenarios[0].get("premissas") or {}):
+        cenarios[0].update({"custo_total": total, "valor_mercado": harmonized["valor_mercado"], "resultado_liquido": harmonized["resultado_liquido"],
+                            "margem_liquida": harmonized["margem_liquida"], "roi_operacao": harmonized["roi_operacao"], "pendencias": harmonized["pendencias"],
+                            "premissas": {**cenarios[0]["premissas"], "valor_venda": harmonized["valor_mercado"]}})
+    return result
+
+
+def _legacy_cost_key(item_key: str) -> str:
+    from .viability import _CHAVE_LEGADA
+    return _CHAVE_LEGADA.get(item_key, "outros")
 
 
 
@@ -400,6 +463,24 @@ def resolve_checklist_from_data(db: Session, prop: models.Property, execution: m
                 apply("PRAZO_DOIS_ANOS", "ATENCAO", f"Sim. Prazo projetado de {meses} meses até a venda (≥ 24 meses).")
             else:
                 apply("PRAZO_DOIS_ANOS", "NAO_IDENTIFICADO", f"Não. Prazo projetado de {meses} meses até a venda (< 24 meses).")
+    # Item 15 sem edital: as condições oficiais da venda (limites de responsabilidade informados nas premissas, com origem)
+    # tornam o item INCONCLUSIVO com a regra descrita; só o documento das condições anexado o confirmaria.
+    if auction is not None:
+        caixa = (auction.financial_assumptions or {}).get("condicoes_caixa") or {}
+        cond, trib = caixa.get("condominio_limite_pct_avaliacao"), caixa.get("tributos_limite_pct_avaliacao")
+        result = by_key.get("RESPONSABILIDADE_DEBITOS")
+        if (cond not in (None, "") or trib not in (None, "")) and result is not None and result.applicable and result.state == "PENDENTE":
+            partes = []
+            if cond not in (None, ""):
+                partes.append(f"condomínio em atraso por conta do comprador até {Decimal(str(cond)) * 100:.0f}% da avaliação (excedente com o vendedor)")
+            if trib not in (None, ""):
+                partes.append(f"IPTU/tributos por conta do comprador se até {Decimal(str(trib)) * 100:.0f}% da avaliação (acima disso, com o vendedor)")
+            origem = caixa.get("origem") or "origem não declarada"
+            result.state = "EM_ANALISE"
+            result.confidence = "MEDIA"
+            result.interpretation = (f"INCONCLUSIVO: condições da venda informadas nas premissas ({origem}): " + "; ".join(partes)
+                                     + ". Anexar o edital ou as condições oficiais da venda para confirmar.")
+            resolved.append("RESPONSABILIDADE_DEBITOS")
     vendas = sum(1 for c in prop.comparables if str(c.kind or "").upper() == "VENDA")
     alugueis = sum(1 for c in prop.comparables if str(c.kind or "").upper() == "ALUGUEL")
     if vendas >= 7 and alugueis >= 7:
@@ -564,7 +645,57 @@ def persist_agent_findings(db: Session, prop: models.Property, analysis: models.
     return evidence_ids
 
 
-def persist_registry_findings(db: Session, prop: models.Property, analysis: models.Analysis, registry) -> list[int]:
+def resolve_checklist_from_registry(db: Session, execution, registry, evidence_by_kind: dict[str, list[int]]) -> list[str]:
+    """Itens de SITUAÇÃO REGISTRAL que a cadeia registral comprova pelo trecho da matrícula (v2, sem IA).
+
+    - CONSOLIDACAO_REGISTRADA: registro da alienação fiduciária E averbação da consolidação, ambos com trecho lido →
+      CONFIRMADO, com as duas evidências vinculadas. Só a alienação, sem consolidação no texto lido → INCONCLUSIVO
+      (o vendedor pode não ser o proprietário; nunca vira "sim").
+    - PENHORA_INDISPONIBILIDADE: penhora/indisponibilidade encontrada e não cancelada → RISCO_IDENTIFICADO. A ausência
+      no texto lido NÃO responde o item (OCR e matrícula desatualizada não provam inexistência).
+    Só toca item aplicável ainda PENDENTE/INCONCLUSIVO; decisão de agente ou do usuário prevalece."""
+    if not execution or registry is None or registry.is_empty():
+        return []
+    from .registry_chain import ALIENACAO_FIDUCIARIA, CONSOLIDACAO, ONUS
+    by_key = {r.item.canonical_key: r for r in execution.results if r.item is not None}
+    resolved: list[str] = []
+
+    def apply(key: str, state: str, answer: str, interpretation: str, evidence_ids: list[int], confidence: str = "MEDIA") -> None:
+        result = by_key.get(key)
+        if result is None or not result.applicable or result.state not in ("PENDENTE", "EM_ANALISE"):
+            return
+        result.state, result.answer, result.interpretation, result.confidence = state, answer, interpretation, confidence
+        if state not in ("PENDENTE", "EM_ANALISE"):
+            result.resolution_origin = "REGRA_DETERMINISTICA"
+        for evidence_id in evidence_ids:
+            db.add(models.ChecklistEvidence(checklist_result_id=result.id, evidence_id=evidence_id))
+        resolved.append(key)
+
+    af, cons = registry.fiduciary, registry.consolidation
+    if af is not None and af.chunk_id is not None and cons is not None and cons.chunk_id is not None and cons.position > af.position:
+        apply("CONSOLIDACAO_REGISTRADA", "CONFIRMADO",
+              f"Sim. Alienação fiduciária registrada ({af.act or 'ato não identificado'}"
+              + (f", credor {af.value}" if af.value else "") + f") e consolidação da propriedade averbada ({cons.act or 'ato não identificado'})"
+              + (f" em nome de {cons.value}" if cons.value else "") + ".",
+              "Lido da cadeia registral da matrícula (regra determinística, trechos vinculados). A consolidação não equivale a baixa "
+              "da alienação nem prova ausência de outros ônus.",
+              evidence_by_kind.get(ALIENACAO_FIDUCIARIA, []) + evidence_by_kind.get(CONSOLIDACAO, []))
+    elif af is not None and af.chunk_id is not None and cons is None:
+        apply("CONSOLIDACAO_REGISTRADA", "EM_ANALISE",
+              "", f"INCONCLUSIVO: alienação fiduciária registrada ({af.act or 'ato não identificado'}), mas a averbação da consolidação "
+              "não foi identificada no texto lido. Sem ela o vendedor pode não ser o proprietário: conferir a matrícula atualizada.",
+              evidence_by_kind.get(ALIENACAO_FIDUCIARIA, []), confidence="BAIXA")
+    blocking = [f for f in registry.of(ONUS) if str(f.value or "").lower() in ("penhora", "indisponibilidade")]
+    if blocking:
+        kinds = ", ".join(sorted({f"{f.value} ({f.act})" if f.act else str(f.value) for f in blocking}))
+        apply("PENHORA_INDISPONIBILIDADE", "RISCO_IDENTIFICADO", f"Sim. Consta na matrícula: {kinds}.",
+              "Lido da cadeia registral; confirmar na certidão de ônus atualizada se segue vigente.", evidence_by_kind.get(ONUS, []))
+    if resolved:
+        db.flush()
+    return resolved
+
+
+def persist_registry_findings(db: Session, prop: models.Property, analysis: models.Analysis, registry, execution=None) -> list[int]:
     """Registra as conclusões determinísticas da cadeia registral (v1.0.7) como evidências da análise.
 
     Cada conclusão sobre titularidade, alienação fiduciária, consolidação, cancelamentos, ônus e áreas aponta para
@@ -580,6 +711,7 @@ def persist_registry_findings(db: Session, prop: models.Property, analysis: mode
     if version is None or version.document is None or version.document.property_id != prop.id:
         return []
     evidence_ids: list[int] = []
+    evidence_by_kind: dict[str, list[int]] = {}
     for item in conclusions(registry, prop.area_m2, prop.private_area_m2):
         fact = item["fact"]
         if fact is not None and fact.chunk_id is not None:
@@ -593,9 +725,13 @@ def persist_registry_findings(db: Session, prop: models.Property, analysis: mode
             db.add(evidence); db.flush()
             db.add(models.EvidenceLink(evidence_id=evidence.id, target_type="Analysis", target_id=analysis.id, relation="MENCIONA"))
         evidence_ids.append(evidence.id)
+        # Só fatos com trecho da matrícula sustentam resposta de checklist (evidência DOCUMENTO).
+        if fact is not None and fact.chunk_id is not None and not item["text"].startswith("Situação de ônus"):
+            evidence_by_kind.setdefault(fact.kind, []).append(evidence.id)
     analysis.evidence_ids = sorted(set((analysis.evidence_ids or []) + evidence_ids))
     analysis.documents_considered = sorted(set((analysis.documents_considered or []) + [version.document_id]))
     db.flush()
+    resolve_checklist_from_registry(db, execution, registry, evidence_by_kind)
     return evidence_ids
 
 

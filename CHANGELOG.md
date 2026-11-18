@@ -2,6 +2,39 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
+## v1.0.10 — 2026-11-17
+
+Integração da análise de venda direta e consistência financeira. Sem migration (só campos JSON); rollback de imagem
+para a v1.0.9 é compatível com o schema.
+
+- **Checklist por finalidade do item (`modality-v2`).** Em VENDA_DIRETA só são não aplicáveis o lance abaixo de 50% e a
+  leitura do edital (que volta a ser aplicável se um edital for anexado). Validade da execução de origem (itens 1–5) e
+  leilões negativos averbados ficam condicionais e pendentes; consolidação, penhora, evicção e responsabilidade por
+  débitos ficam aplicáveis. Cada resultado guarda justificativa e regra. Demais modalidades sem mudança.
+- **Itens pela cadeia registral (sem IA).** Consolidação registrada: alienação + consolidação com trecho → CONFIRMADO, só a
+  alienação → INCONCLUSIVO. Penhora/indisponibilidade encontrada → RISCO_IDENTIFICADO (a ausência não responde o item).
+  Responsabilidade por débitos: INCONCLUSIVO com as condições da venda das premissas. A reanálise incremental segue o mesmo
+  fluxo. Efeito no caso 01 de testes: a penhora da matrícula vira risco ALTA e o lance de R$ 120 mil vai a ATENÇÃO.
+- **Fatores do veredito.** `decisao.fatores` separa impedimentos, informações essenciais desconhecidas, premissas não
+  configuradas, riscos que reduzem a confiança e não aplicáveis, com justificativa e ação. A decisão não muda.
+- **Premissas.** Sugestões da inteligência de mercado (valor de venda, corretagem, IR, prazo, carregamento) aplicadas só no
+  clique; a meta nunca é sugerida. Salvar o formulário preserva as premissas da v1.0.8 (ITBI, condições Caixa, reservas); a
+  origem das condições Caixa deixa de ser descartada. `tributo_pct` com base GANHO é a premissa de IR do motor de viabilidade.
+- **Consistência financeira.** O veredito usa a mesma composição de custos, o mesmo IR e o mesmo preço máximo do cenário BASE
+  da inteligência de mercado (`viability.verdict_finance`). ITBI pela alíquota entra no custo; corretagem e IR não
+  informados usam o padrão declarado, sinalizado e provisório (antes: "assumido 0"); custo sem valor fica pendente, fora da
+  soma; certidões, regularização e IPTU/condomínio da posse passam a compor o custo. A corretagem reduz a base do IR e só
+  lance, comissão, ITBI, registro e reforma são dedutíveis. Tela: tabela "Composição dos custos" com a natureza de cada valor.
+- **Meta única.** A inteligência de mercado calcula o preço máximo pela meta do usuário (ROI, margem ou lucro mínimo), igual ao
+  do veredito; sem meta, a referência pelo ROI padrão é identificada como "meta do investidor não configurada".
+- **Cenários do usuário** calculados com a mesma composição; os valores do cenário substituem só os itens informados.
+- **Caso 01 (gabarito).** Preço máximo de referência R$ 136.266 → R$ 130.804 (provisório), resultado no lance mínimo
+  −R$ 26.550 → −R$ 30.457,50, custo total R$ 341.450 → R$ 342.050. A referência anterior fica no gabarito
+  (`referencia_regra_anterior`) e continua testada no motor legado. `e2e/valor-negocio` passa a conferir também o status
+  provisório e os custos pendentes esperados.
+- Imóvel 7 (dados locais de teste): preço máximo BASE com meta ROI 20% = R$ 144.816,84, igual ao validado na v1.0.8; antes
+  o veredito mostrava R$ 155.351,64 por não somar ITBI, registro, certidões e reforma.
+
 ## v1.0.9 — 2026-11-16
 
 Correção de segurança dos dados de teste e da documentação. Sem migration, sem mudança de regra de negócio.
