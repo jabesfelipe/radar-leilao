@@ -74,6 +74,73 @@ def standard_status(state: str | None, applicable: bool | None = True) -> str:
     return STATUS_RESPONDIDO
 
 
+# Resultado do item para o investidor (v1.0.11, evidencias-v1). Também DERIVADO do estado gravado (nada novo é gravado,
+# análises anteriores ganham o mesmo resultado). Separa o que foi comprovado, o risco, o pendente, o analisado sem conclusão,
+# o que não se aplica e a ausência de restrição nos documentos examinados (que não é garantia jurídica de inexistência).
+RESULTADO_CONFIRMADO = "CONFIRMADO"
+RESULTADO_RISCO = "RISCO_IDENTIFICADO"
+RESULTADO_PENDENTE = "PENDENTE"
+RESULTADO_INCONCLUSIVO = "INCONCLUSIVO"
+RESULTADO_NAO_APLICAVEL = "NAO_APLICAVEL"
+RESULTADO_SEM_RESTRICAO = "SEM_RESTRICAO_IDENTIFICADA"
+CHECKLIST_RESULTS = (RESULTADO_CONFIRMADO, RESULTADO_RISCO, RESULTADO_PENDENTE, RESULTADO_INCONCLUSIVO, RESULTADO_NAO_APLICAVEL, RESULTADO_SEM_RESTRICAO)
+RESULT_LABELS = {
+    RESULTADO_CONFIRMADO: "Comprovado", RESULTADO_RISCO: "Risco identificado", RESULTADO_PENDENTE: "Pendente",
+    RESULTADO_INCONCLUSIVO: "Inconclusivo", RESULTADO_NAO_APLICAVEL: "Não aplicável", RESULTADO_SEM_RESTRICAO: "Sem restrição identificada",
+}
+
+
+def checklist_outcome(state: str | None, applicable: bool | None = True) -> str:
+    """Resultado exibido ao investidor a partir do estado gravado (ATENCAO é risco de gravidade moderada)."""
+    normalized = str(state or "").strip().upper()
+    if applicable is False or normalized == "NAO_APLICAVEL":
+        return RESULTADO_NAO_APLICAVEL
+    if normalized == "CONFIRMADO":
+        return RESULTADO_CONFIRMADO
+    if normalized in ("RISCO_IDENTIFICADO", "ATENCAO"):
+        return RESULTADO_RISCO
+    if normalized == "NAO_IDENTIFICADO":
+        return RESULTADO_SEM_RESTRICAO
+    if normalized == "EM_ANALISE":
+        return RESULTADO_INCONCLUSIVO
+    return RESULTADO_PENDENTE
+
+
+# Tipo da evidência para o investidor (v1.0.11): o que é fato do documento, regra oficial da venda, cálculo, inferência da IA,
+# informação do usuário/cadastro ou registro de que a informação não foi localizada no documento examinado.
+TIPO_FATO_DOCUMENTAL = "FATO_DOCUMENTAL"
+TIPO_REGRA_VENDA = "REGRA_OFICIAL_VENDA"
+TIPO_CALCULO = "CALCULO"
+TIPO_INFERENCIA_IA = "INFERENCIA_IA"
+TIPO_USUARIO = "INFORMACAO_USUARIO"
+TIPO_NAO_LOCALIZADA = "INFORMACAO_NAO_LOCALIZADA"
+TIPO_PESQUISA_EXTERNA = "PESQUISA_EXTERNA"
+TIPO_ORIGEM_NAO_REGISTRADA = "ORIGEM_NAO_REGISTRADA"
+EVIDENCE_TYPE_LABELS = {
+    TIPO_FATO_DOCUMENTAL: "Fato documental", TIPO_REGRA_VENDA: "Regra oficial da venda", TIPO_CALCULO: "Cálculo",
+    TIPO_INFERENCIA_IA: "Inferência da IA", TIPO_USUARIO: "Informação fornecida pelo usuário", TIPO_NAO_LOCALIZADA: "Informação não localizada",
+    TIPO_PESQUISA_EXTERNA: "Pesquisa externa", TIPO_ORIGEM_NAO_REGISTRADA: "Origem não registrada",
+}
+
+
+def evidence_type(origin: str | None, category: str | None = None, has_document: bool = False) -> str:
+    """Tipo da evidência a partir da origem registrada (``Evidence.origin``) e da categoria."""
+    origin_up = str(origin or "").upper()
+    if origin_up == "NAO_LOCALIZADA":
+        return TIPO_NAO_LOCALIZADA
+    if origin_up == "DOCUMENTO" or (not origin_up and has_document):
+        return TIPO_REGRA_VENDA if str(category or "").upper() == "CONDICOES_VENDA" else TIPO_FATO_DOCUMENTAL
+    if origin_up in ("CALCULO", "REGRA_DETERMINISTICA"):
+        return TIPO_CALCULO
+    if origin_up in ("CADASTRO", "USUARIO"):
+        return TIPO_USUARIO
+    if origin_up == "PESQUISA_JUDICIAL":
+        return TIPO_PESQUISA_EXTERNA
+    if origin_up == "INFERENCIA_IA":
+        return TIPO_INFERENCIA_IA
+    return TIPO_ORIGEM_NAO_REGISTRADA
+
+
 def standard_justification(state: str | None, applicable: bool | None, answer: str | None, interpretation: str | None) -> str:
     """Justificativa legível do status (rastreabilidade): resposta/interpretação gravada ou o motivo padrão."""
     status = standard_status(state, applicable)

@@ -11327,6 +11327,53 @@
     "summary": "Update Checklist"
    }
   },
+  "/api/imoveis/{property_id}/checklist/{result_id}/evidencias": {
+   "get": {
+    "description": "Evidências de um item do checklist (v1.0.11): documento, página, trecho original, tipo, confiança, agente ou regra e data.\n\nO texto da conclusão nunca substitui o trecho do documento: ``source_excerpt`` é o trecho gravado (ou o do chunk).",
+    "operationId": "checklist_result_evidences_api_imoveis__property_id__checklist__result_id__evidencias_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "path",
+      "name": "result_id",
+      "required": true,
+      "schema": {
+       "title": "Result Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Checklist Result Evidences"
+   }
+  },
   "/api/imoveis/{property_id}/comparaveis": {
    "get": {
     "description": "Lista comparáveis + histórico de alterações (TASK 75.2).",

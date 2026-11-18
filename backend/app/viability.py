@@ -54,6 +54,10 @@ DEFAULTS: dict[str, tuple[Decimal | int, str]] = {
     "viabilidade.reserva_reforma_m2": (Decimal("250"), "Reserva conservadora de reforma (R$/m² de área privativa)"),
     "viabilidade.reserva_reforma_m2_base": (Decimal("100"), "Reserva de reparos leves no cenário base/otimista (R$/m² de área privativa)"),
     "viabilidade.reserva_desocupacao": (Decimal("5000"), "Reserva conservadora de desocupação (R$), se ocupação desconhecida"),
+    # v1.0.11: referência de análise do item 21 do checklist ("grande reforma"). Premissa ajustável por imóvel ou no catálogo;
+    # não é regra jurídica nem critério legal.
+    "checklist.reforma_grande_pct": (Decimal("0.10"), "Referência de análise para \"grande reforma\" no checklist (fração do preço de aquisição); "
+                                     "premissa ajustável, não é regra jurídica"),
 }
 
 

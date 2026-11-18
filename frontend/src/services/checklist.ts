@@ -34,7 +34,16 @@ export type ChecklistItem = {
   confidence?: string | null
   interpretation?: string | null
   risk?: string | null
+  /** v1.0.11: resultado para o investidor, derivado no backend (fonte única da classificação). */
+  resultado?: ChecklistOutcome | null
+  resultado_label?: string | null
+  acao_recomendada?: string | null
+  fonte_necessaria?: string | null
+  evidence_ids?: number[]
+  resolution_origin?: string | null
 }
+
+export type ChecklistOutcome = 'CONFIRMADO' | 'RISCO_IDENTIFICADO' | 'PENDENTE' | 'INCONCLUSIVO' | 'NAO_APLICAVEL' | 'SEM_RESTRICAO_IDENTIFICADA'
 
 type ChecklistResult = {
   id: number
@@ -48,6 +57,33 @@ type ChecklistResult = {
   interpretation?: string | null
   risk?: string | null
   previous_result_id?: number | null
+  question?: string | null
+  resultado?: ChecklistOutcome | null
+  resultado_label?: string | null
+  acao_recomendada?: string | null
+  fonte_necessaria?: string | null
+  evidence_ids?: number[]
+  resolution_origin?: string | null
+}
+
+export type ChecklistEvidence = {
+  id: number
+  category?: string
+  documento?: string
+  document_type?: string
+  version?: number
+  page?: number
+  section?: string
+  fact?: string
+  source_excerpt?: string
+  confidence?: string
+  origin?: string
+  strength?: string
+  agent?: string
+  tipo_evidencia?: string
+  tipo_evidencia_label?: string
+  created_at?: string
+  tem_trecho_documento?: boolean
 }
 
 type ChecklistExecution = {
@@ -107,7 +143,8 @@ export async function listChecklist(propertyId: number): Promise<ChecklistItem[]
       id: result.id,
       item_number: meta?.priority,
       canonical_key: result.canonical_key,
-      question: meta?.question ?? result.canonical_key ?? 'Item do checklist',
+      // pergunta adequada à modalidade (backend) > pergunta do catálogo > chave
+      question: result.question ?? meta?.question ?? result.canonical_key ?? 'Item do checklist',
       description: meta?.description ?? null,
       category: meta?.category ?? null,
       domain: meta?.domain ?? null,
@@ -119,8 +156,19 @@ export async function listChecklist(propertyId: number): Promise<ChecklistItem[]
       confidence: result.confidence ?? null,
       interpretation: result.interpretation ?? null,
       risk: result.risk ?? null,
+      resultado: result.resultado ?? null,
+      resultado_label: result.resultado_label ?? null,
+      acao_recomendada: result.acao_recomendada ?? null,
+      fonte_necessaria: result.fonte_necessaria ?? null,
+      evidence_ids: result.evidence_ids ?? [],
+      resolution_origin: result.resolution_origin ?? null,
     }
   })
+}
+
+export async function listChecklistEvidence(propertyId: number, resultId: number): Promise<ChecklistEvidence[]> {
+  const payload = await request<{ evidencias: ChecklistEvidence[] }>(`/api/imoveis/${propertyId}/checklist/${resultId}/evidencias`)
+  return payload.evidencias ?? []
 }
 
 export function updateChecklistItem(propertyId: number, itemId: number, payload: ChecklistUpdate): Promise<ChecklistItem> {

@@ -391,6 +391,7 @@ export function PropertyWizard({ onCancel, onCreated }: PropertyWizardProps) {
                 <Select label="Tipo" value={doc.document_type} onChange={(e) => updateDoc(index, e.target.value)}>
                   <option value="EDITAL">Edital</option>
                   <option value="MATRICULA">Matrícula</option>
+                  <option value="CONDICOES_VENDA">Condições da venda (venda direta)</option>
                   <option value="OUTRO">Outro</option>
                 </Select>
                 <Button variant="ghost" onClick={() => removeDoc(index)} aria-label="Remover documento"><Trash2 size={16} /> Remover</Button>

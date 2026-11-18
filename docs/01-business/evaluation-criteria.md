@@ -22,9 +22,28 @@ NAO_IDENTIFICADO, NAO_APLICAVEL. Confiança: BAIXA, MEDIA, ALTA.
 Observação: a chave `COMPARAVEIS_SUFFICIENTES` contém um erro de grafia no código (deveria ser "SUFICIENTES"). Como a chave é
 canônica e preservada no histórico (27 `canonical_key`), o erro é registrado aqui e **não** foi corrigido.
 
-A aplicabilidade do checklist por modalidade está **Implementada** (`modality_rules.py`, ruleset `modality-v1`, 5 modalidades,
+A aplicabilidade do checklist por modalidade está **Implementada** (`modality_rules.py`, ruleset `modality-v2`, 5 modalidades,
 LICITACAO ainda em aberto); a matriz original que dizia "nada implementado" está desatualizada neste ponto
 ([MATRIZ-CHECKLIST-MODALIDADE](../02-product/specs/MATRIZ-CHECKLIST-MODALIDADE.md)).
+
+**Classificação por evidências — Implementado (v1.0.11, regra `evidencias-v1`, `checklist_evidence.py`).** Os itens são
+respondidos a partir da matrícula (cadeia registral), das condições oficiais da venda (ou do edital) e dos módulos do Radar
+(ocupação, processos, localização, comparáveis, premissas), sem IA e com a evidência vinculada. Critérios:
+
+- item jurídico ou documental só é **Comprovado** com trecho do documento; cadastro e cálculo nunca confirmam item jurídico;
+- **Sem restrição identificada** só quando o documento certo foi examinado e lido em sequência contínua de atos; não é
+  garantia de inexistência e vem com a ação de conferência (certidão de ônus atualizada, CNIB);
+- ausência de informação nunca vira resposta negativa nem "não aplicável";
+- **Não aplicável** por evidência só quando a condição do item comprovadamente não existe;
+- conhecer a regra de responsabilidade por débitos (condições da venda) não informa o valor da dívida: os dois aparecem
+  separados;
+- "grande reforma" (item 21) é comparada a uma **referência de análise**, não a uma regra jurídica: premissa
+  `checklist.reforma_grande_pct`, padrão de 10% do preço de aquisição, ajustável por imóvel (Financeiro > Premissas) ou no
+  catálogo de parâmetros. A origem da referência usada aparece na justificativa; o valor da reforma é premissa do usuário
+  (confiança baixa sem vistoria).
+
+Cada evidência tem um tipo: fato documental, regra oficial da venda, cálculo, inferência da IA, informação do usuário ou
+informação não localizada (registro de que o documento examinado não contém o fato).
 
 ## 2. Riscos
 
@@ -123,6 +142,8 @@ Hipóteses de anotações do proprietário, a validar com fonte oficial antes de
 |---|---|
 | Checklist (27 itens) | Implementado |
 | Aplicabilidade por modalidade | Implementado (LICITACAO em aberto) |
+| Classificação por evidências (matrícula, condições da venda, módulos do Radar) | Implementado (v1.0.11) |
+| Selic de referência para o item 22 | Planejado (não cadastrada; o item mostra o ROI anualizado e fica pendente) |
 | Riscos e veredito | Implementado |
 | Motor financeiro (composição única do veredito e da inteligência de mercado) | Implementado |
 | Cenários conservador/base/otimista e cenários do usuário | Implementado |
