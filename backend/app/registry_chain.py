@@ -141,6 +141,9 @@ class RegistryChain:
     document_version_id: int | None = None
     chunk_texts: dict[int, str] = field(default_factory=dict)
     acts: list[RegistryAct] = field(default_factory=list)
+    # v1.0.12: texto montado (as posições dos atos e fatos valem para ele) e os trechos de origem, para a linha do tempo.
+    original: str = ""
+    segments: list = field(default_factory=list)
 
     # ---- consultas -------------------------------------------------------
     def of(self, kind: str) -> list[RegistryFact]:
@@ -348,7 +351,8 @@ def read_registry(chunks: Iterable[dict[str, Any]], document_version_id: int | N
     original, segments = _assemble(chunks)
     folded = fold(original)
     chain = RegistryChain(document_version_id=document_version_id,
-                          chunk_texts={chunk["chunk_id"]: str(chunk.get("content") or "") for chunk in chunks if chunk.get("chunk_id") is not None})
+                          chunk_texts={chunk["chunk_id"]: str(chunk.get("content") or "") for chunk in chunks if chunk.get("chunk_id") is not None},
+                          original=original, segments=segments)
 
     def add(kind: str, value: str | None, start: int, end: int, act: str | None = None) -> None:
         segment = _locate(segments, start)

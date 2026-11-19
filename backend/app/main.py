@@ -452,6 +452,14 @@ def list_registrations(property_id: int, db: Session = Depends(get_db)):
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "PropertyRegistration").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
 
+@app.get("/api/imoveis/{property_id}/matricula/linha-do-tempo")
+def registry_timeline(property_id: int, db: Session = Depends(get_db)):
+    """Linha do tempo da matrícula (v1.0.12): atos com data, tipo, partes, valor, construtora e conclusão de obra, calculada dos
+    trechos já armazenados (sem reprocessar nem gravar). Rota autenticada pelo portão global; nomes sem CPF."""
+    property_or_404(db, property_id)
+    from .registry_timeline import timeline_for_property
+    return serialize(timeline_for_property(db, property_id))
+
 @app.patch("/api/imoveis/{property_id}/matricula/{registration_id}")
 def update_registration(property_id: int, registration_id: int, data: schemas.RegistrationUpdate, db: Session = Depends(get_db)):
     """Edita os metadados cadastrais da matrícula (TASK 75.2). Histórico before/after
