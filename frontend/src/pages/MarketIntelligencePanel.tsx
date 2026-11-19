@@ -63,6 +63,13 @@ export function MarketIntelligencePanel({ propertyId, refreshKey = 0 }: { proper
         <Badge size="sm" tone="warning">Pendente</Badge> sem valor real: entra por reserva/teto identificado ou fica fora da soma (cenário incompleto).
       </p>
 
+      {v.venda_preliminar ? (
+        <Alert tone="warning">
+          <Badge size="sm" tone="warning">{v.venda_preliminar.selo}</Badge> Valor de venda preliminar estimado: <strong>{formatMoney(v.venda_preliminar.valor)}</strong>{' '}
+          = avaliação {formatMoney(v.venda_preliminar.avaliacao)} × fator {formatPercent(v.venda_preliminar.fator)} ({v.venda_preliminar.fator_origem}).
+          Confiança: Baixa. Não há comparáveis suficientes. {v.venda_preliminar.observacao}
+        </Alert>
+      ) : null}
       <dl className="dossier-facts">
         <Fact label="Valor de mercado estimado" value={v.valor_mercado_estimado == null ? 'Sem estimativa pontual' : formatMoney(v.valor_mercado_estimado)} />
         <Fact label="Faixa de venda" value={v.faixa_venda ? `${formatMoney(v.faixa_venda.min)} a ${formatMoney(v.faixa_venda.max)}` : 'Sem dados'} />

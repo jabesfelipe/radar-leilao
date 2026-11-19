@@ -267,6 +267,25 @@ def resolve_registry_items(db, prop: models.Property, analysis, execution, chain
     # ---- 08: leilões negativos --------------------------------------------------------------------------------------
     leiloes = chain.of(LEILAO)
     negativos_av = [f for f in leiloes if f.value == "NEGATIVO" and (f.act or "").startswith("Av")]
+
+    def seller_auction_info() -> tuple[str, list[int]]:
+        """Informação do vendedor (condições da venda) sobre a averbação dos leilões negativos: complementa a matrícula, não a substitui."""
+        if r.open("LEILOES_NEGATIVOS_AVERBADOS") is None:
+            return "", []
+        from .sale_conditions import TEMA_LEILOES, conditions_for_property
+        for src in conditions_for_property(db, prop.id):
+            clause = src.first(TEMA_LEILOES)
+            if clause is None:
+                continue
+            literal = clause.detalhes[0] if clause.detalhes else clause.excerpt
+            evidence_id = r.document(src.document_version_id, clause.chunk_id, clause.excerpt,
+                                     f"Informação do vendedor ({src.source_label}): averbação dos leilões negativos \"{literal}\".", "CONDICOES_VENDA",
+                                     "condicoes_venda", src.chunk_texts.get(clause.chunk_id, ""), clause.page, clause.section)
+            text = (f" Informação do vendedor nas {src.source_label}: \"Averbação dos leilões negativos: {literal}\". É declaração do vendedor: "
+                    "não comprova a averbação, que precisa ser confirmada na matrícula atualizada (Registro de Imóveis).")
+            return text, [evidence_id] if evidence_id else []
+        return "", []
+
     if negativos_av:
         r.resolve("LEILOES_NEGATIVOS_AVERBADOS", "CONFIRMADO", "Sim. Leilões negativos averbados (" + ", ".join(act(f) for f in negativos_av) + ").",
                   "Fato lido na matrícula (trecho vinculado).", ev(*negativos_av), confidence="ALTA")
@@ -274,15 +293,19 @@ def resolve_registry_items(db, prop: models.Property, analysis, execution, chain
         f = leiloes[0]
         what = {"NEGATIVO": "menciona leilões negativos fora de uma averbação própria", "QUITACAO": "averba termo de quitação/extinção da dívida",
                 "MENCAO": "menciona leilão sem indicar o resultado"}[f.value or "MENCAO"]
+        seller_text, seller_ids = seller_auction_info()
         r.resolve("LEILOES_NEGATIVOS_AVERBADOS", "EM_ANALISE", "",
-                  f"INCONCLUSIVO: a matrícula {what} ({act(f)}), sem comprovar a averbação dos dois leilões negativos. Conferir o trecho e a matrícula atualizada.",
-                  ev(*leiloes), confidence="BAIXA")
+                  f"INCONCLUSIVO: a matrícula {what} ({act(f)}), sem comprovar a averbação dos dois leilões negativos. Conferir o trecho e a matrícula atualizada."
+                  + seller_text, ev(*leiloes) + seller_ids, confidence="BAIXA")
     elif cons is not None:
+        seller_text, seller_ids = seller_auction_info()
         r.resolve("LEILOES_NEGATIVOS_AVERBADOS", "EM_ANALISE", "",
                   f"INCONCLUSIVO: {examined} registra a consolidação ({act(cons)}) e nenhuma averbação de leilões negativos"
                   + ("" if readable else f" ({reason})") + ". Isso não prova que os leilões não ocorreram, nem que a averbação seja exigida: a "
-                  "exigência para registrar a compra varia entre cartórios. Conferir na matrícula atualizada e confirmar com o Registro de Imóveis.",
-                  ev(cons) + not_found("LEILOES_NEGATIVOS_AVERBADOS", "nenhuma averbação de leilões negativos ou termo de quitação"), confidence="BAIXA")
+                  "exigência para registrar a compra varia entre cartórios. Conferir na matrícula atualizada e confirmar com o Registro de Imóveis."
+                  + seller_text,
+                  ev(cons) + seller_ids + not_found("LEILOES_NEGATIVOS_AVERBADOS", "nenhuma averbação de leilões negativos ou termo de quitação"),
+                  confidence="BAIXA")
     elif not title_not_fiduciary:
         r.note("LEILOES_NEGATIVOS_AVERBADOS", f"{examined}: sem consolidação nem leilões identificados" + ("" if readable else f" ({reason})")
                + ". Anexar a matrícula atualizada (inteiro teor).")
@@ -468,17 +491,23 @@ def _sale_condition_items(r: _Resolver) -> None:
         return f"{tema_label}: {text}"
 
     cond, trib = src.first(TEMA_CONDOMINIO), src.first(TEMA_TRIBUTOS)
-    debts = [d for d in r.prop.debts if d.amount not in (None, 0)]
-
-    def debts_of(*words) -> list:
-        return [d for d in debts if any(w in str(d.category or "").upper() for w in words)]
-
-    known = []
-    for label, items in (("condomínio", debts_of("COND")), ("IPTU/tributos", debts_of("IPTU", "TRIBUT", "PREFEIT", "IMPOST"))):
-        if items:
-            known.append(f"{label} {_brl(sum(Decimal(str(d.amount)) for d in items))}")
-    debt_text = ("Débitos cadastrados: " + "; ".join(known) + ".") if known else (
-        "Valores dos débitos não informados: conhecer a regra não informa a dívida. Solicitar declaração de débitos do condomínio e certidão de débitos de IPTU.")
+    # Mesma fonte de valores da composição de custos (viability.debt_exposure): confirmado > informado > estimativa > pendente.
+    from .viability import FONTE_ESTIMATIVA, FONTE_INDISPONIVEL, debt_exposure
+    exposure = debt_exposure(r.db, r.prop, (auction.financial_assumptions or {}) if auction is not None else {})
+    known, others = [], []
+    for label, key in (("condomínio", "condominio_atraso"), ("IPTU/tributos", "tributos_atraso")):
+        info = exposure[key]
+        if info["valor"] not in (None, 0):
+            known.append(f"{label} {_brl(info['valor'])} ({info['origem']})")
+        elif info["fonte"] == FONTE_ESTIMATIVA:
+            others.append(f"{label}: estimativa de {_brl(info['estimativa']['base'])} (provável) a {_brl(info['estimativa']['conservador'])} (alto), "
+                          "não é dívida confirmada")
+        elif info["fonte"] == FONTE_INDISPONIVEL:
+            others.append(f"{label}: consulta indisponível ou em validação (não é zero)")
+    debt_text = ("Débitos cadastrados: " + "; ".join(known) + "." if known else
+                 "Valores dos débitos não informados: conhecer a regra não informa a dívida. Solicitar declaração de débitos do condomínio e certidão de débitos de IPTU.")
+    if others:
+        debt_text += " " + "; ".join(others) + "."
     debt_ids = [r.plain("CADASTRO", "FINANCEIRO", "Débitos cadastrados no imóvel: " + "; ".join(known) + ".", "cadastro")] if known else []
     parts, ids, ambiguous, missing = [], [], [], []
     for clause, label, tema in ((cond, "Condomínio", "condomínio"), (trib, "IPTU/tributos", "IPTU/tributos")):
@@ -517,17 +546,21 @@ def _occupancy_items(r: _Resolver, registry) -> None:
     if registry is not None and not registry.is_empty():
         from .registry_chain import CESSAO
         cessao_txt = "" if registry.of(CESSAO) else " Cessão de posição contratual: não consta na matrícula examinada."
-    if status in ("OCUPADO", "DESOCUPADO"):
+    # Só o registro de ocupação feito pelo usuário responde 11 e 27; "possíveis ocupantes" dos documentos são sugestão e não entram.
+    from .occupancy_service import OCCUPIED_STATUSES, STATUS_LABELS, VACANT_STATUSES
+    if status in OCCUPIED_STATUSES or status in VACANT_STATUSES:
+        label = STATUS_LABELS.get(status, status).lower()
         detail = "; ".join(t for t in ((f"perfil: {occ.occupant_profile}" if occ.occupant_profile else ""),
                                        (f"custo estimado de desocupação {_brl(occ.estimated_cost)}" if occ.estimated_cost not in (None, 0) else ""),
                                        (f"prazo estimado {occ.estimated_months} meses" if occ.estimated_months else "")) if t)
-        fact = f"Cadastro de ocupação: {status.lower()}" + (f" ({detail})" if detail else "") + "."
+        fact = f"Cadastro de ocupação: {status.lower() if status in ('OCUPADO', 'DESOCUPADO') else label}" + (f" ({detail})" if detail else "") + "."
         ids = [r.plain("CADASTRO", "DESOCUPACAO", fact, "cadastro_ocupacao", "MEDIA" if occ.evidence_id else "BAIXA")]
         if occ.evidence_id:
             ids.append(occ.evidence_id)
         conf = "MEDIA" if occ.evidence_id else "BAIXA"
-        if status == "OCUPADO":
-            r.resolve("TERCEIRO_OCUPANTE", "ATENCAO", "Sim. Imóvel registrado como ocupado" + (f" ({detail})." if detail else "."),
+        if status in OCCUPIED_STATUSES:
+            how = {"OCUPADO_TERCEIROS": "ocupado por terceiros", "OCUPADO_CONFIRMADO": "ocupado (ocupação confirmada)"}.get(status, "ocupado")
+            r.resolve("TERCEIRO_OCUPANTE", "ATENCAO", f"Sim. Imóvel registrado como {how}" + (f" ({detail})." if detail else "."),
                       "Informação do cadastro de ocupação (fornecida pelo usuário" + (", com evidência vinculada" if occ.evidence_id else ", sem documento") + ")."
                       + cessao_txt + " Planejar a desocupação (custo e prazo) antes de decidir.", ids, confidence=conf)
             r.note("ETICA_OCUPACAO", "imóvel registrado como ocupado" + (f" ({occ.occupant_profile})" if occ.occupant_profile else "")

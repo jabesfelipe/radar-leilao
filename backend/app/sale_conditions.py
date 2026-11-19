@@ -31,7 +31,10 @@ TEMA_TRIBUTOS = "TRIBUTOS"
 TEMA_EVICCAO = "EVICCAO"
 TEMA_FGTS = "FGTS"
 TEMA_PAGAMENTO = "PAGAMENTO"
-TEMAS = (TEMA_CONDOMINIO, TEMA_TRIBUTOS, TEMA_EVICCAO, TEMA_FGTS, TEMA_PAGAMENTO)
+# Informação do vendedor sobre a averbação dos leilões negativos (ex.: "Averbação dos leilões negativos: Em tratamento").
+# É declaração do vendedor: não comprova a averbação, que só a matrícula atualizada mostra.
+TEMA_LEILOES = "LEILOES_NEGATIVOS"
+TEMAS = (TEMA_CONDOMINIO, TEMA_TRIBUTOS, TEMA_EVICCAO, TEMA_FGTS, TEMA_PAGAMENTO, TEMA_LEILOES)
 
 # Regras de débito (condomínio, tributos).
 REGRA_EXCEDENTE = "COMPRADOR_ATE_LIMITE_VENDEDOR_EXCEDENTE"     # comprador até o limite; vendedor paga só o que exceder
@@ -47,6 +50,10 @@ EVICCAO_EXCLUIDA = "EXCLUIDA"
 FGTS_ACEITA = "ACEITA"
 FGTS_NAO_ACEITA = "NAO_ACEITA"
 MENCIONADO = "MENCIONADO"
+# Situação da averbação dos leilões negativos segundo o vendedor.
+LEILOES_EM_TRATAMENTO = "EM_TRATAMENTO"
+LEILOES_AVERBADA = "AVERBADA_SEGUNDO_VENDEDOR"
+LEILOES_NAO_AVERBADA = "NAO_AVERBADA_SEGUNDO_VENDEDOR"
 
 _THEME_PATTERNS = {
     TEMA_CONDOMINIO: re.compile(r"\bCONDOMINI(O|AIS)\b"),
@@ -54,6 +61,7 @@ _THEME_PATTERNS = {
     TEMA_EVICCAO: re.compile(r"\bEVICCAO\b"),
     TEMA_FGTS: re.compile(r"\bFGTS\b"),
     TEMA_PAGAMENTO: re.compile(r"(FORMAS?|CONDICOES|MODALIDADES?)\s+DE\s+PAGAMENTO"),
+    TEMA_LEILOES: re.compile(r"AVERBACAO\s+D[OA]S?\s+LEILOES\s+NEGATIVOS"),
 }
 # Cláusula de débito precisa falar de responsabilidade/limite (não basta citar "condomínio" na descrição do imóvel).
 _DEBT_CONTEXT = re.compile(r"RESPONSAB|POR\s+CONTA|LIMITE|DEBITO|DESPESA|PAGAMENTO|QUITA|ARCA")
@@ -196,6 +204,19 @@ def _classify_fgts(text: str) -> str:
     return MENCIONADO
 
 
+def _classify_auctions(text: str) -> tuple[str, str]:
+    """(situação, valor literal) da linha "Averbação dos leilões negativos: <situação>"."""
+    match = re.search(r"NEGATIVOS\s*[:\-]?\s*([^\n]{0,120})", text)
+    value = (match.group(1) if match else "").strip(" .;")
+    if re.search(r"EM\s+(TRATAMENTO|ANDAMENTO|PROVIDENCIA)|PENDENTE|AGUARDANDO", value):
+        return LEILOES_EM_TRATAMENTO, value
+    if re.search(r"\bNAO\b", value):
+        return LEILOES_NAO_AVERBADA, value
+    if re.search(r"AVERBAD|CONCLUID|REALIZAD|\bSIM\b", value):
+        return LEILOES_AVERBADA, value
+    return MENCIONADO, value
+
+
 def read_conditions(chunks: Iterable[dict[str, Any]], document_version_id: int | None = None, *, document_name: str | None = None,
                     document_type: str | None = DOC_CONDICOES, document_id: int | None = None) -> SaleConditions:
     """Cláusulas encontradas no texto (``chunk_id``, ``content``, ``page``, ``section``), a primeira de cada tema."""
@@ -220,6 +241,14 @@ def read_conditions(chunks: Iterable[dict[str, Any]], document_version_id: int |
             elif tema == TEMA_EVICCAO:
                 clause = Clause(tema, _classify_eviction(text), excerpt, start, segment.chunk_id if segment else None, segment.page if segment else None,
                                 segment.section if segment else None, vendedor=seller)
+            elif tema == TEMA_LEILOES:
+                situation, _ = _classify_auctions(folded[match.start():].split("\n", 1)[0])
+                own_line = original[match.start():].split("\n", 1)[0]
+                excerpt = re.sub(r"\s+", " ", own_line).strip()[:300] or excerpt
+                literal = re.search(r"negativos\s*[:\-]?\s*(.{0,120})", own_line, re.IGNORECASE)
+                clause = Clause(tema, situation, excerpt, start, segment.chunk_id if segment else None, segment.page if segment else None,
+                                segment.section if segment else None, vendedor=seller,
+                                detalhes=[literal.group(1).strip(" .;")] if literal and literal.group(1).strip(" .;") else [])
             elif tema == TEMA_FGTS:
                 clause = Clause(tema, _classify_fgts(text), excerpt, start, segment.chunk_id if segment else None, segment.page if segment else None,
                                 segment.section if segment else None, vendedor=seller)
@@ -250,9 +279,13 @@ def conditions_for_property(db, property_id: int) -> list[SaleConditions]:
         if not isinstance(document, models.Document):
             continue
         kind = normalize_doc_type(document.document_type)
-        if kind is None or not document.versions:
+        if kind is None:
             continue
-        version = max(document.versions, key=lambda v: v.id)
+        # Consulta direta (não a coleção ``document.versions``, que pode estar desatualizada na sessão logo após o upload).
+        version = db.scalars(select(models.DocumentVersion).where(models.DocumentVersion.document_id == document.id)
+                             .order_by(models.DocumentVersion.id.desc())).first()
+        if version is None:
+            continue
         rows = db.scalars(select(models.DocumentChunk).where(models.DocumentChunk.document_version_id == version.id)
                           .order_by(models.DocumentChunk.chunk_index, models.DocumentChunk.id)).all()
         chunks = [{"chunk_id": r.id, "content": r.content, "page": r.page, "section": r.section} for r in rows]

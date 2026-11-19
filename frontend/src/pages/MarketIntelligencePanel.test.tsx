@@ -57,6 +57,16 @@ describe('MarketIntelligencePanel', () => {
     globalThis.fetch = vi.fn()
   })
 
+  it('mostra o selo de estimativa preliminar com avaliação, fator e valor', async () => {
+    const preliminar = { valor: 187000, avaliacao: 220000, fator: 0.85, fator_origem: 'catálogo de parâmetros (viabilidade.fator_venda_avaliacao)',
+      selo: 'Estimativa preliminar', confianca: 'BAIXA', observacao: 'Informe o valor de venda em Financeiro > Premissas.', formula: 'R$ 220.000,00 × 85% = R$ 187.000,00' }
+    vi.mocked(fetch).mockImplementation(() => jsonResponse({ ...body, valores: { ...body.valores, venda_preliminar: preliminar } }))
+    render(<MarketIntelligencePanel propertyId={7} />)
+    expect(await screen.findByText('Estimativa preliminar')).toBeInTheDocument()
+    expect(screen.getByText(/Valor de venda preliminar estimado/)).toBeInTheDocument()
+    expect(screen.getByText(/Não há comparáveis suficientes/)).toBeInTheDocument()
+  })
+
   it('mostra conclusão, valores, custos por situação, cenários e comparáveis com fonte', async () => {
     vi.mocked(fetch).mockImplementation(() => jsonResponse(body))
     render(<MarketIntelligencePanel propertyId={7} />)

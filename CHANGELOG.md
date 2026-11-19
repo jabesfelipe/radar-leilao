@@ -2,6 +2,33 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
+## Não publicado — inteligência do imóvel (branch `feat/inteligencia-imovel`)
+
+Sem migration e sem tabela nova. Detalhes e valores padrão em `docs/02-product/specs/INTELIGENCIA-IMOVEL.md`.
+
+- **Fonte única de custos (Fase A).** Condomínio e IPTU em atraso vêm de um leitor só (dívida confirmada > informada >
+  estimativa condominial > pendente), usado pela composição, veredito, inteligência de mercado, recomendação e item 15. A
+  regra de responsabilidade vem primeiro do documento das condições da venda (trecho literal) e depois das premissas.
+  Consulta indisponível nunca vira zero. Item 08 usa "Averbação dos leilões negativos: <situação>" das condições como
+  informação do vendedor (inconclusivo). Pendências do veredito agrupadas por assunto, sem perder mensagens.
+- **Premissas financeiras no Admin (Fase B).** Aba "Premissas financeiras" sobre o catálogo de parâmetros (mesmo histórico),
+  com valor por município (ex.: ITBI). Seed com os mesmos padrões do motor; ITBI, IPTU, condomínio mensal, regularização e
+  custos mensais sem valor padrão. Valor de venda preliminar = avaliação × 0,85 (configurável), só sem valor informado e sem
+  comparáveis, com selo "Estimativa preliminar" e confiança baixa.
+- **Linha do tempo da matrícula (Fase C).** `GET /api/imoveis/{id}/matricula/linha-do-tempo`: atos com data, tipo, partes
+  com papel declarado, valor, construtora e conclusão de obra, a partir dos trechos armazenados. Idade só pela conclusão de
+  obra; senão "Idade não determinável pela matrícula."
+- **Possíveis ocupantes (Fase D).** `GET /api/imoveis/{id}/ocupacao/possiveis-ocupantes` com o aviso obrigatório; novos
+  status de ocupação (confirmada, por terceiros, não verificado) e verificação (fonte, data, observação, responsável) em
+  evidência vinculada. Itens 11 e 27 só usam o registro do usuário.
+- **Estimativa condominial pela matrícula (Fase E).** `POST /api/imoveis/{id}/debitos/estimar-condominio/matricula`:
+  período aquisição → consolidação com teto, cenários 15/35/70%, multa, juros e correção configuráveis, regra da venda
+  aplicada depois; aviso obrigatório.
+- **IPTU dos 4 municípios (Fase F).** Levantamento dos portais de Curitiba, São José dos Pinhais, Fazenda Rio Grande e Assis:
+  nenhum permite consulta automatizada (CPF/CNPJ do proprietário, login ou verificação de navegador). Consulta segue manual
+  assistida, com portal e passo a passo (`GET /api/imoveis/{id}/debitos/orientacao-iptu`); cobertura de IPTU não editada
+  passa de AUTOMATIZAVEL a MANUAL.
+
 ## v1.0.11 — 2026-11-18
 
 Checklist por evidências (regra `evidencias-v1`). Sem migration; estados gravados e aplicabilidade por modalidade

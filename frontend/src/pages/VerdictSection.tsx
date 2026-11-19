@@ -275,7 +275,11 @@ function FactorsBlock({ factors }: { factors: VerdictFactors }) {
           <ul className="verdict-pending">
             {items.map((item, index) => (
               <li key={`${key}-${index}`}>
+                {item.assunto_titulo ? <strong>{item.assunto_titulo}: </strong> : null}
                 {item.descricao}
+                {item.detalhes && item.detalhes.length > 0 ? (
+                  <ul className="verdict-pending-details">{item.detalhes.map((d) => <li key={d}><small>{d}</small></li>)}</ul>
+                ) : null}
                 {item.justificativa ? <small className="market-obs"> {item.justificativa}</small> : null}
                 {item.acao ? <small className="market-obs"> Ação: {item.acao}</small> : null}
               </li>

@@ -8,8 +8,10 @@ condicionais fixas no backend; o seed abaixo é a cobertura INICIAL honesta, der
 do levantamento de existência de portais públicos (sem confirmar débitos).
 
 Regras honestas (ausência de investigação ≠ ausência de débito):
-  - Só o IPTU dos 4 municípios tem portal público de consulta identificado → nível
-    ``AUTOMATIZAVEL`` (potencialmente automatizável; NÃO automatizado nesta etapa).
+  - Só o IPTU dos 4 municípios tem portal público de consulta identificado → seed inicial
+    ``AUTOMATIZAVEL``. v1.0.12: o levantamento dos portais (``municipal_iptu``) mostrou que
+    nenhum permite consulta automatizada; ``seed_iptu_sources`` reclassifica para ``MANUAL``
+    as linhas ainda não editadas pelo operador.
   - Dívida ativa, taxas, certidões e demais tipos permanecem ``NAO_INVESTIGADA`` /
     método ``MANUAL`` até análise dedicada de viabilidade e termos de uso.
 """

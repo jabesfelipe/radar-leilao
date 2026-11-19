@@ -110,7 +110,10 @@ def seed_all(db: Session) -> dict[str, int]:
     munis = seed_municipalities(db)
     coverage = coverage_service.seed_coverage(db)
     parameters = parameter_seeds.seed_parameters(db)
-    return {"debt_types": types, "municipalities": munis, "coverage": coverage, "parameters": parameters}
+    # v1.0.12 (Fase F): fontes de IPTU dos 4 municípios e reclassificação da cobertura ainda não editada (portais sem automação).
+    from . import municipal_iptu
+    iptu = municipal_iptu.seed_iptu_sources(db)
+    return {"debt_types": types, "municipalities": munis, "coverage": coverage, "parameters": parameters, **iptu}
 
 
 def normalize_debt_payload(db: Session, data: dict[str, Any]) -> dict[str, Any]:
@@ -162,6 +165,103 @@ def _amount_for_total(debt: "models.PropertyDebt") -> Decimal:
     return ZERO
 
 
+# --- Duplicidade entre o cadastro legado (Debt) e a Central (PropertyDebt) — v1.0.12 ----------------------------------
+# O mesmo débito pode ter sido registrado nos dois cadastros (tela de Dívidas, frente Prefeitura e Central de Débitos) ou duas
+# vezes na Central (consulta assistida repetida). Regra determinística, só com dados objetivos:
+#   - Central × Central: mesmo tipo e mesmo identificador externo; ou mesmo tipo, mesma competência/exercício e mesmo valor.
+#   - Legado × Central: mesmo grupo (condomínio ou municipal), mesmo valor ao centavo e exercício compatível (igual ou ausente
+#     em um dos lados). Fica o registro mais confiável (CONFIRMADO; em empate, o da Central).
+#   - Legado × Legado: mesma categoria, mesmo valor e mesma data-base (datas ausentes não bastam: podem ser cotas distintas).
+# O registro descartado continua listado em ``duplicidades`` (origem e id), nunca some.
+CONDO_CODES = frozenset({"COTA_CONDOMINIAL", "MULTA_CONDOMINIAL", "JUROS_CONDOMINIAIS", "DESPESA_EXTRAORDINARIA"})
+MUNICIPAL_CODES = frozenset({"IPTU", "TAXA_MUNICIPAL", "DIVIDA_ATIVA_MUNICIPAL", "OUTRO_DEBITO_MUNICIPAL"})
+
+
+def legacy_group(category: str | None) -> str | None:
+    """Grupo do débito legado pela categoria (texto livre): condomínio tem precedência ("taxa condominial" não é tributo)."""
+    text = str(category or "").upper()
+    if "CONDOM" in text:
+        return "CONDOMINIO"
+    if any(token in text for token in ("IPTU", "TRIBUT", "TAXA")):
+        return "MUNICIPAL"
+    return None
+
+
+def _normalized_group(code: str | None) -> str | None:
+    code = str(code or "").upper()
+    return "CONDOMINIO" if code in CONDO_CODES else ("MUNICIPAL" if code in MUNICIPAL_CODES else None)
+
+
+def _normalized_amount(debt) -> Decimal | None:
+    value = getattr(debt, "updated_amount", None) if getattr(debt, "updated_amount", None) is not None else getattr(debt, "original_amount", None)
+    return Decimal(str(value)).quantize(Decimal("0.01")) if value is not None else None
+
+
+def _normalized_year(debt) -> int | None:
+    if getattr(debt, "fiscal_year", None):
+        return int(getattr(debt, "fiscal_year", None))
+    if getattr(debt, "competence", None) and str(getattr(debt, "competence", None))[:4].isdigit():
+        return int(str(getattr(debt, "competence", None))[:4])
+    return getattr(debt, "reference_date", None).year if getattr(debt, "reference_date", None) else None
+
+
+def is_real_debt(debt) -> bool:
+    """Débito existente com valor (candidato à deduplicação): não quitado, não estimado, não custo, não consulta indisponível."""
+    return (getattr(debt, "status", None) in ("CONFIRMADO", "INFORMADO", "PENDENTE") and getattr(debt, "nature", None) not in ("ESTIMATIVA_OPERACIONAL", "CUSTO_AQUISICAO")
+            and _normalized_amount(debt) is not None)
+
+
+def dedupe_debts(legacy: list, normalized: list) -> tuple[list, list, list[dict[str, Any]]]:
+    """(legado mantido, Central mantida, duplicidades descartadas) — ver a regra acima. Leitura apenas."""
+    duplicates: list[dict[str, Any]] = []
+    kept_norm: list = []
+    for debt in sorted(normalized, key=lambda d: getattr(d, "id", None) or 0):
+        amount, year = _normalized_amount(debt), _normalized_year(debt)
+        twin = None
+        for other in kept_norm:
+            if getattr(other, "debt_type_code", None) != getattr(debt, "debt_type_code", None):
+                continue
+            if getattr(debt, "external_id", None) and getattr(other, "external_id", None) and getattr(debt, "external_id", None) == getattr(other, "external_id", None):
+                twin = other; break
+            if amount is not None and amount == _normalized_amount(other) and year is not None and year == _normalized_year(other) \
+                    and (getattr(debt, "competence", None) or None) == (getattr(other, "competence", None) or None):
+                twin = other; break
+        if twin is None:
+            kept_norm.append(debt)
+            continue
+        keep, drop = (debt, twin) if (getattr(debt, "status", None) == "CONFIRMADO" and getattr(twin, "status", None) != "CONFIRMADO") else (twin, debt)
+        if keep is debt:
+            kept_norm[kept_norm.index(twin)] = debt
+        duplicates.append({"descartado": f"PropertyDebt #{getattr(drop, "id", None)}", "mantido": f"PropertyDebt #{getattr(keep, "id", None)}",
+                           "motivo": "mesmo débito registrado duas vezes na Central de Débitos", "valor": _normalized_amount(drop)})
+    kept_legacy: list = []
+    for debt in sorted(legacy, key=lambda d: getattr(d, "id", None) or 0):
+        amount = Decimal(str(getattr(debt, "amount", None) or 0)).quantize(Decimal("0.01"))
+        group = legacy_group(getattr(debt, "category", None))
+        twin_legacy = next((o for o in kept_legacy if legacy_group(getattr(o, "category", None)) == group and str(getattr(o, "category", None) or "").upper() == str(getattr(debt, "category", None) or "").upper()
+                            and Decimal(str(getattr(o, "amount", None) or 0)).quantize(Decimal("0.01")) == amount and getattr(debt, "reference_date", None) is not None
+                            and getattr(o, "reference_date", None) == getattr(debt, "reference_date", None)), None)
+        if twin_legacy is not None:
+            duplicates.append({"descartado": f"Debt #{getattr(debt, "id", None)}", "mantido": f"Debt #{getattr(twin_legacy, "id", None)}",
+                               "motivo": "mesmo débito registrado duas vezes no cadastro de dívidas", "valor": amount})
+            continue
+        year = getattr(debt, "reference_date", None).year if getattr(debt, "reference_date", None) else None
+        twin = next((n for n in kept_norm if group is not None and _normalized_group(getattr(n, "debt_type_code", None)) == group and _normalized_amount(n) == amount
+                     and (year is None or _normalized_year(n) is None or year == _normalized_year(n))), None)
+        if twin is None:
+            kept_legacy.append(debt)
+            continue
+        if str(getattr(debt, "status", None) or "").upper() == "CONFIRMADO" and getattr(twin, "status", None) != "CONFIRMADO":
+            kept_norm.remove(twin)
+            kept_legacy.append(debt)
+            duplicates.append({"descartado": f"PropertyDebt #{getattr(twin, "id", None)}", "mantido": f"Debt #{getattr(debt, "id", None)}",
+                               "motivo": "mesmo débito no cadastro de dívidas (confirmado) e na Central de Débitos", "valor": amount})
+        else:
+            duplicates.append({"descartado": f"Debt #{getattr(debt, "id", None)}", "mantido": f"PropertyDebt #{getattr(twin, "id", None)}",
+                               "motivo": "mesmo débito no cadastro de dívidas e na Central de Débitos", "valor": amount})
+    return kept_legacy, kept_norm, duplicates
+
+
 def consolidate(db: Session, property_id: int) -> dict[str, Any]:
     """Consolidação por NATUREZA (totais separados; nunca somados entre si).
 
@@ -179,6 +279,13 @@ def consolidate(db: Session, property_id: int) -> dict[str, Any]:
     """
     normalized = db.scalars(select(models.PropertyDebt).where(models.PropertyDebt.property_id == property_id)).all()
     legacy = db.scalars(select(models.Debt).where(models.Debt.property_id == property_id)).all()
+    # v1.0.12: o mesmo débito registrado no legado e na Central (ou duas vezes) entra uma vez só; o descartado fica listado.
+    real_norm = [d for d in normalized if is_real_debt(d)]
+    open_legacy = [d for d in legacy if str(d.status or "").upper() not in {"QUITADO", "CANCELADO", "PAGO", "ESTIMADO"}]
+    kept_legacy, kept_norm, duplicidades = dedupe_debts(open_legacy, real_norm)
+    dropped = {id(d) for d in real_norm if d not in kept_norm} | {id(d) for d in open_legacy if d not in kept_legacy}
+    normalized = [d for d in normalized if id(d) not in dropped]
+    legacy = [d for d in legacy if id(d) not in dropped]
 
     tot = {"confirmados": ZERO, "informados": ZERO, "estimados": ZERO, "despesas_previstas": ZERO, "nao_apurados": ZERO}
     counts = {k: 0 for k in tot}
@@ -223,6 +330,7 @@ def consolidate(db: Session, property_id: int) -> dict[str, Any]:
         "totais": {k: v for k, v in tot.items()},
         "contagens": counts,
         "exposicao_passivo_com_ressalva": exposicao_passivo,
+        "duplicidades": duplicidades,
         "ressalvas": [
             "Estimativas não entram como passivo confirmado.",
             "Totais de naturezas diferentes não são somados automaticamente.",

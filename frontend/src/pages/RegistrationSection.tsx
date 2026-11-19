@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { FileSignature, Pencil, Plus, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Textarea } from '../components/ui'
 import { createRegistration, getRegistration, updateRegistration, type PropertyRegistration } from '../services/registration'
+import { RegistryTimelineCard } from './RegistryTimelineCard'
 
 type RegistrationSectionProps = {
   propertyId: number
@@ -224,6 +225,7 @@ export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
           )}
         </>
       )}
+      <RegistryTimelineCard propertyId={propertyId} />
     </Section>
   )
 }

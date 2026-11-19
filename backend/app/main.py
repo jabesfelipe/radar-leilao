@@ -419,7 +419,12 @@ def analyze_financial(property_id: int, db: Session = Depends(get_db)):
 def create_occupancy(property_id: int, data: schemas.OccupancyCreate, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     ensure_evidence_of_property(db, property_id, data.evidence_id)
-    occupancy = models.OccupancyAnalysis(property_id=property_id, **data.model_dump())
+    fields = data.model_dump(exclude={"verificacao"})
+    if data.verificacao is not None and fields.get("evidence_id") is None:
+        # Verificação informada pelo usuário: fonte, data, observação e responsável ficam numa Evidence vinculada (sem coluna nova).
+        from .occupancy_service import verification_evidence
+        fields["evidence_id"] = verification_evidence(db, prop, data.status, data.verificacao).id
+    occupancy = models.OccupancyAnalysis(property_id=property_id, **fields)
     db.add(occupancy); db.flush()
     payload = data.model_dump(mode="json")
     event = record_event(db, prop, "OCUPACAO_ATUALIZADA", "OccupancyAnalysis", occupancy.id, payload, ["desocupacao", "financeiro", "checklist"])
@@ -431,9 +436,20 @@ def create_occupancy(property_id: int, data: schemas.OccupancyCreate, db: Sessio
 def get_occupancy(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     history = db.scalars(select(models.OccupancyAnalysis).where(models.OccupancyAnalysis.property_id == property_id).order_by(models.OccupancyAnalysis.created_at)).all()
+    from .occupancy_service import STATUS_LABELS, verification_of
     def snapshot(item):
-        return {"id": item.id, "property_id": item.property_id, "status": item.status, "occupant_profile": item.occupant_profile, "estimated_cost": item.estimated_cost, "estimated_months": item.estimated_months, "evidence_id": item.evidence_id, "created_at": item.created_at, "updated_at": item.updated_at}
+        return {"id": item.id, "property_id": item.property_id, "status": item.status, "status_label": STATUS_LABELS.get(str(item.status or "").upper(), item.status),
+                "occupant_profile": item.occupant_profile, "estimated_cost": item.estimated_cost, "estimated_months": item.estimated_months,
+                "evidence_id": item.evidence_id, "verificacao": verification_of(db, item), "created_at": item.created_at, "updated_at": item.updated_at}
     return {"property_id": property_id, "situacao_atual": snapshot(history[-1]) if history else None, "ultimo_registro": snapshot(history[-1]) if history else None, "historico": [snapshot(item) for item in history]}
+
+@app.get("/api/imoveis/{property_id}/ocupacao/possiveis-ocupantes")
+def possible_occupants(property_id: int, db: Session = Depends(get_db)):
+    """Pessoas identificadas nos documentos do imóvel (v1.0.12). Sugestão: não confirma ocupação; o checklist e o financeiro
+    usam só o registro de ocupação confirmado pelo usuário. Rota autenticada pelo portão global; sem CPF."""
+    property_or_404(db, property_id)
+    from .occupancy_service import possible_occupants as _possible
+    return serialize(_possible(db, property_id))
 
 @app.post("/api/imoveis/{property_id}/matricula")
 def create_registration(property_id: int, data: schemas.RegistrationCreate, db: Session = Depends(get_db)):
@@ -451,6 +467,14 @@ def list_registrations(property_id: int, db: Session = Depends(get_db)):
     records = db.scalars(select(models.PropertyRegistration).where(models.PropertyRegistration.property_id == property_id).order_by(models.PropertyRegistration.created_at)).all()
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "PropertyRegistration").order_by(models.EntityHistory.created_at)).all()
     return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
+
+@app.get("/api/imoveis/{property_id}/matricula/linha-do-tempo")
+def registry_timeline(property_id: int, db: Session = Depends(get_db)):
+    """Linha do tempo da matrícula (v1.0.12): atos com data, tipo, partes, valor, construtora e conclusão de obra, calculada dos
+    trechos já armazenados (sem reprocessar nem gravar). Rota autenticada pelo portão global; nomes sem CPF."""
+    property_or_404(db, property_id)
+    from .registry_timeline import timeline_for_property
+    return serialize(timeline_for_property(db, property_id))
 
 @app.patch("/api/imoveis/{property_id}/matricula/{registration_id}")
 def update_registration(property_id: int, registration_id: int, data: schemas.RegistrationUpdate, db: Session = Depends(get_db)):

@@ -106,6 +106,25 @@ export function updateRegistration(propertyId: number, registrationId: number, p
   })
 }
 
+// v1.0.12: linha do tempo da matrícula, calculada dos trechos já armazenados (sem reprocessar).
+export type TimelineParty = { papel: string; papel_descricao: string; nome: string; tipo_pessoa: 'FISICA' | 'JURIDICA'; como_identificado: string }
+export type TimelineEvent = {
+  ato: string; numero: number | null; tipo: string; tipo_descricao: string; data: string | null; data_texto: string | null
+  partes: TimelineParty[]; valor: { valor: number | string; texto: string; rotulo: string } | null; construtora: string | null
+  conclusao_obra: boolean; trecho: string; chunk_id: number | null; pagina: number | null; secao: string | null
+  documento: { document_id: number | null; document_version_id: number | null; nome: string } | null; fonte: string
+}
+export type RegistryTimeline = {
+  property_id: number; disponivel: boolean; motivo?: string; eventos: TimelineEvent[]
+  idade: { anos: number | null; estimada: boolean; base: string | null; texto: string }
+  datas_chave: { aquisicao?: { data: string; ato: string } | null; consolidacao?: { data: string; ato: string } | null }
+  aviso_nomes?: string; atos_lidos: string[]
+}
+
+export function getRegistryTimeline(propertyId: number): Promise<RegistryTimeline> {
+  return request<RegistryTimeline>(`/api/imoveis/${propertyId}/matricula/linha-do-tempo`)
+}
+
 export function getNotice(propertyId: number): Promise<AuctionNoticeResponse> {
   return request<AuctionNoticeResponse>(`/api/imoveis/${propertyId}/edital`)
 }

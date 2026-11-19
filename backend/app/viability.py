@@ -58,7 +58,64 @@ DEFAULTS: dict[str, tuple[Decimal | int, str]] = {
     # não é regra jurídica nem critério legal.
     "checklist.reforma_grande_pct": (Decimal("0.10"), "Referência de análise para \"grande reforma\" no checklist (fração do preço de aquisição); "
                                      "premissa ajustável, não é regra jurídica"),
+    # v1.0.12 (decisão 2.2): valor de venda preliminar = avaliação × fator, só sem valor informado e sem comparáveis usáveis.
+    "viabilidade.fator_venda_avaliacao": (Decimal("0.85"), "Fator de venda preliminar sobre a avaliação do vendedor (sem comparáveis suficientes)"),
+    "viabilidade.margem_minima": (Decimal("0.10"), "Margem líquida mínima de referência (ressalva; não substitui a meta do investidor)"),
+    "viabilidade.margem_seguranca_minima": (Decimal("0.10"), "Margem de segurança mínima de referência (ressalva)"),
 }
+# Premissas do catálogo SEM padrão do sistema: só valem quando o operador as preenche no Admin (senão o item segue pendente).
+CATALOG_ONLY = {
+    "viabilidade.itbi_aliquota": "ITBI (alíquota)", "viabilidade.regularizacao_padrao": "Regularização (reserva padrão)",
+    "iptu.valor_anual_padrao": "IPTU anual padrão", "viabilidade.custos_mensais_padrao": "Custos mensais da posse (padrão)",
+    "condominio.valor_mensal_referencia": "Condomínio mensal padrão",
+}
+ORIGEM_PRELIMINAR = "estimativa preliminar (avaliação × fator)"
+
+
+def municipality_id_for(db, prop) -> int | None:
+    """Município cadastrado do imóvel (nome e UF, sem acento e caixa), para parâmetros por município."""
+    if db is None or prop is None or not getattr(prop, "city", None):
+        return None
+    try:
+        from sqlalchemy import select
+        from . import models
+        from .registry_chain import fold
+        rows = db.scalars(select(models.Municipality)).all()
+        city, state = fold(str(prop.city)).strip(), str(getattr(prop, "state", "") or "").upper().strip()
+        same_name = [m for m in rows if isinstance(m, models.Municipality) and fold(m.name).strip() == city]
+        if state:
+            match = [m for m in same_name if m.state.upper() == state]
+        else:
+            # Sem UF no imóvel só há município se o nome for único no cadastro (evita aplicar o ITBI de outra UF).
+            match = same_name if len(same_name) == 1 else []
+        return match[0].id if match else None
+    except Exception:
+        return None
+
+
+def catalog_value(db, key: str, municipality_id: int | None = None) -> tuple[Decimal | None, str | None]:
+    """(valor, origem) de uma premissa do catálogo sem padrão do sistema; (None, None) quando não preenchida."""
+    if db is None:
+        return None, None
+    try:
+        from . import parameters as params
+        value = params.resolve(db, key, municipality_id=municipality_id, default=None)
+        if value is None:
+            return None, None
+        # Origem pelo registro que de fato deu o valor: registro do município SEM valor (ou fora da vigência) cai no global e não é
+        # rotulado "do município".
+        municipal = False
+        if municipality_id is not None:
+            from sqlalchemy import select
+            from . import models
+            rows = db.scalars(select(models.Parameter).where(models.Parameter.key == key, models.Parameter.scope == "MUNICIPIO",
+                                                             models.Parameter.municipality_id == municipality_id,
+                                                             models.Parameter.status == "ATIVO")).all()
+            municipal = any(params._within_validity(p) and (p.value is not None or p.default_value is not None) for p in rows)
+    except Exception:
+        return None, None
+    where = " do município" if municipal else ""
+    return _d(value), f"catálogo de parâmetros{where} ({key})"
 
 
 def _d(value: Any) -> Decimal | None:
@@ -160,7 +217,159 @@ def _iptu_year(line: dict, conservative: bool) -> Decimal | None:
     return line.get("iptu_anual_conservador" if conservative else "iptu_anual_base")
 
 
-def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_estimate: dict) -> dict:
+# ------------------------------------------------------------------ fonte única da exposição a débitos (v1.0.12)
+# Condomínio e IPTU/tributos em atraso são lidos de UM lugar só, usado pela composição de custos (e, por ela, pelo veredito, pela
+# inteligência de mercado e pela recomendação) e pelo checklist. Ordem da fonte do VALOR: dívida confirmada > dívida informada
+# (cadastro legado, débito normalizado ou custo cadastrado) > estimativa condominial (provável no base, alto no conservador) >
+# pendente. Consulta indisponível ou em validação nunca vira zero. Ordem da REGRA de responsabilidade: documento das condições
+# da venda (trecho literal) > premissa ``condicoes_caixa`` > sem regra.
+FONTE_CONFIRMADO, FONTE_INFORMADO, FONTE_ESTIMATIVA, FONTE_INDISPONIVEL, FONTE_PENDENTE = (
+    "CONFIRMADO", "INFORMADO", "ESTIMATIVA", "INDISPONIVEL", "PENDENTE")
+REGRA_EXCEDENTE = "COMPRADOR_ATE_LIMITE_VENDEDOR_EXCEDENTE"
+REGRA_INTEGRAL_ACIMA = "COMPRADOR_ATE_LIMITE_VENDEDOR_INTEGRAL"
+REGRA_COMPRADOR = "COMPRADOR_INTEGRAL"
+REGRA_VENDEDOR = "VENDEDOR_INTEGRAL"
+_DEBT_KINDS = {
+    "condominio_atraso": {"tokens": ("CONDOM",), "codes": {"COTA_CONDOMINIAL", "MULTA_CONDOMINIAL", "JUROS_CONDOMINIAIS", "DESPESA_EXTRAORDINARIA"},
+                          "cost_key": "condominio", "limit_key": "condominio_limite_pct_avaliacao", "tema": "CONDOMINIO", "default_rule": REGRA_EXCEDENTE,
+                          "label": "condomínio"},
+    "tributos_atraso": {"tokens": ("IPTU", "TRIBUT", "TAXA"), "codes": {"IPTU", "TAXA_MUNICIPAL", "DIVIDA_ATIVA_MUNICIPAL", "OUTRO_DEBITO_MUNICIPAL"},
+                        "cost_key": "iptu", "limit_key": "tributos_limite_pct_avaliacao", "tema": "TRIBUTOS", "default_rule": REGRA_INTEGRAL_ACIMA,
+                        "label": "IPTU/tributos"},
+}
+AVISO_ESTIMATIVA_CONDOMINIO = ("Estimativa calculada com base em informações documentais e premissas configuráveis. Não representa dívida "
+                               "confirmada. Solicite declaração atualizada ao condomínio.")
+
+
+def _rows(db, model, property_id: int) -> list:
+    """Registros do imóvel; sessão simplificada de teste (sem ``scalars`` real) devolve lista vazia."""
+    if db is None:
+        return []
+    try:
+        from sqlalchemy import select
+        rows = db.scalars(select(model).where(model.property_id == property_id).order_by(model.id)).all()
+        return [r for r in rows if isinstance(r, model)]
+    except Exception:
+        return []
+
+
+def caixa_rules(db, prop, assumptions: dict) -> dict[str, dict]:
+    """Regra de responsabilidade do comprador por condomínio e por IPTU/tributos: documento > premissa > nenhuma."""
+    assumptions = assumptions or {}
+    out: dict[str, dict] = {key: {"tipo": None, "limite_pct": None, "comparador": None, "fonte": None, "origem": None, "trecho": None,
+                                  "document_version_id": None, "chunk_id": None} for key in _DEBT_KINDS}
+    sources = []
+    if db is not None and prop is not None and getattr(prop, "id", None) is not None:
+        try:
+            from .sale_conditions import conditions_for_property
+            sources = conditions_for_property(db, prop.id)
+        except Exception:
+            sources = []
+    for key, spec in _DEBT_KINDS.items():
+        for src in sources:
+            clause = src.first(spec["tema"])
+            if clause is None or clause.regra not in (REGRA_EXCEDENTE, REGRA_INTEGRAL_ACIMA, REGRA_COMPRADOR, REGRA_VENDEDOR):
+                continue
+            if clause.regra in (REGRA_EXCEDENTE, REGRA_INTEGRAL_ACIMA) and clause.limite_pct is None:
+                continue
+            out[key] = {"tipo": clause.regra, "limite_pct": clause.limite_pct, "comparador": clause.comparador, "fonte": "DOCUMENTO",
+                        "origem": f"{src.source_label} (trecho literal)", "trecho": clause.excerpt, "document_version_id": src.document_version_id,
+                        "chunk_id": clause.chunk_id}
+            break
+        if out[key]["tipo"] is None:
+            caixa = assumptions.get("condicoes_caixa") or {}
+            pct = _d(caixa.get(spec["limit_key"]))
+            if pct is not None:
+                out[key].update({"tipo": spec["default_rule"], "limite_pct": pct, "fonte": "PREMISSA",
+                                 "origem": f"premissa do imóvel (condições informadas: {caixa.get('origem') or 'origem não declarada'})"})
+    return out
+
+
+def _buyer_share(debt: Decimal, rule: str | None, cap: Decimal | None) -> tuple[Decimal, Decimal]:
+    """(parte do comprador, parte do vendedor/Caixa) para uma dívida conhecida."""
+    if rule == REGRA_VENDEDOR:
+        return ZERO, debt
+    if rule == REGRA_COMPRADOR or cap is None:
+        return debt, ZERO
+    if rule == REGRA_EXCEDENTE:
+        buyer = min(debt, cap)
+        return buyer, debt - buyer
+    buyer = debt if debt <= cap else ZERO      # REGRA_INTEGRAL_ACIMA; igualdade: comprador (premissa conservadora declarada)
+    return buyer, debt - buyer
+
+
+def debt_exposure(db, prop, assumptions: dict | None = None) -> dict[str, dict]:
+    """Valor da dívida de condomínio e de IPTU/tributos em atraso, com a fonte, sem aplicar regra. Leitura apenas."""
+    from . import models
+    assumptions = assumptions or {}
+    pid = getattr(prop, "id", None)
+    normalized = _rows(db, models.PropertyDebt, pid) if pid is not None else []
+    estimates = _rows(db, models.CondominiumEstimate, pid) if pid is not None else []
+    costs_by_key: dict[str, Decimal] = {}
+    for cost in getattr(prop, "costs", []) or []:
+        k = canonical_cost_key(cost.category)
+        costs_by_key[k] = costs_by_key.get(k, ZERO) + (_d(cost.amount) or ZERO)
+    from .debts_service import dedupe_debts, is_real_debt, legacy_group
+    legacy_all = [d for d in getattr(prop, "debts", []) or [] if str(d.status or "").upper() not in ("QUITADO", "CANCELADO", "PAGO")]
+    # Débito legado com status ESTIMADO é estimativa, não dívida: nunca soma como valor informado.
+    legacy_open = [d for d in legacy_all if str(d.status or "").upper() != "ESTIMADO"]
+    legacy_estimated = [d for d in legacy_all if str(d.status or "").upper() == "ESTIMADO"]
+    # Mesmo débito no legado e na Central (ou duas vezes): entra uma vez; o descartado fica em ``duplicidades`` (rastreável).
+    kept_legacy, kept_norm, duplicates = dedupe_debts(legacy_open, [d for d in normalized if is_real_debt(d)])
+    group_of = {"condominio_atraso": "CONDOMINIO", "tributos_atraso": "MUNICIPAL"}
+    amount = lambda d: d.updated_amount if d.updated_amount is not None else d.original_amount  # noqa: E731
+    out: dict[str, dict] = {}
+    for key, spec in _DEBT_KINDS.items():
+        group = group_of[key]
+        # Cada débito legado pertence a um grupo só (condomínio tem precedência: "taxa condominial" não é tributo).
+        legacy = [d for d in kept_legacy if legacy_group(d.category) == group]
+        legacy_used = [d for d in legacy_all if legacy_group(d.category) == group]
+        mine = [d for d in normalized if str(d.debt_type_code or "").upper() in spec["codes"] and d.status not in ("QUITADO", "CANCELADO")]
+        real = [d for d in kept_norm if str(d.debt_type_code or "").upper() in spec["codes"]]
+        unavailable = [d for d in mine if d.status in ("INDISPONIVEL", "EM_VALIDACAO")]
+        estimated = [d for d in mine if (d.status == "ESTIMADO" or d.nature == "ESTIMATIVA_OPERACIONAL") and amount(d) is not None]
+        estimated_legacy = [d for d in legacy_estimated if legacy_group(d.category) == group and d.amount is not None]
+        dup_here = [x for x in duplicates if any(x["descartado"] == f"Debt #{getattr(d, 'id', None)}" for d in legacy_used)
+                    or any(x["descartado"] == f"PropertyDebt #{getattr(d, 'id', None)}" for d in mine)]
+        info: dict[str, Any] = {"chave": key, "valor": None, "fonte": FONTE_PENDENTE, "origem": "valor da dívida não informado", "registros": 0,
+                                "estimativa": None, "indisponivel": bool(unavailable), "legado": legacy_used, "duplicidades": dup_here,
+                                "componentes": [], "custo_ignorado": None}
+        if legacy or real:
+            total = sum((_d(d.amount) or ZERO for d in legacy), ZERO) + sum((_d(amount(d)) for d in real), ZERO)
+            confirmed = all(str(d.status or "").upper() == "CONFIRMADO" for d in legacy) and all(d.status == "CONFIRMADO" for d in real)
+            parts = (["dívida cadastrada"] if legacy else []) + (["débito da Central de Débitos"] if real else [])
+            info.update({"valor": _q(total), "fonte": FONTE_CONFIRMADO if confirmed else FONTE_INFORMADO, "origem": " + ".join(parts),
+                         "registros": len(legacy) + len(real),
+                         "componentes": [{"origem": "Debt", "id": getattr(d, "id", None), "valor": _q(_d(d.amount)), "status": str(d.status or "")} for d in legacy]
+                         + [{"origem": "PropertyDebt", "id": getattr(d, "id", None), "valor": _q(_d(amount(d))), "status": d.status} for d in real]})
+            if spec["cost_key"] in costs_by_key:
+                # Custo cadastrado do mesmo tipo não soma de novo à dívida (seria a mesma despesa); fica registrado.
+                info["custo_ignorado"] = _q(costs_by_key[spec["cost_key"]])
+        elif spec["cost_key"] in costs_by_key:
+            info.update({"valor": _q(costs_by_key[spec["cost_key"]]), "fonte": FONTE_INFORMADO, "origem": "custo cadastrado", "registros": 1, "custo": True,
+                         "componentes": [{"origem": "Cost", "id": None, "valor": _q(costs_by_key[spec["cost_key"]]), "status": "CADASTRADO"}]})
+        elif unavailable:
+            info.update({"fonte": FONTE_INDISPONIVEL, "origem": "consulta indisponível ou em validação (não é zero)", "registros": len(unavailable)})
+        if info["valor"] is None:
+            latest = max(estimates, key=lambda e: e.id) if (estimates and key == "condominio_atraso") else None
+            if latest is not None and latest.scenario_provavel is not None:
+                info["estimativa"] = {"id": latest.id, "base": _q(_d(latest.scenario_provavel)),
+                                      "conservador": _q(_d(latest.scenario_conservador) or _d(latest.scenario_provavel)),
+                                      "baixo": _q(_d(latest.scenario_otimista)), "confianca": latest.confidence,
+                                      "origem": f"estimativa condominial nº {latest.id} (provável no base, alto no conservador)"}
+            elif estimated or estimated_legacy:
+                total = _q(sum((_d(amount(d)) for d in estimated), ZERO) + sum((_d(d.amount) for d in estimated_legacy), ZERO))
+                where = " + ".join((["Central de Débitos"] if estimated else []) + (["cadastro de dívidas"] if estimated_legacy else []))
+                info["estimativa"] = {"id": None, "base": total, "conservador": total, "baixo": None, "confianca": "BAIXA",
+                                      "origem": f"estimativa cadastrada ({where})"}
+            if info["estimativa"] is not None:
+                info.update({"fonte": FONTE_ESTIMATIVA, "origem": info["estimativa"]["origem"]
+                             + ("; consulta indisponível ou em validação" if unavailable else "")})
+        out[key] = info
+    return out
+
+
+def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_estimate: dict, db=None) -> dict:
     """Custos de aquisição e posse, por item, com status e origem. ``assumptions`` = ``Auction.financial_assumptions``."""
     acquisition = _d(auction.acquisition_value) if auction and auction.acquisition_value is not None else (_d(auction.bid_value) if auction else None)
     appraisal = _d(auction.appraisal_value) if auction else None
@@ -169,16 +378,8 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     for cost in prop.costs:
         key = canonical_cost_key(cost.category)
         costs_by_key[key] = costs_by_key.get(key, ZERO) + (_d(cost.amount) or ZERO)
-    debts_open = [d for d in prop.debts if str(d.status or "").upper() != "QUITADO"]
-
+    debts_open = [d for d in prop.debts if str(d.status or "").upper() not in ("QUITADO", "CANCELADO", "PAGO")]
     used_debts: set[int] = set()
-
-    def debt_total(*tokens: str) -> Decimal | None:
-        found = [d for d in debts_open if any(t in str(d.category or "").upper() for t in tokens)]
-        used_debts.update(id(d) for d in found)
-        return sum((_d(d.amount) or ZERO for d in found), ZERO) if found else None
-
-    caixa = assumptions.get("condicoes_caixa") or {}
     lines: list[dict] = []
     lines.append(_line("aquisicao", "Preço de aquisição", acquisition, INFORMADO if acquisition is not None else PENDENTE, "cadastro do leilão/venda", critico=acquisition is None))
     consumed: set[str] = set()   # chaves de custo cadastrado já usadas em alguma linha (o resto vira linha própria: nada é omitido)
@@ -200,12 +401,17 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     itbi_base_min = _d(assumptions.get("itbi_base_minima"))
     itbi_rate_pct = None
     consumed.update({"itbi", "registro", "reforma", "desocupacao", "condominio", "iptu"})
+    municipality_id = municipality_id_for(db, prop)
+    itbi_origin = assumptions.get("itbi_origem") or "alíquota informada nas premissas"
+    if itbi_rate is None and "itbi" not in costs_by_key:
+        itbi_rate, catalog_origin = catalog_value(db, "viabilidade.itbi_aliquota", municipality_id)
+        itbi_origin = catalog_origin or itbi_origin
     if "itbi" in costs_by_key:
         lines.append(_line("itbi", "ITBI", costs_by_key["itbi"], INFORMADO, "custo cadastrado"))
     elif itbi_rate is not None and acquisition is not None:
         base = max(acquisition, itbi_base_min or ZERO)
         itbi_rate_pct = itbi_rate
-        lines.append(_line("itbi", "ITBI", base * itbi_rate, ESTIMADO, assumptions.get("itbi_origem") or "alíquota informada nas premissas",
+        lines.append(_line("itbi", "ITBI", base * itbi_rate, ESTIMADO, itbi_origin,
                            observacao=f"Alíquota {_pct(itbi_rate)} sobre base de {_brl(base)} (maior entre aquisição e base mínima informada)."))
     else:
         lines.append(_line("itbi", "ITBI", None, PENDENTE, "não informado", observacao="Informe a alíquota municipal e a base (valor venal).", critico=True))
@@ -221,47 +427,100 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
             rule = (f"reserva de {_pct(reserve)} da aquisição" if key == "registro" else f"reserva de {_brl(reserve)}") + f" ({premises[reserve_key]['origem']})"
             lines.append(_line(key, label, None, PENDENTE, "não informado", conservador=amount, base=amount, tratamento_base=rule, tratamento_conservador=rule,
                                observacao=f"Valor real não informado; todos os cenários usam {rule}.", reserva_pct=reserve if key == "registro" else None))
-    # Condomínio e tributos em atraso: dívida cadastrada > regra Caixa (teto de responsabilidade do comprador) > pendente.
-    for key, label, tokens, limit_key in (("condominio_atraso", "Condomínio em atraso", ("CONDOM",), "condominio_limite_pct_avaliacao"),
-                                          ("tributos_atraso", "IPTU e demais tributos em atraso", ("IPTU", "TRIBUT", "TAXA"), "tributos_limite_pct_avaliacao")):
-        debt = debt_total(*tokens)
-        source = "DIVIDA" if debt is not None else None   # dívida cadastrada x custo cadastrado (detalhamento legado do motor financeiro)
-        if debt is None and key == "condominio_atraso" and "condominio" in costs_by_key:
-            debt = costs_by_key["condominio"]
-        if debt is None and key == "tributos_atraso" and "iptu" in costs_by_key:
-            debt = costs_by_key["iptu"]
-        limit_pct = _d(caixa.get(limit_key))
-        cap = _q(appraisal * limit_pct) if (limit_pct is not None and appraisal is not None) else None
-        if key == "condominio_atraso":
-            rule = (f"Regra Caixa: comprador paga a dívida até {_pct(limit_pct)} da avaliação ({_brl(cap)}); a Caixa paga o excedente."
-                    if cap is not None else None)
+    # Condomínio e tributos em atraso: fonte única (debt_exposure + caixa_rules). Valor: confirmado > informado > estimativa > pendente;
+    # regra: documento das condições da venda > premissa > sem regra. A regra é aplicada DEPOIS do valor (inclusive da estimativa).
+    exposure = debt_exposure(db, prop, assumptions)
+    rules = caixa_rules(db, prop, assumptions)
+    for key, label in (("condominio_atraso", "Condomínio em atraso"), ("tributos_atraso", "IPTU e demais tributos em atraso")):
+        info, rule_info = exposure[key], rules[key]
+        used_debts.update(id(d) for d in info.get("legado") or [])
+        kind, limit_pct = rule_info["tipo"], rule_info["limite_pct"]
+        cap = _q(appraisal * limit_pct) if (limit_pct is not None and appraisal is not None and kind in (REGRA_EXCEDENTE, REGRA_INTEGRAL_ACIMA)) else None
+        who = "a Caixa" if rule_info["fonte"] == "PREMISSA" or "CAIXA" in str(rule_info.get("trecho") or "").upper() else "o vendedor"
+        prefix = "Regra Caixa" if who == "a Caixa" else "Regra da venda"
+        if kind == REGRA_EXCEDENTE and cap is not None:
+            rule = f"{prefix}: comprador paga a dívida até {_pct(limit_pct)} da avaliação ({_brl(cap)}); {who} paga o excedente."
+        elif kind == REGRA_INTEGRAL_ACIMA and cap is not None:
+            rule = (f"{prefix}: se a dívida for menor que {_pct(limit_pct)} da avaliação ({_brl(cap)}), o comprador paga tudo; se for maior, "
+                    f"{who} paga integralmente. {PREMISSA_IGUALDADE_IPTU}")
+        elif kind == REGRA_COMPRADOR:
+            rule = f"{prefix}: dívida integralmente por conta do comprador, sem limite."
+        elif kind == REGRA_VENDEDOR:
+            rule = f"{prefix}: dívida por conta de {who}."
         else:
-            rule = (f"Regra Caixa: se a dívida for menor que {_pct(limit_pct)} da avaliação ({_brl(cap)}), o comprador paga tudo; se for maior, "
-                    f"a Caixa paga integralmente. {PREMISSA_IGUALDADE_IPTU}"
-                    if cap is not None else None)
+            rule = None
+        rule_origin = f" Fonte da regra: {rule_info['origem']}." if rule_info["origem"] else ""
         caixa_fields = {"divida_total": None, "responsabilidade_comprador": None, "assumido_caixa": None, "limite_responsabilidade": cap, "regra": rule,
-                        "premissa_conservadora": PREMISSA_IGUALDADE_IPTU if (key == "tributos_atraso" and cap is not None) else None,
-                        "fonte_valor": source or ("CUSTO" if debt is not None else None)}
+                        "regra_tipo": kind, "regra_fonte": rule_info["fonte"], "regra_origem": rule_info["origem"], "regra_trecho": rule_info["trecho"],
+                        "premissa_conservadora": PREMISSA_IGUALDADE_IPTU if (kind == REGRA_INTEGRAL_ACIMA and cap is not None) else None,
+                        "fonte_valor": ("CUSTO" if info.get("custo") else "DIVIDA") if info["valor"] is not None else None,
+                        "fonte_divida": info["fonte"], "origem_divida": info["origem"],
+                        # Rastreabilidade (revisão PR #7): registros somados, duplicidades descartadas e custo não somado de novo.
+                        "componentes": info.get("componentes") or [], "duplicidades": info.get("duplicidades") or [],
+                        "custo_ignorado": info.get("custo_ignorado"), "consulta_indisponivel": bool(info.get("indisponivel"))}
+        ressalvas = []
+        if info.get("indisponivel"):
+            ressalvas.append("Consulta indisponível ou em validação: o débito não foi apurado na fonte" + (
+                "; o valor exibido é ESTIMATIVA, não dívida confirmada." if info["fonte"] == FONTE_ESTIMATIVA else "."))
+        if info.get("duplicidades"):
+            ressalvas.append(f"{len(info['duplicidades'])} registro(s) do mesmo débito em cadastros diferentes contado(s) uma vez só.")
+        if info.get("custo_ignorado") is not None:
+            ressalvas.append(f"Custo cadastrado de {_brl(info['custo_ignorado'])} do mesmo tipo não somado: já há dívida cadastrada.")
+        caixa_fields["ressalvas"] = ressalvas
+        if info["fonte"] == FONTE_ESTIMATIVA:
+            caixa_fields["natureza_valor"] = "ESTIMATIVA"
+        suffix = (" " + " ".join(ressalvas)) if ressalvas else ""
+        debt = info["valor"]
         if debt is not None:
-            debt = _q(debt)
-            if cap is None:
-                buyer, note = debt, "Dívida cadastrada, sem regra de limitação informada: integralmente do comprador."
-            elif key == "condominio_atraso":
-                buyer, note = min(debt, cap), rule
+            buyer, seller = _buyer_share(debt, kind, cap)
+            if rule is None:
+                note = "Dívida cadastrada, sem regra de limitação informada: integralmente do comprador."
             else:
-                buyer = debt if debt <= cap else ZERO   # igualdade: integral do comprador (premissa conservadora declarada)
-                note = rule + (" Dívida igual ao limite: aplicada a premissa conservadora." if debt == cap else "")
-            caixa_fields.update({"divida_total": debt, "responsabilidade_comprador": buyer, "assumido_caixa": debt - buyer})
-            lines.append(_line(key, label, buyer, INFORMADO, "dívida cadastrada", observacao=note, **caixa_fields))
+                note = rule + rule_origin + (" Dívida igual ao limite: aplicada a premissa conservadora." if (kind == REGRA_INTEGRAL_ACIMA and debt == cap) else "")
+            caixa_fields.update({"divida_total": debt, "responsabilidade_comprador": buyer, "assumido_caixa": seller,
+                                 "exposicao": {"divida_potencial": {"base": debt, "conservador": debt}, "divida_confirmada": debt if info["fonte"] == FONTE_CONFIRMADO else None,
+                                               "responsabilidade_comprador": {"base": buyer, "conservador": buyer},
+                                               "responsabilidade_caixa": {"base": seller, "conservador": seller}, "limite": cap,
+                                               "valor_considerado": {"base": buyer, "conservador": buyer}}})
+            origin = f"dívida confirmada ({info['origem']})" if info["fonte"] == FONTE_CONFIRMADO else info["origem"]
+            lines.append(_line(key, label, buyer, INFORMADO, origin, observacao=note + suffix, **caixa_fields))
+        elif info["fonte"] == FONTE_ESTIMATIVA and kind != REGRA_VENDEDOR:
+            est = info["estimativa"]
+            buyer_base, seller_base = _buyer_share(est["base"], kind, cap)
+            buyer_cons, seller_cons = _buyer_share(est["conservador"], kind, cap)
+            caixa_fields.update({"estimativa": est, "aviso_estimativa": AVISO_ESTIMATIVA_CONDOMINIO,
+                                 "exposicao": {"divida_potencial": {"base": est["base"], "conservador": est["conservador"]}, "divida_confirmada": None,
+                                               "responsabilidade_comprador": {"base": buyer_base, "conservador": buyer_cons},
+                                               "responsabilidade_caixa": {"base": seller_base, "conservador": seller_cons}, "limite": cap,
+                                               "valor_considerado": {"base": buyer_base, "conservador": buyer_cons}}})
+            lines.append(_line(key, label, buyer_base, ESTIMADO, est["origem"], base=buyer_base, conservador=buyer_cons,
+                               tratamento_base=f"estimativa provável ({_brl(est['base'])}) após a regra: {_brl(buyer_base)}",
+                               tratamento_conservador=f"estimativa alta ({_brl(est['conservador'])}) após a regra: {_brl(buyer_cons)}",
+                               observacao=f"ESTIMATIVA, não dívida confirmada. {AVISO_ESTIMATIVA_CONDOMINIO} "
+                               + (rule + rule_origin if rule else "Sem regra de limitação: estimativa integral do comprador.") + suffix,
+                               **caixa_fields))
+        elif kind == REGRA_VENDEDOR:
+            caixa_fields["exposicao"] = {"divida_potencial": None, "divida_confirmada": None, "responsabilidade_comprador": {"base": ZERO, "conservador": ZERO},
+                                         "responsabilidade_caixa": None, "limite": None, "valor_considerado": {"base": ZERO, "conservador": ZERO}}
+            lines.append(_line(key, label, ZERO, NAO_APLICAVEL, f"regra da venda ({rule_info['origem']})", observacao=rule, **caixa_fields))
         elif cap is not None:
             # Dívida desconhecida: o máximo que pode recair sobre o comprador é o limite (no IPTU, valor imediatamente abaixo dele).
             # Cenário base/otimista não têm estimativa honesta do valor: o item fica fora da soma e o cenário é marcado incompleto.
-            lines.append(_line(key, label, None, PENDENTE, "valor da dívida não informado", conservador=cap,
+            unavailable = " Consulta indisponível ou em validação: não é zero." if info["fonte"] == FONTE_INDISPONIVEL else ""
+            caixa_fields["exposicao"] = {"divida_potencial": None, "divida_confirmada": None, "responsabilidade_comprador": {"base": None, "conservador": cap},
+                                         "responsabilidade_caixa": None, "limite": cap, "valor_considerado": {"base": None, "conservador": cap}}
+            lines.append(_line(key, label, None, PENDENTE, info["origem"], conservador=cap,
                                tratamento_conservador=f"teto de responsabilidade do comprador ({_brl(cap)})",
                                tratamento_base="sem valor: fora da soma (cenário incompleto; veja o efeito do teto)",
-                               observacao=f"Dívida desconhecida. {rule} O assumido pela Caixa só pode ser calculado com o valor da dívida.", **caixa_fields))
+                               observacao=f"Dívida desconhecida.{unavailable} {rule}{rule_origin} O assumido pelo vendedor só pode ser calculado com o valor da dívida.",
+                               **caixa_fields))
         else:
-            lines.append(_line(key, label, None, PENDENTE, "não informado", observacao="Sem valor da dívida e sem regra de limitação: risco sem teto conhecido.",
+            unavailable = " Consulta indisponível ou em validação: não é zero." if info["fonte"] == FONTE_INDISPONIVEL else ""
+            caixa_fields["exposicao"] = {"divida_potencial": None, "divida_confirmada": None, "responsabilidade_comprador": None, "responsabilidade_caixa": None,
+                                         "limite": None, "valor_considerado": {"base": None, "conservador": None}}
+            lines.append(_line(key, label, None, PENDENTE, info["origem"] if info["fonte"] == FONTE_INDISPONIVEL else "não informado",
+                               observacao=("Sem valor da dívida e sem regra de limitação: risco sem teto conhecido." if rule is None
+                                           else f"Sem valor da dívida. {rule}{rule_origin}") + unavailable,
                                critico=True, **caixa_fields))
     # Reforma, regularização, desocupação.
     reforma = costs_by_key.get("reforma") if "reforma" in costs_by_key else _d(assumptions.get("reforma"))
@@ -279,8 +538,15 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     if regularizacao is not None:
         lines.append(_line("regularizacao", "Regularização", regularizacao, ESTIMADO, assumptions.get("regularizacao_origem") or "premissa do imóvel"))
     else:
-        lines.append(_manual_reserve("regularizacao", "Regularização", assumptions, "regularizacao_reserva",
-                                     "regularizacao_reserva_origem", "Sem levantamento de pendências de regularização além da matrícula."))
+        line = _manual_reserve("regularizacao", "Regularização", assumptions, "regularizacao_reserva",
+                               "regularizacao_reserva_origem", "Sem levantamento de pendências de regularização além da matrícula.")
+        reserve, reserve_origin = catalog_value(db, "viabilidade.regularizacao_padrao", municipality_id)
+        if not line.get("reserva_manual") and reserve is not None:
+            rule = f"reserva de {_brl(reserve)} ({reserve_origin})"
+            line = _line("regularizacao", "Regularização", None, PENDENTE, "não informado", base=reserve, conservador=reserve,
+                         tratamento_base=rule, tratamento_conservador=rule,
+                         observacao=f"Sem levantamento de regularização: todos os cenários usam a {rule}.")
+        lines.append(line)
     occupancy = max(prop.occupancy_analyses, key=lambda o: o.id) if prop.occupancy_analyses else None
     if "desocupacao" in costs_by_key:
         lines.append(_line("desocupacao", "Desocupação", costs_by_key["desocupacao"], INFORMADO, "custo cadastrado"))
@@ -288,6 +554,13 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
         lines.append(_line("desocupacao", "Desocupação", _d(occupancy.estimated_cost), ESTIMADO, "análise de ocupação"))
     elif occupancy is not None and str(occupancy.status or "").upper() in ("DESOCUPADO", "LIVRE"):
         lines.append(_line("desocupacao", "Desocupação", ZERO, NAO_APLICAVEL, "análise de ocupação: desocupado"))
+    elif occupancy is not None and str(occupancy.status or "").upper() in ("OCUPADO_CONFIRMADO", "OCUPADO_TERCEIROS"):
+        # v1.0.12: ocupação confirmada pelo usuário sem custo estimado: a reserva entra em todos os cenários (não só no conservador).
+        reserve = premises["viabilidade.reserva_desocupacao"]["valor"]
+        rule = f"reserva de {_brl(reserve)} ({premises['viabilidade.reserva_desocupacao']['origem']})"
+        lines.append(_line("desocupacao", "Desocupação", None, PENDENTE, "ocupação confirmada; custo de desocupação não estimado", base=reserve,
+                           conservador=reserve, tratamento_base=rule, tratamento_conservador=rule,
+                           observacao="Imóvel registrado como ocupado: todos os cenários usam a reserva até o custo real ser estimado."))
     else:
         reserve = premises["viabilidade.reserva_desocupacao"]["valor"]
         lines.append(_line("desocupacao", "Desocupação", None, PENDENTE, "ocupação não verificada", conservador=reserve,
@@ -312,10 +585,17 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     else:
         line = _manual_reserve("iptu_posse", "IPTU durante a posse", assumptions, "iptu_anual_reserva", "iptu_reserva_origem",
                                "Informe o IPTU anual (carnê ou certidão da Prefeitura) ou uma reserva anual com origem.", annual=True)
+        catalog_iptu, catalog_iptu_origin = catalog_value(db, "iptu.valor_anual_padrao", municipality_id)
+        if not line.get("reserva_manual") and catalog_iptu is not None:
+            rule = f"reserva anual de {_brl(catalog_iptu)} ({catalog_iptu_origin})"
+            line = _line("iptu_posse", "IPTU durante a posse", None, PENDENTE, "não informado", base=catalog_iptu, conservador=catalog_iptu,
+                         tratamento_base=rule, tratamento_conservador=rule,
+                         observacao="IPTU real não levantado: os cenários usam o IPTU anual padrão do catálogo, proporcional ao prazo.")
         # valor_base/valor_conservador aqui são ANUAIS; cada cenário aplica o proporcional ao prazo (_amount).
         line.update({"iptu_anual": None, "iptu_anual_base": line["valor_base"], "iptu_anual_conservador": line["valor_conservador"], "valores_anuais": True})
     lines.append(line)
-    # Manutenção durante a posse: carregamento mensal informado > mediana do condomínio dos comparáveis (estimado) > pendente.
+    # Manutenção durante a posse: carregamento mensal informado > mediana do condomínio dos comparáveis (estimado) > custos mensais
+    # padrão do catálogo > condomínio mensal padrão do catálogo > pendente.
     monthly = _d(assumptions.get("carregamento_mensal"))
     monthly_origin = "premissa do imóvel"
     if monthly is None:
@@ -323,6 +603,10 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
         if fees:
             monthly = mk.median(fees)
             monthly_origin = f"mediana do condomínio de {len(fees)} anúncio(s) comparável(is); IPTU não incluído"
+    for key in ("viabilidade.custos_mensais_padrao", "condominio.valor_mensal_referencia"):
+        if monthly is None:
+            monthly, found_origin = catalog_value(db, key, municipality_id)
+            monthly_origin = found_origin or monthly_origin
     return {"linhas": lines, "aquisicao": acquisition, "avaliacao": appraisal, "carregamento_mensal": monthly,
             "carregamento_origem": monthly_origin if monthly is not None else None, "itbi_aliquota": itbi_rate_pct, "itbi_base_minima": itbi_base_min,
             "registro_reserva_pct": premises["viabilidade.reserva_registro_pct"]["valor"]}
@@ -685,6 +969,14 @@ def consolidate(dims: dict) -> dict:
         caveats.append("Aluguel apenas indicativo (menos de 3 comparáveis de locação): a tese de locação não está validada.")
     if market.get("somente_anunciados"):
         caveats.append("Amostra só com preços anunciados (não transacionados): desconto de negociação aplicado por premissa.")
+    if ret.get("venda_preliminar"):
+        caveats.append("Valor de venda do cenário base é ESTIMATIVA PRELIMINAR (avaliação × fator), sem comparáveis: confiança baixa.")
+    if ret.get("margem_base") is not None and ret.get("margem_minima") is not None and ret["margem_base"] < ret["margem_minima"]:
+        caveats.append(f"Margem líquida do cenário base ({_pct(_q(ret['margem_base'], '0.0001'))}) abaixo da margem mínima de referência "
+                       f"({_pct(ret['margem_minima'])}).")
+    if ret.get("margem_seguranca_base") is not None and ret.get("margem_seguranca_minima") is not None and ret["margem_seguranca_base"] < ret["margem_seguranca_minima"]:
+        caveats.append(f"Margem de segurança do cenário base ({_pct(ret['margem_seguranca_base'])}) abaixo da mínima de referência "
+                       f"({_pct(ret['margem_seguranca_minima'])}).")
     if liq.get("classificacao") in (mk.LIQ_BAIXA, mk.LIQ_INDETERMINADA):
         blockers.append(f"Liquidez {liq.get('classificacao')}.")
     if blockers:
@@ -730,7 +1022,7 @@ def _inputs(db, prop) -> dict:
     rent_est = mk.estimate(subject, comps, "ALUGUEL", negotiation_discount=discount, min_similarity=min_sim)
     used_ids = {r["id"] for r in sale_est["comparaveis"] + rent_est["comparaveis"] if r["usado"]}
     sale_est["_condo_fees"] = [_d(c["condo_fee"]) for c in comps if c["id"] in used_ids and c.get("condo_fee") not in (None, "")]
-    costs = acquisition_costs(prop, auction, premises, assumptions, sale_est)
+    costs = acquisition_costs(prop, auction, premises, assumptions, sale_est, db=db)
     sale_est.pop("_condo_fees", None)
     sale = _sale_assumptions(assumptions, premises)
     area = sale_est["area_referencia"]
@@ -740,13 +1032,31 @@ def _inputs(db, prop) -> dict:
               "rent": rent_value, "premises": premises, "rent_indicative": rent_est["valor_estimado"] is None and rent_value is not None}
     commission_pct = (_d(auction.commission_percent) / Decimal("100")) if (auction is not None and auction.commission_fixed is None
                                                                             and auction.commission_percent is not None) else None
-    # Valor de venda do cenário BASE: premissa do usuário (quando informada) > estimativa dos comparáveis.
+    # Valor de venda do cenário BASE: premissa do usuário (quando informada) > estimativa dos comparáveis > estimativa preliminar
+    # (avaliação × fator do catálogo, decisão 2.2) — esta só quando não há comparável usável, com selo próprio e confiança BAIXA.
     user_value = _d(assumptions.get("valor_venda_estimado"))
+    preliminary = None
+    if user_value is None and sale_est["valor_estimado"] is None and costs["avaliacao"]:
+        factor = premises["viabilidade.fator_venda_avaliacao"]
+        value = _q(costs["avaliacao"] * factor["valor"])
+        preliminary = {"valor": value, "avaliacao": costs["avaliacao"], "fator": factor["valor"], "fator_origem": factor["origem"],
+                       "selo": "Estimativa preliminar", "confianca": mk.CONF_BAIXA,
+                       "observacao": "Sem comparáveis suficientes: valor de venda preliminar = avaliação do vendedor × fator. Informe o valor de venda "
+                                     "em Financeiro > Premissas ou cadastre comparáveis para substituir.",
+                       "formula": f"{_brl(costs['avaliacao'])} × {_pct(factor['valor'])} = {_brl(value)}"}
+    if user_value is not None:
+        base_value, base_origin = _q(user_value), "premissa do imóvel"
+    elif sale_est["valor_estimado"] is not None:
+        base_value = sale_est["valor_estimado"]
+        base_origin = f"estimativa de mercado ({sale_est['quantidade_usada']} comparáveis, confiança {sale_est['confianca']})"
+    elif preliminary is not None:
+        base_value = preliminary["valor"]
+        base_origin = f"{ORIGEM_PRELIMINAR}: {preliminary['formula']} ({preliminary['fator_origem']}); confiança BAIXA"
+    else:
+        base_value, base_origin = None, None
     return {"auction": auction, "assumptions": assumptions, "premises": premises, "subject": subject, "sale_est": sale_est, "rent_est": rent_est,
             "costs": costs, "sale": sale, "months": int(premises["venda.prazo_meses"]["valor"]), "common": common, "commission_pct": commission_pct,
-            "base_value": _q(user_value) if user_value is not None else sale_est["valor_estimado"],
-            "base_value_origin": "premissa do imóvel" if user_value is not None else (
-                f"estimativa de mercado ({sale_est['quantidade_usada']} comparáveis, confiança {sale_est['confianca']})" if sale_est["valor_estimado"] is not None else None)}
+            "base_value": base_value, "base_value_origin": base_origin, "venda_preliminar": preliminary}
 
 
 def market_intelligence(db, prop) -> dict:
@@ -817,7 +1127,12 @@ def market_intelligence(db, prop) -> dict:
                           "cenarios_incompletos": [s["cenario"] for s in scenarios if not s["completo"]],
                           "preco_maximo_base_com_pendencias_no_teto": (max_prices.get("BASE", {}).get("com_pendencias_no_teto") or {}).get("preco_maximo"),
                           "aquisicao": acquisition,
-                          "aluguel_indicativo": common["rent_indicative"]},
+                          "aluguel_indicativo": common["rent_indicative"],
+                          "margem_base": (base["resultado_liquido"] / base["valor_venda"]) if (base.get("resultado_liquido") is not None and base.get("valor_venda")) else None,
+                          "margem_minima": premises["viabilidade.margem_minima"]["valor"],
+                          "margem_seguranca_base": base.get("margem_seguranca"),
+                          "margem_seguranca_minima": premises["viabilidade.margem_seguranca_minima"]["valor"],
+                          "venda_preliminar": inp["venda_preliminar"] is not None},
         "liquidez": {"classificacao": liq["classificacao"], "confianca": liq["confianca"]},
     }
     snapshot = _risk_snapshot(db, prop)
@@ -835,6 +1150,7 @@ def market_intelligence(db, prop) -> dict:
             "desconto_sobre_avaliacao": _q(ONE - acquisition / appraisal, "0.0001") if acquisition and appraisal else None,
             "desconto_sobre_mercado": base.get("desconto_sobre_mercado"),
             "observacao_descontos": "Desconto sobre a avaliação da Caixa ≠ desconto sobre o valor de mercado estimado a partir de comparáveis.",
+            "venda_preliminar": inp["venda_preliminar"],
         },
         "custos": costs["linhas"], "carregamento_mensal": {"valor": _q(costs["carregamento_mensal"]), "origem": costs["carregamento_origem"]},
         "cenarios": scenarios,
@@ -908,6 +1224,10 @@ def verdict_finance(db, prop) -> dict:
 
     if value is None:
         pending.append("Valor de venda estimado ausente: resultado líquido, margem e ROI não calculados.")
+    elif inp.get("venda_preliminar") is not None:
+        mark("valor_venda", "valor de venda (estimativa preliminar: avaliação × fator, confiança baixa)")
+        pending.append(f"Valor de venda não confirmado: o cálculo usa a ESTIMATIVA PRELIMINAR de {_brl(value)} ({inp['venda_preliminar']['formula']}), "
+                       "sem comparáveis suficientes; confiança baixa. Informe o valor em Financeiro > Premissas ou cadastre comparáveis.")
     elif inp["base_value_origin"] != ORIGEM_USUARIO:
         mark("valor_venda", "valor de venda (estimativa de mercado não confirmada)")
         pending.append(f"Valor de venda não confirmado: o cálculo usa a estimativa de mercado de {_brl(value)} ({inp['base_value_origin']}). "
@@ -938,6 +1258,11 @@ def verdict_finance(db, prop) -> dict:
         status[item["chave"]] = _STATUS_FINANCEIRO[nature]
         origin[item["chave"]] = item["origem"]
         code = "comissao_arrematacao" if item["chave"] == "comissao" else item["chave"]
+        if line.get("fonte_divida") == FONTE_ESTIMATIVA and item["incluido"]:
+            # Estimativa de dívida não é dívida confirmada: entra na soma, mas o cálculo continua provisório.
+            mark(code, f"{item['descricao']} (estimativa, não é dívida confirmada)")
+            pending.append(f"{item['descricao']}: valor estimado de {_brl(item['valor'])}, não é dívida confirmada; solicitar declaração atualizada "
+                           "(cálculo provisório)." + (" Consulta indisponível ou em validação." if line.get("consulta_indisponivel") else ""))
         if nature == NAT_PENDENTE:
             mark(code, item["descricao"])
             label = item["descricao"] if item["descricao"][:2].isupper() else item["descricao"][0].lower() + item["descricao"][1:]   # sigla (ITBI, IPTU) intacta
@@ -984,7 +1309,7 @@ def verdict_finance(db, prop) -> dict:
     exit_cost = (brokerage + tax) if (brokerage is not None and tax is not None) else None
     return {
         "motor": "viability.verdict_finance (mesma composição do cenário BASE da inteligência de mercado)",
-        "valor_mercado": value, "valor_mercado_origem": inp["base_value_origin"],
+        "valor_mercado": value, "valor_mercado_origem": inp["base_value_origin"], "valor_venda_preliminar": inp["venda_preliminar"],
         "custo_total": investment, "custos": breakdown, "custos_status": status, "custos_origem": origin,
         "composicao_custos": composition, "memoria_calculo": scen["composicao"],
         "custo_saida": exit_cost, "custo_saida_detalhe": {"corretagem_venda": brokerage, "tributos_venda": tax},

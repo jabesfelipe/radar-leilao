@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Coins, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
 import { formatMoney } from '../services/market'
+import { CondoEstimateCard } from './CondoEstimateCard'
+import { IptuGuidanceCard } from './IptuGuidanceCard'
 import {
   estimateCondominium, getDebts, listDebtQueries,
   type AgeAlerts, type CondominiumEstimate, type DebtQueryRow, type DebtsView,
@@ -161,6 +163,8 @@ export function DebtsSection({ propertyId }: DebtsSectionProps) {
           </Card>
         </>
       )}
+      <CondoEstimateCard propertyId={propertyId} />
+      <IptuGuidanceCard propertyId={propertyId} />
     </Section>
   )
 }
