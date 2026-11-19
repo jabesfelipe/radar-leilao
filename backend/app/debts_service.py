@@ -110,7 +110,10 @@ def seed_all(db: Session) -> dict[str, int]:
     munis = seed_municipalities(db)
     coverage = coverage_service.seed_coverage(db)
     parameters = parameter_seeds.seed_parameters(db)
-    return {"debt_types": types, "municipalities": munis, "coverage": coverage, "parameters": parameters}
+    # v1.0.12 (Fase F): fontes de IPTU dos 4 municípios e reclassificação da cobertura ainda não editada (portais sem automação).
+    from . import municipal_iptu
+    iptu = municipal_iptu.seed_iptu_sources(db)
+    return {"debt_types": types, "municipalities": munis, "coverage": coverage, "parameters": parameters, **iptu}
 
 
 def normalize_debt_payload(db: Session, data: dict[str, Any]) -> dict[str, Any]:

@@ -103,7 +103,16 @@ def run_query(
         "debitos_criados": [d.id for d in created],
         "consolidacao": serialize(debts_service.consolidate(db, prop.id)),
         "evento_id": event.id,
+        # v1.0.12: consulta manual assistida mostra o portal oficial e o passo a passo do município (sem automação).
+        "orientacao": _guidance(db, municipality_id, debt_type_code, result.provider),
     }
+
+
+def _guidance(db: Session, municipality_id: int | None, debt_type_code: str, provider: str) -> dict[str, Any] | None:
+    if debt_type_code != "IPTU" or provider != debt_providers.ManualAssistedProvider.name:
+        return None
+    from .municipal_iptu import guidance
+    return guidance(db, municipality_id)
 
 
 def list_queries(db: Session, property_id: int) -> list[dict[str, Any]]:

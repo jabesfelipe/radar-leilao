@@ -32,9 +32,10 @@ def test_seed_cobertura_idempotente_e_como_dado(db):
     assert r2 == 0  # segunda passada não recria
     rows = db.scalars(select(models.MunicipalityCoverage)).all()
     assert len(rows) >= 4  # ao menos IPTU de cada município
-    # IPTU é AUTOMATIZAVEL/portal; demais semeados permanecem NAO_INVESTIGADA.
+    # v1.0.12 (Fase F): o levantamento dos portais mostrou que nenhum permite consulta automatizada (CPF/CNPJ do proprietário,
+    # login ou verificação de navegador): o IPTU passa a MANUAL, ainda pelo portal público; demais permanecem NAO_INVESTIGADA.
     iptu = [c for c in rows if c.debt_type_code == "IPTU"]
-    assert iptu and all(c.level == "AUTOMATIZAVEL" and c.method == "PORTAL_PUBLICO" for c in iptu)
+    assert iptu and all(c.level == "MANUAL" and c.method == "PORTAL_PUBLICO" for c in iptu)
     assert any(c.level == "NAO_INVESTIGADA" for c in rows)
 
 

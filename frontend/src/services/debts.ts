@@ -83,6 +83,19 @@ export function runDebtQuery(propertyId: number, payload: Record<string, unknown
   return request(`${base(propertyId)}/debitos/consultar`, jsonInit('POST', payload))
 }
 
+// v1.0.12: orientação da consulta manual assistida do IPTU do município do imóvel.
+export type IptuGuidance = {
+  property_id: number; municipality_id: number | null; inscricao_imobiliaria: string | null; motivo: string | null
+  orientacao: {
+    municipio: string; automatizado: boolean; modo: string; motivo: string; fonte?: string; orgao?: string; urls: string[]; identificador?: string
+    exigencias?: string[]; login?: boolean; api_publica?: boolean; captcha_ou_bloqueio?: string; termos_uso?: string; passos: string[]; aviso?: string
+  } | null
+}
+
+export function getIptuGuidance(propertyId: number): Promise<IptuGuidance> {
+  return request<IptuGuidance>(`${base(propertyId)}/debitos/orientacao-iptu`)
+}
+
 // v1.0.12: estimativa condominial pelo período da matrícula (cenários baixo/provável/alto; regra da venda aplicada depois).
 export type CondoScenario = {
   meses_em_atraso: number; fator: string | number; principal: string | number; multa: string | number; juros: string | number

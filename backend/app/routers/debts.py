@@ -131,6 +131,20 @@ def estimate_condominium(property_id: int, data: schemas.CondominiumEstimateRequ
     return {"property_id": property_id, "estimativa": serialize(computed), "alertas_idade": alerts, "estimativa_id": estimate_id}
 
 
+@router.get("/api/imoveis/{property_id}/debitos/orientacao-iptu")
+def iptu_guidance(property_id: int, db: Session = Depends(get_db)):
+    """v1.0.12: como consultar o IPTU do município do imóvel (portal oficial, identificador, exigências e passos). Nenhum dos
+    4 municípios permite consulta automatizada; o resultado é registrado pelo operador (consulta manual assistida)."""
+    prop = property_or_404(db, property_id)
+    from ..municipal_iptu import guidance
+    from ..viability import municipality_id_for
+    debts_service.seed_all(db); db.commit()   # idempotente: municípios, cobertura e fontes de IPTU (como GET /admin/cobertura)
+    municipality_id = municipality_id_for(db, prop)
+    return {"property_id": property_id, "municipality_id": municipality_id, "inscricao_imobiliaria": getattr(prop, "inscription", None),
+            "orientacao": guidance(db, municipality_id) if municipality_id is not None else None,
+            "motivo": None if municipality_id is not None else "Município do imóvel não cadastrado na cobertura (Admin > Municípios)."}
+
+
 @router.post("/api/imoveis/{property_id}/debitos/estimar-condominio/matricula", status_code=201)
 def estimate_condominium_from_registry(property_id: int, data: schemas.CondominiumRegistryEstimateRequest, db: Session = Depends(get_db)):
     """v1.0.12: estimativa condominial pelo período da matrícula (aquisição → consolidação), cenários baixo/provável/alto,
