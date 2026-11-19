@@ -2380,6 +2380,70 @@
     "title": "CondominiumEstimateRequest",
     "type": "object"
    },
+   "CondominiumRegistryEstimateRequest": {
+    "description": "v1.0.12: estimativa pelo período da matrícula. Datas ausentes vêm da linha do tempo da matrícula; valor mensal ausente vem\ndos comparáveis ou do padrão do Admin. ``persist=false`` só calcula (pré-visualização).",
+    "properties": {
+     "acquisition_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Acquisition Date"
+     },
+     "consolidation_date": {
+      "anyOf": [
+       {
+        "format": "date",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Consolidation Date"
+     },
+     "justification": {
+      "anyOf": [
+       {
+        "maxLength": 500,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Justification"
+     },
+     "monthly_reference": {
+      "anyOf": [
+       {
+        "exclusiveMinimum": 0.0,
+        "maximum": 100000.0,
+        "type": "number"
+       },
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Monthly Reference"
+     },
+     "persist": {
+      "default": false,
+      "title": "Persist",
+      "type": "boolean"
+     }
+    },
+    "title": "CondominiumRegistryEstimateRequest",
+    "type": "object"
+   },
    "ConsultancyCreate": {
     "properties": {
      "address": {
@@ -12017,6 +12081,57 @@
     ]
    }
   },
+  "/api/imoveis/{property_id}/debitos/estimar-condominio/matricula": {
+   "post": {
+    "description": "v1.0.12: estimativa condominial pelo período da matrícula (aquisição → consolidação), cenários baixo/provável/alto,\nmulta, juros e correção configuráveis no Admin, e a regra da venda aplicada depois. ``persist=false`` só calcula.",
+    "operationId": "estimate_condominium_from_registry_api_imoveis__property_id__debitos_estimar_condominio_matricula_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CondominiumRegistryEstimateRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Estimate Condominium From Registry",
+    "tags": [
+     "debitos"
+    ]
+   }
+  },
   "/api/imoveis/{property_id}/debitos/estimativas-condominio": {
    "get": {
     "operationId": "list_condominium_estimates_api_imoveis__property_id__debitos_estimativas_condominio_get",
@@ -12052,6 +12167,47 @@
      }
     },
     "summary": "List Condominium Estimates",
+    "tags": [
+     "debitos"
+    ]
+   }
+  },
+  "/api/imoveis/{property_id}/debitos/orientacao-iptu": {
+   "get": {
+    "description": "v1.0.12: como consultar o IPTU do município do imóvel (portal oficial, identificador, exigências e passos). Nenhum dos\n4 municípios permite consulta automatizada; o resultado é registrado pelo operador (consulta manual assistida).",
+    "operationId": "iptu_guidance_api_imoveis__property_id__debitos_orientacao_iptu_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Iptu Guidance",
     "tags": [
      "debitos"
     ]
@@ -14058,6 +14214,44 @@
     "summary": "Create Registration"
    }
   },
+  "/api/imoveis/{property_id}/matricula/linha-do-tempo": {
+   "get": {
+    "description": "Linha do tempo da matrícula (v1.0.12): atos com data, tipo, partes, valor, construtora e conclusão de obra, calculada dos\ntrechos já armazenados (sem reprocessar nem gravar). Rota autenticada pelo portão global; nomes sem CPF.",
+    "operationId": "registry_timeline_api_imoveis__property_id__matricula_linha_do_tempo_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Registry Timeline"
+   }
+  },
   "/api/imoveis/{property_id}/matricula/{registration_id}": {
    "patch": {
     "description": "Edita os metadados cadastrais da matrícula (TASK 75.2). Histórico before/after\n+ evento. Documentos anexos NÃO são sobrescritos (versionamento documental à parte).",
@@ -14232,6 +14426,44 @@
      }
     },
     "summary": "Create Occupancy"
+   }
+  },
+  "/api/imoveis/{property_id}/ocupacao/possiveis-ocupantes": {
+   "get": {
+    "description": "Pessoas identificadas nos documentos do imóvel (v1.0.12). Sugestão: não confirma ocupação; o checklist e o financeiro\nusam só o registro de ocupação confirmado pelo usuário. Rota autenticada pelo portão global; sem CPF.",
+    "operationId": "possible_occupants_api_imoveis__property_id__ocupacao_possiveis_ocupantes_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Possible Occupants"
    }
   },
   "/api/imoveis/{property_id}/pos-arrematacao": {
