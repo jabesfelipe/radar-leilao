@@ -102,6 +102,8 @@ def _person(original: str, start: int, end: int, role: str, how: str) -> dict[st
     from .privacy import redact_pii
     raw = re.sub(r"\s+", " ", original[start:end]).strip(" ,-;:—")
     raw = _QUALIFIED.sub("", raw).strip(" ,-;:—")
+    # Só o nome: qualificação (nacionalidade, estado civil, profissão, documentos) vem depois da primeira vírgula.
+    raw = raw.split(",", 1)[0].strip(" -;:—")
     if len(raw) < 3:
         return None
     name = redact_pii(raw[:160], force=True)
@@ -204,7 +206,9 @@ def _source(chain: RegistryChain, position: int) -> dict[str, Any]:
 
 
 def _excerpt(original: str, start: int, end: int, size: int = 500) -> str:
-    return re.sub(r"\s+", " ", original[start:min(end, start + size)]).strip()
+    """Trecho literal do ato com CPF, RG, e-mail, telefone e dados bancários mascarados (o resto do texto fica intacto)."""
+    from .privacy import redact_pii
+    return redact_pii(re.sub(r"\s+", " ", original[start:min(end, start + size)]).strip(), force=True)
 
 
 def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None, today: date | None = None) -> dict[str, Any]:

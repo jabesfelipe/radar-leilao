@@ -229,8 +229,8 @@ def estimate_from_registry(db: Session, prop: "models.Property", *, monthly_refe
         "data_consolidacao": cons.isoformat() if cons else None, "origem_data_consolidacao": cons_src,
         "idade_imovel": idade.get("texto"), "teto_periodo_meses": cap, "fatores": factors,
         "juros_mensal_pct": juros, "multa_pct": multa, "correcao_mensal_pct": correcao,
-        "formula": ("período = meses entre aquisição e consolidação (limitado ao teto); meses em atraso = período × fator do cenário "
-                    "(arredondado); principal = valor mensal × meses; multa = principal × multa; juros = valor mensal × juros × Σ meses de "
+        "formula": ("período = meses completos entre aquisição e consolidação (limitado ao teto); meses em atraso = período × fator do cenário "
+                    "(arredondado ao inteiro, meio para cima); principal = valor mensal × meses; multa = principal × multa; juros = valor mensal × juros × Σ meses de "
                     "atraso de cada cota até hoje; correção = valor mensal × correção × Σ meses; total = principal + multa + juros + correção"),
         "nota": "O período entre a aquisição e a consolidação NÃO prova inadimplência: é a janela em que ela pode ter ocorrido.",
     }
@@ -239,6 +239,9 @@ def estimate_from_registry(db: Session, prop: "models.Property", *, monthly_refe
                                        ("data de consolidação (matrícula ou informada)", cons is not None)) if not ok]
     if not missing and cons < acq:
         missing.append("datas incoerentes (consolidação anterior à aquisição)")
+    elif not missing and _months_between(acq, cons) == 0:
+        # Sem um mês completo entre as datas não há janela para estimar: zero aqui pareceria "sem dívida".
+        missing.append("período de ao menos um mês completo entre a aquisição e a consolidação")
     base = {"metodo": METODO_PERIODO, "memoria_calculo": memoria, "parametros_usados": snapshot, "natureza": "ESTIMATIVA_OPERACIONAL",
             "status": "ESTIMADO", "aviso": AVISO_ESTIMATIVA, "ressalva": AVISO_ESTIMATIVA, "property_age_years": idade.get("anos")}
     if missing:
@@ -261,8 +264,9 @@ def estimate_from_registry(db: Session, prop: "models.Property", *, monthly_refe
                                                                    and rule["tipo"] in (REGRA_EXCEDENTE, REGRA_INTEGRAL_ACIMA)) else None
     for name, item in detail.items():
         buyer, seller = _buyer_share(item["total"], rule["tipo"], cap_value)
+        # Principal, multa, juros e correção são TODOS estimados (nunca dívida confirmada).
         item.update({"divida_potencial": item["total"], "responsabilidade_comprador": buyer, "responsabilidade_caixa": seller,
-                     "valor_no_financeiro": buyer if name != "baixo" else None})
+                     "valor_no_financeiro": buyer if name != "baixo" else None, "natureza": "ESTIMATIVA_OPERACIONAL", "status": "ESTIMADO"})
     memoria["cenarios"] = detail
     confidence = "MEDIA" if fee_src in ("INFORMADO", "COMPARAVEIS") and acq_src and acq_src.startswith("matrícula") and cons_src and cons_src.startswith("matrícula") else "BAIXA"
     return {**base, "possivel": True, "confianca": confidence, "monthly_source": fee_src, "months_delinquent": period, "safety_margin_pct": None,

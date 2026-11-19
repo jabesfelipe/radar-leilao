@@ -20,6 +20,15 @@ Regra de responsabilidade: documento das condições da venda (trecho literal) >
 A regra é aplicada depois do valor. Cada linha mostra dívida potencial, dívida confirmada, parte do comprador, parte do
 vendedor, limite e valor considerado por cenário.
 
+Duplicidade (revisão da PR #7): o mesmo débito registrado no cadastro de dívidas e na Central, ou duas vezes, entra uma vez.
+Central × Central: mesmo tipo e mesmo identificador externo, ou mesmo tipo, competência/exercício e valor. Legado × Central:
+mesmo grupo (condomínio ou municipal), mesmo valor e exercício compatível; fica o registro confirmado (em empate, o da
+Central). Legado × legado: mesma categoria, valor e data-base (sem data não é duplicidade, pode ser outra cota). Custo
+cadastrado do mesmo tipo não soma de novo quando há dívida. Cada linha traz `componentes`, `duplicidades` (o descartado e o
+mantido) e `custo_ignorado`. Débito legado com status ESTIMADO é estimativa. "Taxa condominial" é condomínio, não tributo.
+Consulta indisponível com estimativa: a linha fica ESTIMADO (`natureza_valor = ESTIMATIVA`) e mantém a ressalva
+`consulta_indisponivel`.
+
 Item 08 (leilões negativos): a linha "Averbação dos leilões negativos: <situação>" das condições da venda entra como
 informação do vendedor. O item fica INCONCLUSIVO: a declaração não comprova a averbação, que só a matrícula atualizada mostra.
 
@@ -117,8 +126,8 @@ custo estimado leva a reserva de desocupação a todos os cenários.
 Fórmula (visível na resposta e na tela):
 
 ```
-período = meses entre aquisição e consolidação, limitado ao teto
-meses em atraso = período × fator do cenário (arredondado)
+período = meses completos entre aquisição e consolidação, limitado ao teto (menos de um mês: não calcula)
+meses em atraso = período × fator do cenário (arredondado ao inteiro, meio para cima)
 principal = mensal × meses
 multa = principal × multa
 juros = mensal × juros × Σ (meses de atraso de cada cota até hoje)
