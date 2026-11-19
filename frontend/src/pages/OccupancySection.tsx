@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Home, Plus, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Select } from '../components/ui'
 import { createOccupancy, formatMoney, getOccupancy, type Occupancy, type OccupancyStatus } from '../services/market'
+import { PossibleOccupantsCard } from './PossibleOccupantsCard'
 
 type OccupancySectionProps = {
   propertyId: number
@@ -12,15 +13,27 @@ type OccupancyForm = {
   occupant_profile: string
   estimated_cost: string
   estimated_months: string
+  fonte: string
+  data: string
+  observacao: string
+  responsavel: string
 }
 
-const statusOptions: OccupancyStatus[] = ['OCUPADO', 'DESOCUPADO', 'DESCONHECIDO']
+const statusOptions: OccupancyStatus[] = ['OCUPADO_CONFIRMADO', 'OCUPADO_TERCEIROS', 'DESOCUPADO', 'NAO_VERIFICADO', 'DESCONHECIDO', 'OCUPADO']
 
-const initialForm: OccupancyForm = { status: 'DESCONHECIDO', occupant_profile: '', estimated_cost: '', estimated_months: '' }
+const statusLabel: Record<OccupancyStatus, string> = {
+  OCUPADO_CONFIRMADO: 'Ocupação confirmada', OCUPADO_TERCEIROS: 'Ocupado por terceiros', DESOCUPADO: 'Desocupado',
+  NAO_VERIFICADO: 'Não verificado', DESCONHECIDO: 'Desconhecido', OCUPADO: 'Ocupado (registro anterior)',
+}
+
+const initialForm: OccupancyForm = { status: 'DESCONHECIDO', occupant_profile: '', estimated_cost: '', estimated_months: '', fonte: '', data: '', observacao: '', responsavel: '' }
 
 const statusTone: Record<OccupancyStatus, 'warning' | 'success' | 'neutral'> = {
   OCUPADO: 'warning',
+  OCUPADO_CONFIRMADO: 'warning',
+  OCUPADO_TERCEIROS: 'warning',
   DESOCUPADO: 'success',
+  NAO_VERIFICADO: 'neutral',
   DESCONHECIDO: 'neutral',
 }
 
@@ -75,6 +88,9 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
         occupant_profile: form.occupant_profile.trim() || undefined,
         estimated_cost: form.estimated_cost.trim() ? Number(form.estimated_cost) : undefined,
         estimated_months: form.estimated_months.trim() ? Number(form.estimated_months) : undefined,
+        verificacao: form.fonte.trim() ? {
+          fonte: form.fonte.trim(), data: form.data || undefined, observacao: form.observacao.trim() || undefined, responsavel: form.responsavel.trim() || undefined,
+        } : undefined,
       })
       setFormOpen(false)
       setForm(initialForm)
@@ -95,8 +111,12 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
         <Card variant="elevated" padding="lg" className="dossier-form-card">
           <form className="dossier-form" onSubmit={handleSubmit} noValidate>
             <Select label="Status" value={form.status} onChange={(event) => setForm((c) => ({ ...c, status: event.target.value as OccupancyStatus }))}>
-              {statusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+              {statusOptions.map((status) => <option key={status} value={status}>{statusLabel[status]}</option>)}
             </Select>
+            <Input label="Fonte da verificação (opcional)" placeholder="Ex.: vistoria no local, portaria, síndico" value={form.fonte} onChange={(event) => setForm((c) => ({ ...c, fonte: event.target.value }))} />
+            <Input label="Data da verificação (opcional)" type="date" value={form.data} onChange={(event) => setForm((c) => ({ ...c, data: event.target.value }))} />
+            <Input label="Responsável pela verificação (opcional)" value={form.responsavel} onChange={(event) => setForm((c) => ({ ...c, responsavel: event.target.value }))} />
+            <Input label="Observação da verificação (opcional)" value={form.observacao} onChange={(event) => setForm((c) => ({ ...c, observacao: event.target.value }))} />
             <Input label="Perfil do ocupante (opcional)" value={form.occupant_profile} onChange={(event) => setForm((c) => ({ ...c, occupant_profile: event.target.value }))} />
             <Input label="Custo estimado (opcional)" type="number" step="0.01" value={form.estimated_cost} onChange={(event) => setForm((c) => ({ ...c, estimated_cost: event.target.value }))} />
             <Input label="Meses estimados (opcional)" type="number" min="0" value={form.estimated_months} onChange={(event) => setForm((c) => ({ ...c, estimated_months: event.target.value }))} />
@@ -126,9 +146,11 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
                 <p className="eyebrow">SITUAÇÃO ATUAL</p>
                 <h3>{occupancy.status}</h3>
               </div>
-              <Badge tone={statusTone[occupancy.status] ?? 'neutral'} size="md">{occupancy.status}</Badge>
+              <Badge tone={statusTone[occupancy.status] ?? 'neutral'} size="md">{occupancy.status_label ?? statusLabel[occupancy.status] ?? occupancy.status}</Badge>
             </div>
             <dl className="dossier-facts">
+              {occupancy.verificacao?.fonte ? <Fact label="Verificação" value={[occupancy.verificacao.fonte, occupancy.verificacao.data, occupancy.verificacao.responsavel].filter(Boolean).join(' · ')} /> : null}
+              {occupancy.verificacao?.observacao ? <Fact label="Observação da verificação" value={occupancy.verificacao.observacao} /> : null}
               <Fact label="Perfil do ocupante" value={occupancy.occupant_profile} />
               <Fact label="Custo estimado" value={occupancy.estimated_cost == null ? 'Não informado' : formatMoney(occupancy.estimated_cost)} />
               <Fact label="Meses estimados" value={occupancy.estimated_months == null ? 'Não informado' : String(occupancy.estimated_months)} />
@@ -154,6 +176,7 @@ export function OccupancySection({ propertyId }: OccupancySectionProps) {
           )}
         </>
       )}
+      <PossibleOccupantsCard propertyId={propertyId} />
     </Section>
   )
 }

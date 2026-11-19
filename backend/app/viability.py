@@ -505,6 +505,13 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
         lines.append(_line("desocupacao", "Desocupação", _d(occupancy.estimated_cost), ESTIMADO, "análise de ocupação"))
     elif occupancy is not None and str(occupancy.status or "").upper() in ("DESOCUPADO", "LIVRE"):
         lines.append(_line("desocupacao", "Desocupação", ZERO, NAO_APLICAVEL, "análise de ocupação: desocupado"))
+    elif occupancy is not None and str(occupancy.status or "").upper() in ("OCUPADO_CONFIRMADO", "OCUPADO_TERCEIROS"):
+        # v1.0.12: ocupação confirmada pelo usuário sem custo estimado: a reserva entra em todos os cenários (não só no conservador).
+        reserve = premises["viabilidade.reserva_desocupacao"]["valor"]
+        rule = f"reserva de {_brl(reserve)} ({premises['viabilidade.reserva_desocupacao']['origem']})"
+        lines.append(_line("desocupacao", "Desocupação", None, PENDENTE, "ocupação confirmada; custo de desocupação não estimado", base=reserve,
+                           conservador=reserve, tratamento_base=rule, tratamento_conservador=rule,
+                           observacao="Imóvel registrado como ocupado: todos os cenários usam a reserva até o custo real ser estimado."))
     else:
         reserve = premises["viabilidade.reserva_desocupacao"]["valor"]
         lines.append(_line("desocupacao", "Desocupação", None, PENDENTE, "ocupação não verificada", conservador=reserve,

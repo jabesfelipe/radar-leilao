@@ -41,16 +41,21 @@ export type ComparableCreate = {
   notes?: string
 }
 
-export type OccupancyStatus = 'OCUPADO' | 'DESOCUPADO' | 'DESCONHECIDO'
+// v1.0.12: OCUPADO_CONFIRMADO, OCUPADO_TERCEIROS e NAO_VERIFICADO somam-se aos status anteriores.
+export type OccupancyStatus = 'OCUPADO' | 'OCUPADO_CONFIRMADO' | 'OCUPADO_TERCEIROS' | 'DESOCUPADO' | 'NAO_VERIFICADO' | 'DESCONHECIDO'
+
+export type OccupancyVerification = { fonte: string; data?: string; observacao?: string; responsavel?: string }
 
 export type Occupancy = {
   id: number
   property_id: number
   status: OccupancyStatus
+  status_label?: string
   occupant_profile?: string | null
   estimated_cost?: number | string | null
   estimated_months?: number | null
   evidence_id?: number | null
+  verificacao?: { evidence_id: number; fonte: string | null; data: string | null; responsavel: string | null; observacao: string | null } | null
   created_at?: string
   updated_at?: string
 }
@@ -61,6 +66,16 @@ export type OccupancyCreate = {
   estimated_cost?: number
   estimated_months?: number
   evidence_id?: number
+  verificacao?: OccupancyVerification
+}
+
+export type PossibleOccupant = {
+  nome: string; papeis: string[]
+  origens: { documento: string | null; ato: string; tipo_ato: string; data: string | null; papel: string; como_identificado: string; trecho: string }[]
+}
+export type PossibleOccupantsResponse = {
+  property_id: number; aviso: string; possiveis_ocupantes: PossibleOccupant[]; fonte: string | null; motivo: string | null; observacao: string
+  situacao_registrada: { status: string; status_label: string } | null
 }
 
 export type OccupancyResponse = {
@@ -238,6 +253,10 @@ export function formatPercent(value?: number | string | null, digits = 1) {
   if (value === undefined || value === null || value === '') return 'Não calculado'
   const numeric = Number(value)
   return Number.isNaN(numeric) ? String(value) : `${(numeric * 100).toFixed(digits).replace('.', ',')}%`
+}
+
+export function getPossibleOccupants(propertyId: number): Promise<PossibleOccupantsResponse> {
+  return request<PossibleOccupantsResponse>(`/api/imoveis/${propertyId}/ocupacao/possiveis-ocupantes`)
 }
 
 export function getOccupancy(propertyId: number): Promise<OccupancyResponse> {

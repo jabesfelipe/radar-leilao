@@ -546,17 +546,21 @@ def _occupancy_items(r: _Resolver, registry) -> None:
     if registry is not None and not registry.is_empty():
         from .registry_chain import CESSAO
         cessao_txt = "" if registry.of(CESSAO) else " Cessão de posição contratual: não consta na matrícula examinada."
-    if status in ("OCUPADO", "DESOCUPADO"):
+    # Só o registro de ocupação feito pelo usuário responde 11 e 27; "possíveis ocupantes" dos documentos são sugestão e não entram.
+    from .occupancy_service import OCCUPIED_STATUSES, STATUS_LABELS, VACANT_STATUSES
+    if status in OCCUPIED_STATUSES or status in VACANT_STATUSES:
+        label = STATUS_LABELS.get(status, status).lower()
         detail = "; ".join(t for t in ((f"perfil: {occ.occupant_profile}" if occ.occupant_profile else ""),
                                        (f"custo estimado de desocupação {_brl(occ.estimated_cost)}" if occ.estimated_cost not in (None, 0) else ""),
                                        (f"prazo estimado {occ.estimated_months} meses" if occ.estimated_months else "")) if t)
-        fact = f"Cadastro de ocupação: {status.lower()}" + (f" ({detail})" if detail else "") + "."
+        fact = f"Cadastro de ocupação: {status.lower() if status in ('OCUPADO', 'DESOCUPADO') else label}" + (f" ({detail})" if detail else "") + "."
         ids = [r.plain("CADASTRO", "DESOCUPACAO", fact, "cadastro_ocupacao", "MEDIA" if occ.evidence_id else "BAIXA")]
         if occ.evidence_id:
             ids.append(occ.evidence_id)
         conf = "MEDIA" if occ.evidence_id else "BAIXA"
-        if status == "OCUPADO":
-            r.resolve("TERCEIRO_OCUPANTE", "ATENCAO", "Sim. Imóvel registrado como ocupado" + (f" ({detail})." if detail else "."),
+        if status in OCCUPIED_STATUSES:
+            how = {"OCUPADO_TERCEIROS": "ocupado por terceiros", "OCUPADO_CONFIRMADO": "ocupado (ocupação confirmada)"}.get(status, "ocupado")
+            r.resolve("TERCEIRO_OCUPANTE", "ATENCAO", f"Sim. Imóvel registrado como {how}" + (f" ({detail})." if detail else "."),
                       "Informação do cadastro de ocupação (fornecida pelo usuário" + (", com evidência vinculada" if occ.evidence_id else ", sem documento") + ")."
                       + cessao_txt + " Planejar a desocupação (custo e prazo) antes de decidir.", ids, confidence=conf)
             r.note("ETICA_OCUPACAO", "imóvel registrado como ocupado" + (f" ({occ.occupant_profile})" if occ.occupant_profile else "")

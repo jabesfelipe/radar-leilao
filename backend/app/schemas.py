@@ -241,12 +241,22 @@ class ChecklistItemPatch(BaseModel):
     related_rules: list[str] | None = None
     agents: list[str] | None = None
     risk_categories: list[str] | None = None
+class OccupancyVerification(BaseModel):
+    """v1.0.12: como a ocupação foi verificada. Fica numa Evidence vinculada ao registro (sem coluna nova)."""
+    fonte: str = Field(min_length=2, max_length=200)            # ex.: "vistoria no local", "portaria", "síndico"
+    data: date | None = None
+    observacao: str | None = Field(default=None, max_length=1000)
+    responsavel: str | None = Field(default=None, max_length=160)
+
+
 class OccupancyCreate(BaseModel):
-    status: Literal["OCUPADO", "DESOCUPADO", "DESCONHECIDO"]
+    # v1.0.12: OCUPADO_CONFIRMADO, OCUPADO_TERCEIROS e NAO_VERIFICADO somam-se aos anteriores (mantidos para compatibilidade).
+    status: Literal["OCUPADO", "OCUPADO_CONFIRMADO", "OCUPADO_TERCEIROS", "DESOCUPADO", "NAO_VERIFICADO", "DESCONHECIDO"]
     occupant_profile: str | None = None
     estimated_cost: Decimal | None = None
     estimated_months: int | None = Field(default=None, ge=0)
     evidence_id: int | None = None
+    verificacao: OccupancyVerification | None = None
 
 
 class DocumentExtractionRequest(BaseModel):
