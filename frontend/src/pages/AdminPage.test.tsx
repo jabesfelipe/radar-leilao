@@ -10,8 +10,11 @@ const municipios = { total: 4, itens: [
   { id: 1, name: 'Curitiba', state: 'PR', ibge_code: '4106902', coverage_active: true, status: 'ATIVO' },
   { id: 2, name: 'Assis', state: 'SP', ibge_code: '3504008', coverage_active: true, status: 'ATIVO' },
 ] }
-const parametros = { total: 1, itens: [
+const parametros = { total: 12, itens: [
   { id: 10, key: 'condominio.margem_seguranca_pct', name: 'Margem', category: 'estimativa', data_type: 'DECIMAL', scope: 'GLOBAL', value: '0.1', status: 'ATIVO', version: 1, updated_by: 'admin' },
+  { id: 11, key: 'viabilidade.fator_venda_avaliacao', name: 'Fator de venda preliminar sobre a avaliação', category: 'financeiro', data_type: 'DECIMAL', scope: 'GLOBAL', value: '0.85', default_value: '0.85', unit: 'fração', status: 'ATIVO', version: 1, updated_by: 'seed' },
+  { id: 12, key: 'viabilidade.itbi_aliquota', name: 'ITBI (alíquota)', category: 'financeiro', data_type: 'DECIMAL', scope: 'GLOBAL', value: null, default_value: null, unit: 'fração', status: 'ATIVO', version: 1, updated_by: 'seed' },
+  { id: 13, key: 'mercado.amostra_minima', name: 'Amostra mínima', category: 'mercado', data_type: 'INTEGER', scope: 'GLOBAL', value: '7', status: 'ATIVO', version: 1, updated_by: 'seed' },
 ] }
 const tipos = { total: 1, itens: [{ id: 1, code: 'IPTU', label: 'IPTU', group: 'MUNICIPAL', default_nature: 'DIVIDA_EXISTENTE', impacts_finance: true, active: true }] }
 const cobertura = {
@@ -59,8 +62,19 @@ describe('AdminPage', () => {
     render(<AdminPage />)
     fireEvent.click(screen.getByRole('button', { name: 'Parâmetros' }))
     expect(await screen.findByText('condominio.margem_seguranca_pct')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Editar' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Histórico' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Editar' }).length).toBe(4)
+    expect(screen.getAllByRole('button', { name: 'Histórico' }).length).toBe(4)
+  })
+
+  it('premissas financeiras: só as categorias financeiras, com padrão e pendência visíveis e valor por município', async () => {
+    render(<AdminPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Premissas financeiras' }))
+    expect(await screen.findByText('viabilidade.fator_venda_avaliacao')).toBeInTheDocument()
+    expect(screen.getByText('0.85 fração')).toBeInTheDocument()
+    expect(screen.getByText('não configurado')).toBeInTheDocument()                       // ITBI sem padrão do sistema
+    expect(screen.queryByText('mercado.amostra_minima')).not.toBeInTheDocument()          // outra categoria fica na aba Parâmetros
+    expect(screen.getByText(/nunca sobrescreve o valor informado/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Cadastrar valor do município' })).toBeInTheDocument()
   })
 
   it('mostra a matriz de cobertura com nível e cobertura não investigada', async () => {

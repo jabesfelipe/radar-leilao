@@ -271,6 +271,13 @@ FINANCE_PARAMETER_KEYS = (
     "condominio.fator_otimista",
     "checklist.idade_alerta_1_anos",
     "checklist.idade_alerta_2_anos",
+    # v1.0.12: premissas financeiras e da estimativa condominial (Admin > Premissas financeiras)
+    "venda.corretagem_pct", "venda.tributo_ganho_pct", "venda.prazo_meses", "viabilidade.roi_minimo", "viabilidade.margem_minima",
+    "viabilidade.margem_seguranca_minima", "viabilidade.fator_venda_avaliacao", "viabilidade.itbi_aliquota", "viabilidade.reserva_registro_pct",
+    "viabilidade.reserva_certidoes", "viabilidade.reserva_reforma_m2", "viabilidade.reserva_reforma_m2_base", "viabilidade.reserva_desocupacao",
+    "viabilidade.regularizacao_padrao", "iptu.valor_anual_padrao", "viabilidade.custos_mensais_padrao", "condominio.valor_mensal_referencia",
+    "condominio.fator_cenario_baixo", "condominio.fator_cenario_provavel", "condominio.fator_cenario_alto", "condominio.periodo_maximo_meses",
+    "condominio.juros_mensal_pct", "condominio.multa_pct", "condominio.correcao_mensal_pct",
 )
 
 

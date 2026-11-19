@@ -8,7 +8,7 @@ import {
   type Coverage, type CoverageMatrix,
 } from '../services/admin'
 
-type Tab = 'overview' | 'municipios' | 'cobertura' | 'tipos' | 'fontes' | 'parametros'
+type Tab = 'overview' | 'municipios' | 'cobertura' | 'tipos' | 'fontes' | 'premissas' | 'parametros'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Visão geral' },
@@ -16,8 +16,15 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'cobertura', label: 'Cobertura' },
   { key: 'fontes', label: 'Fontes de consulta' },
   { key: 'tipos', label: 'Tipos de débito' },
+  { key: 'premissas', label: 'Premissas financeiras' },
   { key: 'parametros', label: 'Parâmetros' },
 ]
+
+// v1.0.12: premissas financeiras e da estimativa condominial = filtro do mesmo catálogo de parâmetros (mesmo histórico e versão).
+const PREMISSAS_CATEGORIAS = ['financeiro', 'estimativa']
+const PREMISSAS_DESCRICAO = 'Padrões usados quando o imóvel não tem valor próprio. Ordem no cálculo: valor do imóvel > consulta ou documento > '
+  + 'estimativa calculada > este padrão > pendente. Alterar aqui nunca sobrescreve o valor informado em um imóvel. Itens sem valor ficam '
+  + 'pendentes nos cálculos até serem preenchidos.'
 
 // Mapeia nível de cobertura/situação para o tom visual do Badge.
 const LEVEL_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'danger' | 'info'> = {
@@ -57,6 +64,7 @@ export function AdminPage() {
       {tab === 'cobertura' && <CoberturaTab token={adminToken} />}
       {tab === 'fontes' && <FontesTab token={adminToken} />}
       {tab === 'tipos' && <TiposTab token={adminToken} />}
+      {tab === 'premissas' && <ParametrosTab token={adminToken} categories={PREMISSAS_CATEGORIAS} title="Premissas financeiras" description={PREMISSAS_DESCRICAO} />}
       {tab === 'parametros' && <ParametrosTab token={adminToken} />}
     </div>
   )
@@ -355,13 +363,30 @@ function TiposTab({ token }: { token: string }) {
   )
 }
 
-function ParametrosTab({ token }: { token: string }) {
+function ParametrosTab({ token, categories, title = 'Parâmetros', description = 'Catálogo central (transversal). Alterações geram nova versão + histórico; análises passadas são preservadas.' }:
+  { token: string; categories?: string[]; title?: string; description?: string }) {
   const { data, loading, error, reload } = useAsync(useCallback(() => listParameters(), []))
+  const itens = (data?.itens ?? []).filter((p) => !categories || categories.includes(p.category))
   const [editing, setEditing] = useState<Parameter | null>(null)
   const [editValue, setEditValue] = useState(''); const [justification, setJustification] = useState('')
   const [history, setHistory] = useState<ParameterHistoryItem[] | null>(null)
   const [msg, setMsg] = useState(''); const [err, setErr] = useState(''); const [saving, setSaving] = useState(false)
 
+  // Valor por município (ex.: ITBI): novo registro do mesmo parâmetro com escopo MUNICIPIO; o GLOBAL continua valendo nos demais.
+  const munis = useAsync(useCallback(() => (categories ? listMunicipalities() : Promise.resolve({ total: 0, itens: [] as Municipality[] })), [categories]))
+  const [byMuni, setByMuni] = useState({ key: '', municipality_id: '', value: '', justification: '' })
+  const saveByMuni = async () => {
+    const base = itens.find((p) => p.key === byMuni.key && p.scope === 'GLOBAL')
+    if (!base || !byMuni.municipality_id || byMuni.value === '') { setErr('Escolha a premissa, o município e o valor.'); return }
+    setErr(''); setMsg(''); setSaving(true)
+    try {
+      await createParameter({ key: base.key, name: base.name, description: base.description, category: base.category, data_type: base.data_type,
+        scope: 'MUNICIPIO', municipality_id: Number(byMuni.municipality_id), value: byMuni.value, unit: base.unit,
+        justification: byMuni.justification || undefined }, token)
+      setMsg('Valor por município cadastrado (prevalece sobre o padrão global naquele município).')
+      setByMuni({ key: '', municipality_id: '', value: '', justification: '' }); await reload()
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Falha ao salvar.') } finally { setSaving(false) }
+  }
   const openEdit = (p: Parameter) => { setEditing(p); setEditValue(p.value ?? ''); setJustification(''); setHistory(null); setErr(''); setMsg('') }
   const save = async () => {
     if (!editing) return
@@ -377,18 +402,20 @@ function ParametrosTab({ token }: { token: string }) {
 
   if (loading) return <LoadingState label="Carregando parâmetros..." />
   return (
-    <Section title="Parâmetros" description="Catálogo central (transversal). Alterações geram nova versão + histórico; análises passadas são preservadas.">
+    <Section title={title} description={description}>
       {error && <Alert tone="danger">{error}</Alert>}
       {msg && <Alert tone="success">{msg}</Alert>}
       {err && <Alert tone="danger">{err}</Alert>}
-      {(data?.itens.length ?? 0) === 0 ? <EmptyState title="Sem parâmetros" description="Cadastre parâmetros de negócio aqui." /> : (
+      {itens.length === 0 ? <EmptyState title="Sem parâmetros" description="Cadastre parâmetros de negócio aqui." /> : (
         <table className="admin-table">
-          <thead><tr><th>Chave</th><th>Categoria</th><th>Escopo</th><th>Tipo</th><th>Valor</th><th>Versão</th><th></th></tr></thead>
+          <thead><tr><th>Chave</th><th>Premissa</th><th>Categoria</th><th>Escopo</th><th>Tipo</th><th>Valor</th><th>Versão</th><th></th></tr></thead>
           <tbody>
-            {data?.itens.map((p: Parameter) => (
+            {itens.map((p: Parameter) => (
               <tr key={p.id}>
-                <td>{p.key}</td><td>{p.category}</td><td>{p.scope}</td><td>{p.data_type}</td>
-                <td>{p.value ?? p.default_value ?? '—'}{p.unit ? ` ${p.unit}` : ''}</td><td>v{p.version}</td>
+                <td>{p.key}</td>
+                <td>{p.name}{p.description ? <small className="market-obs"> {p.description}</small> : null}</td>
+                <td>{p.category}</td><td>{p.scope}{p.municipality_id ? ` (#${p.municipality_id})` : ''}</td><td>{p.data_type}</td>
+                <td>{p.value ?? p.default_value ?? <Badge tone="warning" size="sm">não configurado</Badge>}{(p.value ?? p.default_value) && p.unit ? ` ${p.unit}` : ''}</td><td>v{p.version}</td>
                 <td className="admin-row-actions">
                   <Button variant="ghost" onClick={() => openEdit(p)}>Editar</Button>
                   <Button variant="ghost" onClick={() => openHistory(p)}>Histórico</Button>
@@ -397,6 +424,26 @@ function ParametrosTab({ token }: { token: string }) {
             ))}
           </tbody>
         </table>
+      )}
+      {categories && (
+        <Card padding="md" className="admin-form">
+          <p className="admin-form-title">Valor por município (ex.: alíquota de ITBI)</p>
+          <label className="admin-field">Premissa
+            <select aria-label="Premissa por município" value={byMuni.key} onChange={(e) => setByMuni({ ...byMuni, key: e.target.value })}>
+              <option value="">Escolha</option>
+              {itens.filter((p) => p.scope === 'GLOBAL').map((p) => <option key={p.id} value={p.key}>{p.name} ({p.key})</option>)}
+            </select>
+          </label>
+          <label className="admin-field">Município
+            <select aria-label="Município da premissa" value={byMuni.municipality_id} onChange={(e) => setByMuni({ ...byMuni, municipality_id: e.target.value })}>
+              <option value="">Escolha</option>
+              {(munis.data?.itens ?? []).map((m) => <option key={m.id} value={m.id}>{m.name}/{m.state}</option>)}
+            </select>
+          </label>
+          <Input label="Valor" value={byMuni.value} onChange={(e) => setByMuni({ ...byMuni, value: e.target.value })} hint="Fração para percentuais (0.02 = 2%)." />
+          <Input label="Justificativa e fonte" value={byMuni.justification} onChange={(e) => setByMuni({ ...byMuni, justification: e.target.value })} />
+          <div className="admin-row-actions"><Button onClick={saveByMuni} disabled={saving}>Cadastrar valor do município</Button></div>
+        </Card>
       )}
       {editing && (
         <Card padding="md" className="admin-form">

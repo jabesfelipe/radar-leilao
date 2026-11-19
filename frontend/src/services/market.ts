@@ -209,6 +209,9 @@ export type IntelMaxPrice = {
   cenario: string; preco_maximo: Num; definitivo: boolean; provisorio: boolean; razao: string; pendencias: string[]; roi_no_teto?: Num
   com_pendencias_no_teto?: { preco_maximo: Num; roi_no_teto?: Num; itens: string[]; sem_teto_conhecido: string[] }
 }
+export type VendaPreliminar = {
+  valor: Num; avaliacao: Num; fator: Num; fator_origem: string; selo: string; confianca: string; observacao: string; formula: string
+}
 export type MarketIntelligence = {
   property_id: number; data_calculo: string
   venda: IntelEstimate; aluguel: IntelEstimate
@@ -216,6 +219,8 @@ export type MarketIntelligence = {
   valores: {
     valor_mercado_estimado: Num; faixa_venda: { min: Num; max: Num } | null; aluguel_estimado: Num; aluguel_indicativo: boolean; faixa_aluguel: { min: Num; max: Num } | null
     preco_m2_anunciado_mediana: Num; preco_m2_estimado_mediana: Num; desconto_sobre_avaliacao: Num; desconto_sobre_mercado: Num; observacao_descontos: string
+    /** v1.0.12: valor de venda preliminar (avaliação × fator) usado só sem valor informado e sem comparáveis. */
+    venda_preliminar?: VendaPreliminar | null
   }
   custos: IntelCost[]
   carregamento_mensal: { valor: Num; origem: string | null }

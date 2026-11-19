@@ -146,6 +146,11 @@ def update_source(source_id: int, data: schemas.DebtSourceUpdate, db: Session = 
 # ---------------------------------------------------------------------------
 @router.get("/parametros")
 def list_parameters(category: str | None = Query(default=None), key: str | None = Query(default=None), db: Session = Depends(get_db)):
+    # Semeia on-read (idempotente; nunca sobrescreve edição do operador), como a cobertura: as premissas financeiras padrão
+    # aparecem no Admin sem depender de outra tela ter sido aberta antes.
+    from .. import parameter_seeds
+    if parameter_seeds.seed_parameters(db):
+        db.commit()
     stmt = select(models.Parameter)
     if category is not None:
         stmt = stmt.where(models.Parameter.category == category)

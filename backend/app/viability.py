@@ -58,7 +58,52 @@ DEFAULTS: dict[str, tuple[Decimal | int, str]] = {
     # não é regra jurídica nem critério legal.
     "checklist.reforma_grande_pct": (Decimal("0.10"), "Referência de análise para \"grande reforma\" no checklist (fração do preço de aquisição); "
                                      "premissa ajustável, não é regra jurídica"),
+    # v1.0.12 (decisão 2.2): valor de venda preliminar = avaliação × fator, só sem valor informado e sem comparáveis usáveis.
+    "viabilidade.fator_venda_avaliacao": (Decimal("0.85"), "Fator de venda preliminar sobre a avaliação do vendedor (sem comparáveis suficientes)"),
+    "viabilidade.margem_minima": (Decimal("0.10"), "Margem líquida mínima de referência (ressalva; não substitui a meta do investidor)"),
+    "viabilidade.margem_seguranca_minima": (Decimal("0.10"), "Margem de segurança mínima de referência (ressalva)"),
 }
+# Premissas do catálogo SEM padrão do sistema: só valem quando o operador as preenche no Admin (senão o item segue pendente).
+CATALOG_ONLY = {
+    "viabilidade.itbi_aliquota": "ITBI (alíquota)", "viabilidade.regularizacao_padrao": "Regularização (reserva padrão)",
+    "iptu.valor_anual_padrao": "IPTU anual padrão", "viabilidade.custos_mensais_padrao": "Custos mensais da posse (padrão)",
+    "condominio.valor_mensal_referencia": "Condomínio mensal padrão",
+}
+ORIGEM_PRELIMINAR = "estimativa preliminar (avaliação × fator)"
+
+
+def municipality_id_for(db, prop) -> int | None:
+    """Município cadastrado do imóvel (nome e UF, sem acento e caixa), para parâmetros por município."""
+    if db is None or prop is None or not getattr(prop, "city", None):
+        return None
+    try:
+        from sqlalchemy import select
+        from . import models
+        from .registry_chain import fold
+        rows = db.scalars(select(models.Municipality)).all()
+        city, state = fold(str(prop.city)).strip(), str(getattr(prop, "state", "") or "").upper().strip()
+        for m in rows:
+            if isinstance(m, models.Municipality) and fold(m.name).strip() == city and (not state or m.state.upper() == state):
+                return m.id
+    except Exception:
+        return None
+    return None
+
+
+def catalog_value(db, key: str, municipality_id: int | None = None) -> tuple[Decimal | None, str | None]:
+    """(valor, origem) de uma premissa do catálogo sem padrão do sistema; (None, None) quando não preenchida."""
+    if db is None:
+        return None, None
+    try:
+        from . import parameters as params
+        detail = params.resolve_detail(db, key, municipality_id=municipality_id, default=None)
+    except Exception:
+        return None, None
+    if detail.get("value") is None:
+        return None, None
+    scope = (detail.get("resolved_from") or {}).get("scope")
+    where = " do município" if scope in ("MUNICIPIO", "MUNICIPIO_CATEGORIA") else ""
+    return _d(detail["value"]), f"catálogo de parâmetros{where} ({key})"
 
 
 def _d(value: Any) -> Decimal | None:
@@ -323,12 +368,17 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     itbi_base_min = _d(assumptions.get("itbi_base_minima"))
     itbi_rate_pct = None
     consumed.update({"itbi", "registro", "reforma", "desocupacao", "condominio", "iptu"})
+    municipality_id = municipality_id_for(db, prop)
+    itbi_origin = assumptions.get("itbi_origem") or "alíquota informada nas premissas"
+    if itbi_rate is None and "itbi" not in costs_by_key:
+        itbi_rate, catalog_origin = catalog_value(db, "viabilidade.itbi_aliquota", municipality_id)
+        itbi_origin = catalog_origin or itbi_origin
     if "itbi" in costs_by_key:
         lines.append(_line("itbi", "ITBI", costs_by_key["itbi"], INFORMADO, "custo cadastrado"))
     elif itbi_rate is not None and acquisition is not None:
         base = max(acquisition, itbi_base_min or ZERO)
         itbi_rate_pct = itbi_rate
-        lines.append(_line("itbi", "ITBI", base * itbi_rate, ESTIMADO, assumptions.get("itbi_origem") or "alíquota informada nas premissas",
+        lines.append(_line("itbi", "ITBI", base * itbi_rate, ESTIMADO, itbi_origin,
                            observacao=f"Alíquota {_pct(itbi_rate)} sobre base de {_brl(base)} (maior entre aquisição e base mínima informada)."))
     else:
         lines.append(_line("itbi", "ITBI", None, PENDENTE, "não informado", observacao="Informe a alíquota municipal e a base (valor venal).", critico=True))
@@ -439,8 +489,15 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     if regularizacao is not None:
         lines.append(_line("regularizacao", "Regularização", regularizacao, ESTIMADO, assumptions.get("regularizacao_origem") or "premissa do imóvel"))
     else:
-        lines.append(_manual_reserve("regularizacao", "Regularização", assumptions, "regularizacao_reserva",
-                                     "regularizacao_reserva_origem", "Sem levantamento de pendências de regularização além da matrícula."))
+        line = _manual_reserve("regularizacao", "Regularização", assumptions, "regularizacao_reserva",
+                               "regularizacao_reserva_origem", "Sem levantamento de pendências de regularização além da matrícula.")
+        reserve, reserve_origin = catalog_value(db, "viabilidade.regularizacao_padrao", municipality_id)
+        if not line.get("reserva_manual") and reserve is not None:
+            rule = f"reserva de {_brl(reserve)} ({reserve_origin})"
+            line = _line("regularizacao", "Regularização", None, PENDENTE, "não informado", base=reserve, conservador=reserve,
+                         tratamento_base=rule, tratamento_conservador=rule,
+                         observacao=f"Sem levantamento de regularização: todos os cenários usam a {rule}.")
+        lines.append(line)
     occupancy = max(prop.occupancy_analyses, key=lambda o: o.id) if prop.occupancy_analyses else None
     if "desocupacao" in costs_by_key:
         lines.append(_line("desocupacao", "Desocupação", costs_by_key["desocupacao"], INFORMADO, "custo cadastrado"))
@@ -472,10 +529,17 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     else:
         line = _manual_reserve("iptu_posse", "IPTU durante a posse", assumptions, "iptu_anual_reserva", "iptu_reserva_origem",
                                "Informe o IPTU anual (carnê ou certidão da Prefeitura) ou uma reserva anual com origem.", annual=True)
+        catalog_iptu, catalog_iptu_origin = catalog_value(db, "iptu.valor_anual_padrao", municipality_id)
+        if not line.get("reserva_manual") and catalog_iptu is not None:
+            rule = f"reserva anual de {_brl(catalog_iptu)} ({catalog_iptu_origin})"
+            line = _line("iptu_posse", "IPTU durante a posse", None, PENDENTE, "não informado", base=catalog_iptu, conservador=catalog_iptu,
+                         tratamento_base=rule, tratamento_conservador=rule,
+                         observacao="IPTU real não levantado: os cenários usam o IPTU anual padrão do catálogo, proporcional ao prazo.")
         # valor_base/valor_conservador aqui são ANUAIS; cada cenário aplica o proporcional ao prazo (_amount).
         line.update({"iptu_anual": None, "iptu_anual_base": line["valor_base"], "iptu_anual_conservador": line["valor_conservador"], "valores_anuais": True})
     lines.append(line)
-    # Manutenção durante a posse: carregamento mensal informado > mediana do condomínio dos comparáveis (estimado) > pendente.
+    # Manutenção durante a posse: carregamento mensal informado > mediana do condomínio dos comparáveis (estimado) > custos mensais
+    # padrão do catálogo > condomínio mensal padrão do catálogo > pendente.
     monthly = _d(assumptions.get("carregamento_mensal"))
     monthly_origin = "premissa do imóvel"
     if monthly is None:
@@ -483,6 +547,10 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
         if fees:
             monthly = mk.median(fees)
             monthly_origin = f"mediana do condomínio de {len(fees)} anúncio(s) comparável(is); IPTU não incluído"
+    for key in ("viabilidade.custos_mensais_padrao", "condominio.valor_mensal_referencia"):
+        if monthly is None:
+            monthly, found_origin = catalog_value(db, key, municipality_id)
+            monthly_origin = found_origin or monthly_origin
     return {"linhas": lines, "aquisicao": acquisition, "avaliacao": appraisal, "carregamento_mensal": monthly,
             "carregamento_origem": monthly_origin if monthly is not None else None, "itbi_aliquota": itbi_rate_pct, "itbi_base_minima": itbi_base_min,
             "registro_reserva_pct": premises["viabilidade.reserva_registro_pct"]["valor"]}
@@ -845,6 +913,14 @@ def consolidate(dims: dict) -> dict:
         caveats.append("Aluguel apenas indicativo (menos de 3 comparáveis de locação): a tese de locação não está validada.")
     if market.get("somente_anunciados"):
         caveats.append("Amostra só com preços anunciados (não transacionados): desconto de negociação aplicado por premissa.")
+    if ret.get("venda_preliminar"):
+        caveats.append("Valor de venda do cenário base é ESTIMATIVA PRELIMINAR (avaliação × fator), sem comparáveis: confiança baixa.")
+    if ret.get("margem_base") is not None and ret.get("margem_minima") is not None and ret["margem_base"] < ret["margem_minima"]:
+        caveats.append(f"Margem líquida do cenário base ({_pct(_q(ret['margem_base'], '0.0001'))}) abaixo da margem mínima de referência "
+                       f"({_pct(ret['margem_minima'])}).")
+    if ret.get("margem_seguranca_base") is not None and ret.get("margem_seguranca_minima") is not None and ret["margem_seguranca_base"] < ret["margem_seguranca_minima"]:
+        caveats.append(f"Margem de segurança do cenário base ({_pct(ret['margem_seguranca_base'])}) abaixo da mínima de referência "
+                       f"({_pct(ret['margem_seguranca_minima'])}).")
     if liq.get("classificacao") in (mk.LIQ_BAIXA, mk.LIQ_INDETERMINADA):
         blockers.append(f"Liquidez {liq.get('classificacao')}.")
     if blockers:
@@ -900,13 +976,31 @@ def _inputs(db, prop) -> dict:
               "rent": rent_value, "premises": premises, "rent_indicative": rent_est["valor_estimado"] is None and rent_value is not None}
     commission_pct = (_d(auction.commission_percent) / Decimal("100")) if (auction is not None and auction.commission_fixed is None
                                                                             and auction.commission_percent is not None) else None
-    # Valor de venda do cenário BASE: premissa do usuário (quando informada) > estimativa dos comparáveis.
+    # Valor de venda do cenário BASE: premissa do usuário (quando informada) > estimativa dos comparáveis > estimativa preliminar
+    # (avaliação × fator do catálogo, decisão 2.2) — esta só quando não há comparável usável, com selo próprio e confiança BAIXA.
     user_value = _d(assumptions.get("valor_venda_estimado"))
+    preliminary = None
+    if user_value is None and sale_est["valor_estimado"] is None and costs["avaliacao"]:
+        factor = premises["viabilidade.fator_venda_avaliacao"]
+        value = _q(costs["avaliacao"] * factor["valor"])
+        preliminary = {"valor": value, "avaliacao": costs["avaliacao"], "fator": factor["valor"], "fator_origem": factor["origem"],
+                       "selo": "Estimativa preliminar", "confianca": mk.CONF_BAIXA,
+                       "observacao": "Sem comparáveis suficientes: valor de venda preliminar = avaliação do vendedor × fator. Informe o valor de venda "
+                                     "em Financeiro > Premissas ou cadastre comparáveis para substituir.",
+                       "formula": f"{_brl(costs['avaliacao'])} × {_pct(factor['valor'])} = {_brl(value)}"}
+    if user_value is not None:
+        base_value, base_origin = _q(user_value), "premissa do imóvel"
+    elif sale_est["valor_estimado"] is not None:
+        base_value = sale_est["valor_estimado"]
+        base_origin = f"estimativa de mercado ({sale_est['quantidade_usada']} comparáveis, confiança {sale_est['confianca']})"
+    elif preliminary is not None:
+        base_value = preliminary["valor"]
+        base_origin = f"{ORIGEM_PRELIMINAR}: {preliminary['formula']} ({preliminary['fator_origem']}); confiança BAIXA"
+    else:
+        base_value, base_origin = None, None
     return {"auction": auction, "assumptions": assumptions, "premises": premises, "subject": subject, "sale_est": sale_est, "rent_est": rent_est,
             "costs": costs, "sale": sale, "months": int(premises["venda.prazo_meses"]["valor"]), "common": common, "commission_pct": commission_pct,
-            "base_value": _q(user_value) if user_value is not None else sale_est["valor_estimado"],
-            "base_value_origin": "premissa do imóvel" if user_value is not None else (
-                f"estimativa de mercado ({sale_est['quantidade_usada']} comparáveis, confiança {sale_est['confianca']})" if sale_est["valor_estimado"] is not None else None)}
+            "base_value": base_value, "base_value_origin": base_origin, "venda_preliminar": preliminary}
 
 
 def market_intelligence(db, prop) -> dict:
@@ -977,7 +1071,12 @@ def market_intelligence(db, prop) -> dict:
                           "cenarios_incompletos": [s["cenario"] for s in scenarios if not s["completo"]],
                           "preco_maximo_base_com_pendencias_no_teto": (max_prices.get("BASE", {}).get("com_pendencias_no_teto") or {}).get("preco_maximo"),
                           "aquisicao": acquisition,
-                          "aluguel_indicativo": common["rent_indicative"]},
+                          "aluguel_indicativo": common["rent_indicative"],
+                          "margem_base": (base["resultado_liquido"] / base["valor_venda"]) if (base.get("resultado_liquido") is not None and base.get("valor_venda")) else None,
+                          "margem_minima": premises["viabilidade.margem_minima"]["valor"],
+                          "margem_seguranca_base": base.get("margem_seguranca"),
+                          "margem_seguranca_minima": premises["viabilidade.margem_seguranca_minima"]["valor"],
+                          "venda_preliminar": inp["venda_preliminar"] is not None},
         "liquidez": {"classificacao": liq["classificacao"], "confianca": liq["confianca"]},
     }
     snapshot = _risk_snapshot(db, prop)
@@ -995,6 +1094,7 @@ def market_intelligence(db, prop) -> dict:
             "desconto_sobre_avaliacao": _q(ONE - acquisition / appraisal, "0.0001") if acquisition and appraisal else None,
             "desconto_sobre_mercado": base.get("desconto_sobre_mercado"),
             "observacao_descontos": "Desconto sobre a avaliação da Caixa ≠ desconto sobre o valor de mercado estimado a partir de comparáveis.",
+            "venda_preliminar": inp["venda_preliminar"],
         },
         "custos": costs["linhas"], "carregamento_mensal": {"valor": _q(costs["carregamento_mensal"]), "origem": costs["carregamento_origem"]},
         "cenarios": scenarios,
@@ -1068,6 +1168,10 @@ def verdict_finance(db, prop) -> dict:
 
     if value is None:
         pending.append("Valor de venda estimado ausente: resultado líquido, margem e ROI não calculados.")
+    elif inp.get("venda_preliminar") is not None:
+        mark("valor_venda", "valor de venda (estimativa preliminar: avaliação × fator, confiança baixa)")
+        pending.append(f"Valor de venda não confirmado: o cálculo usa a ESTIMATIVA PRELIMINAR de {_brl(value)} ({inp['venda_preliminar']['formula']}), "
+                       "sem comparáveis suficientes; confiança baixa. Informe o valor em Financeiro > Premissas ou cadastre comparáveis.")
     elif inp["base_value_origin"] != ORIGEM_USUARIO:
         mark("valor_venda", "valor de venda (estimativa de mercado não confirmada)")
         pending.append(f"Valor de venda não confirmado: o cálculo usa a estimativa de mercado de {_brl(value)} ({inp['base_value_origin']}). "
@@ -1149,7 +1253,7 @@ def verdict_finance(db, prop) -> dict:
     exit_cost = (brokerage + tax) if (brokerage is not None and tax is not None) else None
     return {
         "motor": "viability.verdict_finance (mesma composição do cenário BASE da inteligência de mercado)",
-        "valor_mercado": value, "valor_mercado_origem": inp["base_value_origin"],
+        "valor_mercado": value, "valor_mercado_origem": inp["base_value_origin"], "valor_venda_preliminar": inp["venda_preliminar"],
         "custo_total": investment, "custos": breakdown, "custos_status": status, "custos_origem": origin,
         "composicao_custos": composition, "memoria_calculo": scen["composicao"],
         "custo_saida": exit_cost, "custo_saida_detalhe": {"corretagem_venda": brokerage, "tributos_venda": tax},
