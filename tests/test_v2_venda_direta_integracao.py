@@ -241,7 +241,8 @@ def test_fatores_nao_perdem_pendencia_e_nao_mudam_a_decisao():
     assert {f["chave"] for f in g[FATOR_NAO_APLICAVEL]} == {"LANCE_MENOR_50_AVALIACAO", "EDITAL_LIDO"}
     total_checklist = sum(1 for grupo in FATORES_ORDEM if grupo != FATOR_NAO_APLICAVEL for f in g[grupo] if f["origem"] == "CHECKLIST")
     assert total_checklist == len([p for p in decisao.pending_items if p.startswith("Pergunta ")])
-    assert any(f["descricao"] == "Valor de venda não informado." for f in g[FATOR_PREMISSA])           # premissa do investidor
+    # premissa do investidor; v1.0.12: mensagens do mesmo assunto ficam num fator só (as repetidas em ``detalhes``)
+    assert any("Valor de venda não informado." in [f["descricao"], *f.get("detalhes", [])] for f in g[FATOR_PREMISSA])
 
 
 # =============================================================== premissas: alias do IR (puro)

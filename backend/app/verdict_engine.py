@@ -240,12 +240,54 @@ def consolidate_factors(current_risks: list[Any], checklist_results: Iterable[An
                 groups[FATOR_RISCO_CONFIANCA].append(entry)
             else:
                 groups[FATOR_INFORMACAO].append(entry)
+    # Pendências financeiras agrupadas por ASSUNTO (v1.0.12): o mesmo assunto (ex.: valor de venda) aparecia várias vezes, uma por
+    # motor/mensagem. Fica um fator por assunto; as demais mensagens vão em ``detalhes`` (nenhuma é perdida).
+    by_subject: dict[str, dict[str, Any]] = {}
     for text in _unique(list(assessment.get("faltantes") or []) + list(financial_pending)):
+        subject = financial_subject(text)
+        if subject in by_subject:
+            entry = by_subject[subject]
+            entry["detalhes"].append(text)
+            entry["premissa"] = entry["premissa"] or _is_premise_text(text)
+            continue
+        by_subject[subject] = {"origem": "FINANCEIRO", "assunto": subject, "assunto_titulo": ASSUNTOS_FINANCEIROS.get(subject, subject),
+                               "descricao": text, "detalhes": [], "premissa": _is_premise_text(text)}
+    for entry in by_subject.values():
         # Premissa do investidor (venda, meta, corretagem, tributo, prazo) x dado desconhecido (custos, débitos, lance).
-        premissa = _is_premise_text(text)
-        groups[FATOR_PREMISSA if premissa else FATOR_INFORMACAO].append(
-            {"origem": "FINANCEIRO", "descricao": text, "acao": _ACAO_PREMISSA if premissa else "Cadastrar o dado em Financeiro (custos, dívidas ou lance)."})
+        premissa = entry.pop("premissa") or entry["assunto"] in _ASSUNTOS_PREMISSA
+        entry["acao"] = _ACAO_PREMISSA if premissa else _ACAO_ASSUNTO.get(entry["assunto"], "Cadastrar o dado em Financeiro (custos, dívidas ou lance).")
+        groups[FATOR_PREMISSA if premissa else FATOR_INFORMACAO].append(entry)
     return {"grupos": groups, "titulos": FATORES_TITULO, "contagem": {key: len(groups[key]) for key in FATORES_ORDEM}}
+
+
+ASSUNTOS_FINANCEIROS = {"VALOR_VENDA": "Valor de venda", "META": "Meta financeira e preço máximo", "PREMISSAS_VENDA": "Premissas de venda",
+                        "DEBITOS": "Débitos (condomínio e IPTU)", "OCUPACAO": "Ocupação e desocupação", "CUSTOS": "Custos da operação",
+                        "JURIDICO": "Jurídico", "LANCE": "Lance pretendido"}
+_ASSUNTOS_PREMISSA = {"VALOR_VENDA", "META", "PREMISSAS_VENDA"}
+_ACAO_ASSUNTO = {"DEBITOS": "Solicitar declaração do condomínio e certidão de IPTU e cadastrar em Débitos.",
+                 "OCUPACAO": "Verificar a ocupação e registrar em Ocupação.", "JURIDICO": "Validar com advogado."}
+
+
+def financial_subject(text: str) -> str:
+    """Assunto de uma pendência financeira, para agrupar mensagens repetidas de motores diferentes."""
+    low = text.lower()
+    if "lance pretendido" in low:
+        return "LANCE"
+    if low.startswith(("cálculo provisório", "preço máximo é")):
+        return "CUSTOS"
+    if "valor de venda" in low:
+        return "VALOR_VENDA"
+    if "meta" in low or "preço máximo não calculado" in low:
+        return "META"
+    if any(w in low for w in ("condomínio", "iptu", "tributos em atraso", "dívida", "débito")) and "posse" not in low:
+        return "DEBITOS"
+    if "ocupa" in low:
+        return "OCUPACAO"
+    if any(w in low for w in ("corretagem", "tributo na venda", "prazo da operação")):
+        return "PREMISSAS_VENDA"
+    if any(w in low for w in ("jurídic", "matrícula", "ônus")):
+        return "JURIDICO"
+    return "CUSTOS"
 
 
 class VerdictEngine:

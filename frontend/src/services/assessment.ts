@@ -52,6 +52,10 @@ export type VerdictFactor = {
   estado?: string | null
   chave?: string | null
   gravidade?: string | null
+  /** v1.0.12: pendências financeiras agrupadas por assunto; as mensagens repetidas ficam em ``detalhes``. */
+  assunto?: string | null
+  assunto_titulo?: string | null
+  detalhes?: string[]
 }
 
 /** Fatores do veredito (v2): o que impede a recomendação e como resolver cada pendência. */

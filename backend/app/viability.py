@@ -160,7 +160,138 @@ def _iptu_year(line: dict, conservative: bool) -> Decimal | None:
     return line.get("iptu_anual_conservador" if conservative else "iptu_anual_base")
 
 
-def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_estimate: dict) -> dict:
+# ------------------------------------------------------------------ fonte única da exposição a débitos (v1.0.12)
+# Condomínio e IPTU/tributos em atraso são lidos de UM lugar só, usado pela composição de custos (e, por ela, pelo veredito, pela
+# inteligência de mercado e pela recomendação) e pelo checklist. Ordem da fonte do VALOR: dívida confirmada > dívida informada
+# (cadastro legado, débito normalizado ou custo cadastrado) > estimativa condominial (provável no base, alto no conservador) >
+# pendente. Consulta indisponível ou em validação nunca vira zero. Ordem da REGRA de responsabilidade: documento das condições
+# da venda (trecho literal) > premissa ``condicoes_caixa`` > sem regra.
+FONTE_CONFIRMADO, FONTE_INFORMADO, FONTE_ESTIMATIVA, FONTE_INDISPONIVEL, FONTE_PENDENTE = (
+    "CONFIRMADO", "INFORMADO", "ESTIMATIVA", "INDISPONIVEL", "PENDENTE")
+REGRA_EXCEDENTE = "COMPRADOR_ATE_LIMITE_VENDEDOR_EXCEDENTE"
+REGRA_INTEGRAL_ACIMA = "COMPRADOR_ATE_LIMITE_VENDEDOR_INTEGRAL"
+REGRA_COMPRADOR = "COMPRADOR_INTEGRAL"
+REGRA_VENDEDOR = "VENDEDOR_INTEGRAL"
+_DEBT_KINDS = {
+    "condominio_atraso": {"tokens": ("CONDOM",), "codes": {"COTA_CONDOMINIAL", "MULTA_CONDOMINIAL", "JUROS_CONDOMINIAIS", "DESPESA_EXTRAORDINARIA"},
+                          "cost_key": "condominio", "limit_key": "condominio_limite_pct_avaliacao", "tema": "CONDOMINIO", "default_rule": REGRA_EXCEDENTE,
+                          "label": "condomínio"},
+    "tributos_atraso": {"tokens": ("IPTU", "TRIBUT", "TAXA"), "codes": {"IPTU", "TAXA_MUNICIPAL", "DIVIDA_ATIVA_MUNICIPAL", "OUTRO_DEBITO_MUNICIPAL"},
+                        "cost_key": "iptu", "limit_key": "tributos_limite_pct_avaliacao", "tema": "TRIBUTOS", "default_rule": REGRA_INTEGRAL_ACIMA,
+                        "label": "IPTU/tributos"},
+}
+AVISO_ESTIMATIVA_CONDOMINIO = ("Estimativa calculada com base em informações documentais e premissas configuráveis. Não representa dívida "
+                               "confirmada. Solicite declaração atualizada ao condomínio.")
+
+
+def _rows(db, model, property_id: int) -> list:
+    """Registros do imóvel; sessão simplificada de teste (sem ``scalars`` real) devolve lista vazia."""
+    if db is None:
+        return []
+    try:
+        from sqlalchemy import select
+        rows = db.scalars(select(model).where(model.property_id == property_id).order_by(model.id)).all()
+        return [r for r in rows if isinstance(r, model)]
+    except Exception:
+        return []
+
+
+def caixa_rules(db, prop, assumptions: dict) -> dict[str, dict]:
+    """Regra de responsabilidade do comprador por condomínio e por IPTU/tributos: documento > premissa > nenhuma."""
+    assumptions = assumptions or {}
+    out: dict[str, dict] = {key: {"tipo": None, "limite_pct": None, "comparador": None, "fonte": None, "origem": None, "trecho": None,
+                                  "document_version_id": None, "chunk_id": None} for key in _DEBT_KINDS}
+    sources = []
+    if db is not None and prop is not None and getattr(prop, "id", None) is not None:
+        try:
+            from .sale_conditions import conditions_for_property
+            sources = conditions_for_property(db, prop.id)
+        except Exception:
+            sources = []
+    for key, spec in _DEBT_KINDS.items():
+        for src in sources:
+            clause = src.first(spec["tema"])
+            if clause is None or clause.regra not in (REGRA_EXCEDENTE, REGRA_INTEGRAL_ACIMA, REGRA_COMPRADOR, REGRA_VENDEDOR):
+                continue
+            if clause.regra in (REGRA_EXCEDENTE, REGRA_INTEGRAL_ACIMA) and clause.limite_pct is None:
+                continue
+            out[key] = {"tipo": clause.regra, "limite_pct": clause.limite_pct, "comparador": clause.comparador, "fonte": "DOCUMENTO",
+                        "origem": f"{src.source_label} (trecho literal)", "trecho": clause.excerpt, "document_version_id": src.document_version_id,
+                        "chunk_id": clause.chunk_id}
+            break
+        if out[key]["tipo"] is None:
+            caixa = assumptions.get("condicoes_caixa") or {}
+            pct = _d(caixa.get(spec["limit_key"]))
+            if pct is not None:
+                out[key].update({"tipo": spec["default_rule"], "limite_pct": pct, "fonte": "PREMISSA",
+                                 "origem": f"premissa do imóvel (condições informadas: {caixa.get('origem') or 'origem não declarada'})"})
+    return out
+
+
+def _buyer_share(debt: Decimal, rule: str | None, cap: Decimal | None) -> tuple[Decimal, Decimal]:
+    """(parte do comprador, parte do vendedor/Caixa) para uma dívida conhecida."""
+    if rule == REGRA_VENDEDOR:
+        return ZERO, debt
+    if rule == REGRA_COMPRADOR or cap is None:
+        return debt, ZERO
+    if rule == REGRA_EXCEDENTE:
+        buyer = min(debt, cap)
+        return buyer, debt - buyer
+    buyer = debt if debt <= cap else ZERO      # REGRA_INTEGRAL_ACIMA; igualdade: comprador (premissa conservadora declarada)
+    return buyer, debt - buyer
+
+
+def debt_exposure(db, prop, assumptions: dict | None = None) -> dict[str, dict]:
+    """Valor da dívida de condomínio e de IPTU/tributos em atraso, com a fonte, sem aplicar regra. Leitura apenas."""
+    from . import models
+    assumptions = assumptions or {}
+    pid = getattr(prop, "id", None)
+    normalized = _rows(db, models.PropertyDebt, pid) if pid is not None else []
+    estimates = _rows(db, models.CondominiumEstimate, pid) if pid is not None else []
+    costs_by_key: dict[str, Decimal] = {}
+    for cost in getattr(prop, "costs", []) or []:
+        k = canonical_cost_key(cost.category)
+        costs_by_key[k] = costs_by_key.get(k, ZERO) + (_d(cost.amount) or ZERO)
+    legacy_open = [d for d in getattr(prop, "debts", []) or [] if str(d.status or "").upper() not in ("QUITADO", "CANCELADO", "PAGO")]
+    out: dict[str, dict] = {}
+    for key, spec in _DEBT_KINDS.items():
+        legacy = [d for d in legacy_open if any(t in str(d.category or "").upper() for t in spec["tokens"])]
+        mine = [d for d in normalized if str(d.debt_type_code or "").upper() in spec["codes"] and d.status not in ("QUITADO", "CANCELADO")]
+        amount = lambda d: d.updated_amount if d.updated_amount is not None else d.original_amount  # noqa: E731
+        real = [d for d in mine if d.status in ("CONFIRMADO", "INFORMADO", "PENDENTE") and d.nature != "ESTIMATIVA_OPERACIONAL" and amount(d) is not None]
+        unavailable = [d for d in mine if d.status in ("INDISPONIVEL", "EM_VALIDACAO")]
+        estimated = [d for d in mine if (d.status == "ESTIMADO" or d.nature == "ESTIMATIVA_OPERACIONAL") and amount(d) is not None]
+        info: dict[str, Any] = {"chave": key, "valor": None, "fonte": FONTE_PENDENTE, "origem": "valor da dívida não informado", "registros": 0,
+                                "estimativa": None, "indisponivel": bool(unavailable), "legado": [d for d in legacy]}
+        if legacy or real:
+            total = sum((_d(d.amount) or ZERO for d in legacy), ZERO) + sum((_d(amount(d)) for d in real), ZERO)
+            confirmed = all(str(d.status or "").upper() == "CONFIRMADO" for d in legacy) and all(d.status == "CONFIRMADO" for d in real)
+            parts = (["dívida cadastrada"] if legacy else []) + (["débito da Central de Débitos"] if real else [])
+            info.update({"valor": _q(total), "fonte": FONTE_CONFIRMADO if confirmed else FONTE_INFORMADO, "origem": " + ".join(parts),
+                         "registros": len(legacy) + len(real)})
+        elif spec["cost_key"] in costs_by_key:
+            info.update({"valor": _q(costs_by_key[spec["cost_key"]]), "fonte": FONTE_INFORMADO, "origem": "custo cadastrado", "registros": 1, "custo": True})
+        elif unavailable:
+            info.update({"fonte": FONTE_INDISPONIVEL, "origem": "consulta indisponível ou em validação (não é zero)", "registros": len(unavailable)})
+        if info["valor"] is None and key == "condominio_atraso":
+            latest = max(estimates, key=lambda e: e.id) if estimates else None
+            if latest is not None and latest.scenario_provavel is not None:
+                info["estimativa"] = {"id": latest.id, "base": _q(_d(latest.scenario_provavel)),
+                                      "conservador": _q(_d(latest.scenario_conservador) or _d(latest.scenario_provavel)),
+                                      "baixo": _q(_d(latest.scenario_otimista)), "confianca": latest.confidence,
+                                      "origem": f"estimativa condominial nº {latest.id} (provável no base, alto no conservador)"}
+            elif estimated:
+                total = _q(sum((_d(amount(d)) for d in estimated), ZERO))
+                info["estimativa"] = {"id": None, "base": total, "conservador": total, "baixo": None, "confianca": "BAIXA",
+                                      "origem": "estimativa cadastrada na Central de Débitos"}
+            if info["estimativa"] is not None:
+                info.update({"fonte": FONTE_ESTIMATIVA, "origem": info["estimativa"]["origem"]
+                             + ("; consulta indisponível ou em validação" if unavailable else "")})
+        out[key] = info
+    return out
+
+
+def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_estimate: dict, db=None) -> dict:
     """Custos de aquisição e posse, por item, com status e origem. ``assumptions`` = ``Auction.financial_assumptions``."""
     acquisition = _d(auction.acquisition_value) if auction and auction.acquisition_value is not None else (_d(auction.bid_value) if auction else None)
     appraisal = _d(auction.appraisal_value) if auction else None
@@ -169,16 +300,8 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     for cost in prop.costs:
         key = canonical_cost_key(cost.category)
         costs_by_key[key] = costs_by_key.get(key, ZERO) + (_d(cost.amount) or ZERO)
-    debts_open = [d for d in prop.debts if str(d.status or "").upper() != "QUITADO"]
-
+    debts_open = [d for d in prop.debts if str(d.status or "").upper() not in ("QUITADO", "CANCELADO", "PAGO")]
     used_debts: set[int] = set()
-
-    def debt_total(*tokens: str) -> Decimal | None:
-        found = [d for d in debts_open if any(t in str(d.category or "").upper() for t in tokens)]
-        used_debts.update(id(d) for d in found)
-        return sum((_d(d.amount) or ZERO for d in found), ZERO) if found else None
-
-    caixa = assumptions.get("condicoes_caixa") or {}
     lines: list[dict] = []
     lines.append(_line("aquisicao", "Preço de aquisição", acquisition, INFORMADO if acquisition is not None else PENDENTE, "cadastro do leilão/venda", critico=acquisition is None))
     consumed: set[str] = set()   # chaves de custo cadastrado já usadas em alguma linha (o resto vira linha própria: nada é omitido)
@@ -221,47 +344,84 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
             rule = (f"reserva de {_pct(reserve)} da aquisição" if key == "registro" else f"reserva de {_brl(reserve)}") + f" ({premises[reserve_key]['origem']})"
             lines.append(_line(key, label, None, PENDENTE, "não informado", conservador=amount, base=amount, tratamento_base=rule, tratamento_conservador=rule,
                                observacao=f"Valor real não informado; todos os cenários usam {rule}.", reserva_pct=reserve if key == "registro" else None))
-    # Condomínio e tributos em atraso: dívida cadastrada > regra Caixa (teto de responsabilidade do comprador) > pendente.
-    for key, label, tokens, limit_key in (("condominio_atraso", "Condomínio em atraso", ("CONDOM",), "condominio_limite_pct_avaliacao"),
-                                          ("tributos_atraso", "IPTU e demais tributos em atraso", ("IPTU", "TRIBUT", "TAXA"), "tributos_limite_pct_avaliacao")):
-        debt = debt_total(*tokens)
-        source = "DIVIDA" if debt is not None else None   # dívida cadastrada x custo cadastrado (detalhamento legado do motor financeiro)
-        if debt is None and key == "condominio_atraso" and "condominio" in costs_by_key:
-            debt = costs_by_key["condominio"]
-        if debt is None and key == "tributos_atraso" and "iptu" in costs_by_key:
-            debt = costs_by_key["iptu"]
-        limit_pct = _d(caixa.get(limit_key))
-        cap = _q(appraisal * limit_pct) if (limit_pct is not None and appraisal is not None) else None
-        if key == "condominio_atraso":
-            rule = (f"Regra Caixa: comprador paga a dívida até {_pct(limit_pct)} da avaliação ({_brl(cap)}); a Caixa paga o excedente."
-                    if cap is not None else None)
+    # Condomínio e tributos em atraso: fonte única (debt_exposure + caixa_rules). Valor: confirmado > informado > estimativa > pendente;
+    # regra: documento das condições da venda > premissa > sem regra. A regra é aplicada DEPOIS do valor (inclusive da estimativa).
+    exposure = debt_exposure(db, prop, assumptions)
+    rules = caixa_rules(db, prop, assumptions)
+    for key, label in (("condominio_atraso", "Condomínio em atraso"), ("tributos_atraso", "IPTU e demais tributos em atraso")):
+        info, rule_info = exposure[key], rules[key]
+        used_debts.update(id(d) for d in info.get("legado") or [])
+        kind, limit_pct = rule_info["tipo"], rule_info["limite_pct"]
+        cap = _q(appraisal * limit_pct) if (limit_pct is not None and appraisal is not None and kind in (REGRA_EXCEDENTE, REGRA_INTEGRAL_ACIMA)) else None
+        who = "a Caixa" if rule_info["fonte"] == "PREMISSA" or "CAIXA" in str(rule_info.get("trecho") or "").upper() else "o vendedor"
+        prefix = "Regra Caixa" if who == "a Caixa" else "Regra da venda"
+        if kind == REGRA_EXCEDENTE and cap is not None:
+            rule = f"{prefix}: comprador paga a dívida até {_pct(limit_pct)} da avaliação ({_brl(cap)}); {who} paga o excedente."
+        elif kind == REGRA_INTEGRAL_ACIMA and cap is not None:
+            rule = (f"{prefix}: se a dívida for menor que {_pct(limit_pct)} da avaliação ({_brl(cap)}), o comprador paga tudo; se for maior, "
+                    f"{who} paga integralmente. {PREMISSA_IGUALDADE_IPTU}")
+        elif kind == REGRA_COMPRADOR:
+            rule = f"{prefix}: dívida integralmente por conta do comprador, sem limite."
+        elif kind == REGRA_VENDEDOR:
+            rule = f"{prefix}: dívida por conta de {who}."
         else:
-            rule = (f"Regra Caixa: se a dívida for menor que {_pct(limit_pct)} da avaliação ({_brl(cap)}), o comprador paga tudo; se for maior, "
-                    f"a Caixa paga integralmente. {PREMISSA_IGUALDADE_IPTU}"
-                    if cap is not None else None)
+            rule = None
+        rule_origin = f" Fonte da regra: {rule_info['origem']}." if rule_info["origem"] else ""
         caixa_fields = {"divida_total": None, "responsabilidade_comprador": None, "assumido_caixa": None, "limite_responsabilidade": cap, "regra": rule,
-                        "premissa_conservadora": PREMISSA_IGUALDADE_IPTU if (key == "tributos_atraso" and cap is not None) else None,
-                        "fonte_valor": source or ("CUSTO" if debt is not None else None)}
+                        "regra_tipo": kind, "regra_fonte": rule_info["fonte"], "regra_origem": rule_info["origem"], "regra_trecho": rule_info["trecho"],
+                        "premissa_conservadora": PREMISSA_IGUALDADE_IPTU if (kind == REGRA_INTEGRAL_ACIMA and cap is not None) else None,
+                        "fonte_valor": ("CUSTO" if info.get("custo") else "DIVIDA") if info["valor"] is not None else None,
+                        "fonte_divida": info["fonte"], "origem_divida": info["origem"]}
+        debt = info["valor"]
         if debt is not None:
-            debt = _q(debt)
-            if cap is None:
-                buyer, note = debt, "Dívida cadastrada, sem regra de limitação informada: integralmente do comprador."
-            elif key == "condominio_atraso":
-                buyer, note = min(debt, cap), rule
+            buyer, seller = _buyer_share(debt, kind, cap)
+            if rule is None:
+                note = "Dívida cadastrada, sem regra de limitação informada: integralmente do comprador."
             else:
-                buyer = debt if debt <= cap else ZERO   # igualdade: integral do comprador (premissa conservadora declarada)
-                note = rule + (" Dívida igual ao limite: aplicada a premissa conservadora." if debt == cap else "")
-            caixa_fields.update({"divida_total": debt, "responsabilidade_comprador": buyer, "assumido_caixa": debt - buyer})
-            lines.append(_line(key, label, buyer, INFORMADO, "dívida cadastrada", observacao=note, **caixa_fields))
+                note = rule + rule_origin + (" Dívida igual ao limite: aplicada a premissa conservadora." if (kind == REGRA_INTEGRAL_ACIMA and debt == cap) else "")
+            caixa_fields.update({"divida_total": debt, "responsabilidade_comprador": buyer, "assumido_caixa": seller,
+                                 "exposicao": {"divida_potencial": {"base": debt, "conservador": debt}, "divida_confirmada": debt if info["fonte"] == FONTE_CONFIRMADO else None,
+                                               "responsabilidade_comprador": {"base": buyer, "conservador": buyer},
+                                               "responsabilidade_caixa": {"base": seller, "conservador": seller}, "limite": cap,
+                                               "valor_considerado": {"base": buyer, "conservador": buyer}}})
+            origin = f"dívida confirmada ({info['origem']})" if info["fonte"] == FONTE_CONFIRMADO else info["origem"]
+            lines.append(_line(key, label, buyer, INFORMADO, origin, observacao=note, **caixa_fields))
+        elif info["fonte"] == FONTE_ESTIMATIVA and kind != REGRA_VENDEDOR:
+            est = info["estimativa"]
+            buyer_base, seller_base = _buyer_share(est["base"], kind, cap)
+            buyer_cons, seller_cons = _buyer_share(est["conservador"], kind, cap)
+            caixa_fields.update({"estimativa": est, "aviso_estimativa": AVISO_ESTIMATIVA_CONDOMINIO,
+                                 "exposicao": {"divida_potencial": {"base": est["base"], "conservador": est["conservador"]}, "divida_confirmada": None,
+                                               "responsabilidade_comprador": {"base": buyer_base, "conservador": buyer_cons},
+                                               "responsabilidade_caixa": {"base": seller_base, "conservador": seller_cons}, "limite": cap,
+                                               "valor_considerado": {"base": buyer_base, "conservador": buyer_cons}}})
+            lines.append(_line(key, label, buyer_base, ESTIMADO, est["origem"], base=buyer_base, conservador=buyer_cons,
+                               tratamento_base=f"estimativa provável ({_brl(est['base'])}) após a regra: {_brl(buyer_base)}",
+                               tratamento_conservador=f"estimativa alta ({_brl(est['conservador'])}) após a regra: {_brl(buyer_cons)}",
+                               observacao=f"{AVISO_ESTIMATIVA_CONDOMINIO} " + (rule + rule_origin if rule else "Sem regra de limitação: estimativa integral do comprador."),
+                               **caixa_fields))
+        elif kind == REGRA_VENDEDOR:
+            caixa_fields["exposicao"] = {"divida_potencial": None, "divida_confirmada": None, "responsabilidade_comprador": {"base": ZERO, "conservador": ZERO},
+                                         "responsabilidade_caixa": None, "limite": None, "valor_considerado": {"base": ZERO, "conservador": ZERO}}
+            lines.append(_line(key, label, ZERO, NAO_APLICAVEL, f"regra da venda ({rule_info['origem']})", observacao=rule, **caixa_fields))
         elif cap is not None:
             # Dívida desconhecida: o máximo que pode recair sobre o comprador é o limite (no IPTU, valor imediatamente abaixo dele).
             # Cenário base/otimista não têm estimativa honesta do valor: o item fica fora da soma e o cenário é marcado incompleto.
-            lines.append(_line(key, label, None, PENDENTE, "valor da dívida não informado", conservador=cap,
+            unavailable = " Consulta indisponível ou em validação: não é zero." if info["fonte"] == FONTE_INDISPONIVEL else ""
+            caixa_fields["exposicao"] = {"divida_potencial": None, "divida_confirmada": None, "responsabilidade_comprador": {"base": None, "conservador": cap},
+                                         "responsabilidade_caixa": None, "limite": cap, "valor_considerado": {"base": None, "conservador": cap}}
+            lines.append(_line(key, label, None, PENDENTE, info["origem"], conservador=cap,
                                tratamento_conservador=f"teto de responsabilidade do comprador ({_brl(cap)})",
                                tratamento_base="sem valor: fora da soma (cenário incompleto; veja o efeito do teto)",
-                               observacao=f"Dívida desconhecida. {rule} O assumido pela Caixa só pode ser calculado com o valor da dívida.", **caixa_fields))
+                               observacao=f"Dívida desconhecida.{unavailable} {rule}{rule_origin} O assumido pelo vendedor só pode ser calculado com o valor da dívida.",
+                               **caixa_fields))
         else:
-            lines.append(_line(key, label, None, PENDENTE, "não informado", observacao="Sem valor da dívida e sem regra de limitação: risco sem teto conhecido.",
+            unavailable = " Consulta indisponível ou em validação: não é zero." if info["fonte"] == FONTE_INDISPONIVEL else ""
+            caixa_fields["exposicao"] = {"divida_potencial": None, "divida_confirmada": None, "responsabilidade_comprador": None, "responsabilidade_caixa": None,
+                                         "limite": None, "valor_considerado": {"base": None, "conservador": None}}
+            lines.append(_line(key, label, None, PENDENTE, info["origem"] if info["fonte"] == FONTE_INDISPONIVEL else "não informado",
+                               observacao=("Sem valor da dívida e sem regra de limitação: risco sem teto conhecido." if rule is None
+                                           else f"Sem valor da dívida. {rule}{rule_origin}") + unavailable,
                                critico=True, **caixa_fields))
     # Reforma, regularização, desocupação.
     reforma = costs_by_key.get("reforma") if "reforma" in costs_by_key else _d(assumptions.get("reforma"))
@@ -730,7 +890,7 @@ def _inputs(db, prop) -> dict:
     rent_est = mk.estimate(subject, comps, "ALUGUEL", negotiation_discount=discount, min_similarity=min_sim)
     used_ids = {r["id"] for r in sale_est["comparaveis"] + rent_est["comparaveis"] if r["usado"]}
     sale_est["_condo_fees"] = [_d(c["condo_fee"]) for c in comps if c["id"] in used_ids and c.get("condo_fee") not in (None, "")]
-    costs = acquisition_costs(prop, auction, premises, assumptions, sale_est)
+    costs = acquisition_costs(prop, auction, premises, assumptions, sale_est, db=db)
     sale_est.pop("_condo_fees", None)
     sale = _sale_assumptions(assumptions, premises)
     area = sale_est["area_referencia"]
@@ -938,6 +1098,11 @@ def verdict_finance(db, prop) -> dict:
         status[item["chave"]] = _STATUS_FINANCEIRO[nature]
         origin[item["chave"]] = item["origem"]
         code = "comissao_arrematacao" if item["chave"] == "comissao" else item["chave"]
+        if line.get("fonte_divida") == FONTE_ESTIMATIVA and item["incluido"]:
+            # Estimativa de dívida não é dívida confirmada: entra na soma, mas o cálculo continua provisório.
+            mark(code, f"{item['descricao']} (estimativa, não é dívida confirmada)")
+            pending.append(f"{item['descricao']}: valor estimado de {_brl(item['valor'])}, não é dívida confirmada; solicitar declaração atualizada "
+                           "(cálculo provisório).")
         if nature == NAT_PENDENTE:
             mark(code, item["descricao"])
             label = item["descricao"] if item["descricao"][:2].isupper() else item["descricao"][0].lower() + item["descricao"][1:]   # sigla (ITBI, IPTU) intacta
