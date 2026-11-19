@@ -1122,6 +1122,16 @@ class CondominiumEstimateRequest(BaseModel):
     persist: bool = True
 
 
+class CondominiumRegistryEstimateRequest(BaseModel):
+    """v1.0.12: estimativa pelo período da matrícula. Datas ausentes vêm da linha do tempo da matrícula; valor mensal ausente vem
+    dos comparáveis ou do padrão do Admin. ``persist=false`` só calcula (pré-visualização)."""
+    monthly_reference: Decimal | None = Field(default=None, gt=0, le=100000)
+    acquisition_date: date | None = None
+    consolidation_date: date | None = None
+    justification: str | None = Field(default=None, max_length=500)
+    persist: bool = False
+
+
 # --- Autenticação / usuários (Onda 11) ---
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3)

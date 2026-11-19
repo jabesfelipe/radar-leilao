@@ -131,6 +131,28 @@ def estimate_condominium(property_id: int, data: schemas.CondominiumEstimateRequ
     return {"property_id": property_id, "estimativa": serialize(computed), "alertas_idade": alerts, "estimativa_id": estimate_id}
 
 
+@router.post("/api/imoveis/{property_id}/debitos/estimar-condominio/matricula", status_code=201)
+def estimate_condominium_from_registry(property_id: int, data: schemas.CondominiumRegistryEstimateRequest, db: Session = Depends(get_db)):
+    """v1.0.12: estimativa condominial pelo período da matrícula (aquisição → consolidação), cenários baixo/provável/alto,
+    multa, juros e correção configuráveis no Admin, e a regra da venda aplicada depois. ``persist=false`` só calcula."""
+    prop = property_or_404(db, property_id)
+    computed = estimates_service.estimate_from_registry(db, prop, monthly_reference=data.monthly_reference,
+                                                        acquisition_date=data.acquisition_date, consolidation_date=data.consolidation_date)
+    estimate_id = None
+    if data.persist and computed.get("possivel"):
+        item = estimates_service.persist_condominium_estimate(
+            db, prop, computed=computed, monthly_reference=computed["memoria_calculo"]["valor_mensal_referencia"],
+            property_age_years=computed.get("property_age_years"), condominium_age_years=None, financing_age_years=None,
+            justification=data.justification or "Estimativa pelo período da matrícula (v1.0.12)")
+        event = record_event(db, prop, "ESTIMATIVA_CONDOMINIAL_REGISTRADA", "CondominiumEstimate", item.id,
+                             {"confianca": computed.get("confianca"), "metodo": computed["metodo"], "cenarios": serialize(computed.get("cenarios"))},
+                             ["financeiro", "checklist"])
+        record_history(db, prop, "CondominiumEstimate", item.id, "CREATE", None, {"confianca": computed.get("confianca")}, event.id)
+        estimate_id = item.id
+    db.commit()
+    return {"property_id": property_id, "estimativa": serialize(computed), "estimativa_id": estimate_id}
+
+
 @router.get("/api/imoveis/{property_id}/debitos/{debt_id}")
 def get_property_debt(property_id: int, debt_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id)

@@ -83,6 +83,30 @@ export function runDebtQuery(propertyId: number, payload: Record<string, unknown
   return request(`${base(propertyId)}/debitos/consultar`, jsonInit('POST', payload))
 }
 
+// v1.0.12: estimativa condominial pelo período da matrícula (cenários baixo/provável/alto; regra da venda aplicada depois).
+export type CondoScenario = {
+  meses_em_atraso: number; fator: string | number; principal: string | number; multa: string | number; juros: string | number
+  correcao: string | number; total: string | number; divida_potencial: string | number; responsabilidade_comprador: string | number
+  responsabilidade_caixa: string | number; valor_no_financeiro: string | number | null
+}
+export type RegistryCondoEstimate = {
+  possivel: boolean; motivo?: string; confianca: string; aviso: string; uso_no_financeiro?: string
+  cenarios_detalhe?: { baixo: CondoScenario; provavel: CondoScenario; alto: CondoScenario }
+  regra_venda?: { tipo: string | null; limite: string | number | null; origem: string | null }
+  memoria_calculo: {
+    valor_mensal_referencia: string | number | null; origem_valor_mensal: string | null; data_aquisicao: string | null; origem_data_aquisicao: string | null
+    data_consolidacao: string | null; origem_data_consolidacao: string | null; periodo_meses?: number; periodo_considerado_meses?: number
+    teto_periodo_meses: number; meses_desde_consolidacao?: number; formula: string; nota: string; idade_imovel?: string | null
+  }
+}
+
+export function estimateCondominiumFromRegistry(
+  propertyId: number,
+  payload: { monthly_reference?: number; acquisition_date?: string; consolidation_date?: string; persist: boolean },
+): Promise<{ property_id: number; estimativa: RegistryCondoEstimate; estimativa_id: number | null }> {
+  return request(`${base(propertyId)}/debitos/estimar-condominio/matricula`, jsonInit('POST', payload))
+}
+
 export function estimateCondominium(
   propertyId: number,
   payload: Record<string, unknown>,
