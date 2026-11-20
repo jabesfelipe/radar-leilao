@@ -16,6 +16,22 @@ deste documento; os testes usam uma matrícula fictícia com o mesmo layout (`te
   depois do Av-4. A cadeia registral ainda identifica a alienação e o credor; a tabela de titularidade avisa quando um
   rótulo aparece num ato que não é contrato.
 
+## Cadeia registral conferida no PDF original (revisão da PR #8)
+
+As páginas 1 a 3 da certidão foram renderizadas e lidas visualmente (cópia temporária apagada após a conferência).
+
+| Ato | Data | Pessoa/empresa | Papel | Evento |
+|---|---|---|---|---|
+| Abertura | — | Construtora (PJ) | Proprietária | Matrícula aberta em nome da construtora |
+| Av-1 | 05/10/2017 | Construtora | Proprietária | Afetação ao regime do empreendimento (o OCR perdeu a data; a data de uma lei citada era usada) |
+| R-2 | 05/10/2017 | Construtora → comprador (pessoa física) | Vendedora → comprador | Compra e venda com mútuo (preço registrado) |
+| R-3 | 05/10/2017 | Comprador; construtora; Caixa | Devedor fiduciante; interveniente incorporadora/construtora, entidade organizadora e fiadora; credora fiduciária | Alienação fiduciária em garantia da dívida, prazo de 360 meses, 1ª prestação em 18/10/2017 |
+| Av-4 | 04/12/2019 | — | — | Conclusão da obra (habite-se) |
+| Av-5 | 15/09/2025 | Caixa | Credora, nova proprietária | Consolidação da propriedade; título: requerimento e certidão de não pagamento pós edital. O ato não repete o devedor |
+
+O OCR leu a página 2 fora de ordem: "INTERVENIENTE ... E FIADORA: [construtora]; ALIENOU FIDUCIARIAMENTE ... em favor da CAIXA"
+pertence ao R-3, mas aparecia depois do Av-4. A linha do tempo passa a associar esse trecho ao R-3 pelo conteúdo e avisa no Av-4.
+
 ## Achados e classificação
 
 | Ponto | Situação na v6 | Classificação | Correção |

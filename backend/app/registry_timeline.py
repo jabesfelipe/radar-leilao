@@ -67,6 +67,9 @@ _BUILDER = re.compile(r"\b(CONSTRUTORA|INCORPORADORA|ENGENHARIA|EMPREENDIMENTOS)
 _QUALIFIED = re.compile(r",?\s*J[AÁ]\s+QUALIFICAD[OA]S?\s*,?\s*$", re.IGNORECASE)
 
 
+_NORM_DATE_CONTEXT = re.compile(r"\b(LEI|DECRETO|PORTARIA|INSTRUCAO|RESOLUCAO|PROVIMENTO|CIRCULAR|MEDIDA\s+PROVISORIA|CODIGO)\b[^;\n]{0,50}?\bDE\s*$")
+
+
 def _role(label: str) -> str:
     folded = fold(label)
     if folded.startswith(("VENDEDOR", "TRANSMITENTE")) or folded.startswith("OUTORGANTE"):
@@ -85,6 +88,10 @@ def _parse_date(folded: str, original: str, start: int, end: int) -> dict[str, A
     found = []
     for pattern, ext in ((_DATE_NUM, False), (_DATE_EXT, True)):
         for match in pattern.finditer(folded, start, end):
+            # Data de lei/portaria citada no ato ("Lei nº 12.604, de 02/07/1999") não é a data do ato (revisão PR #8: com a data
+            # do protocolo ilegível pelo OCR, a da lei era usada).
+            if _NORM_DATE_CONTEXT.search(folded[max(start, match.start() - 70):match.start()]):
+                continue
             day, month, year = int(match.group(1)), (MESES[match.group(2)] if ext else int(match.group(2))), int(match.group(3))
             try:
                 value = date(year, month, day)
@@ -108,6 +115,9 @@ def _person(original: str, start: int, end: int, role: str, how: str) -> dict[st
         return None
     name = redact_pii(raw[:160], force=True)
     pessoa = "FISICA" if canonical_party(name) == PESSOA_FISICA else "JURIDICA"
+    if "CAIXA ECON" in fold(name):
+        # OCR em colunas corta o nome ("CAIXA ECONÔMICA" / "...FEDERAL-CEF"): exibe a forma canônica da cadeia registral.
+        name = canonical_party(name)
     return {"papel": role, "papel_descricao": PAPEIS[role], "nome": name, "tipo_pessoa": pessoa, "como_identificado": how}
 
 
@@ -211,12 +221,123 @@ def _excerpt(original: str, start: int, end: int, size: int = 500) -> str:
     return redact_pii(re.sub(r"\s+", " ", original[start:min(end, start + size)]).strip(), force=True)
 
 
+def _relocate_fiduciary_fragment(events: list[dict[str, Any]], spans: dict[str, tuple[int, int]], folded: str, original: str) -> None:
+    """OCR em colunas (revisão PR #8, conferido no PDF): o trecho "FIADORA: ...; ALIENOU FIDUCIARIAMENTE ... em favor da ..." do
+    registro da alienação apareceu no texto depois de outro ato. "Alienou fiduciariamente" só existe no ato da alienação: as partes
+    desse trecho vão para o ato de alienação, com a origem declarada, e o ato onde o texto foi lido recebe um aviso."""
+    af_event = next((e for e in events if e["tipo"] == "ALIENACAO_FIDUCIARIA"), None)
+    if af_event is None:
+        return
+    for event in events:
+        span = spans.get(event["ato"])
+        if event is af_event or span is None or not _DEBTOR_BEFORE_AF.search(folded, *span):
+            continue
+        note = (f"; lido pelo OCR junto ao {event['ato']}, associado ao {af_event['ato']} pelo conteúdo (\"alienou fiduciariamente\" só aparece "
+                "no registro da alienação)")
+        moved = [p for p in event["partes"] if p["papel"] == "OUTROS"]
+        event["partes"] = [p for p in event["partes"] if p not in moved]
+        for party in moved:
+            if not any(fold(p["nome"]) == fold(party["nome"]) and p["papel"] == party["papel"] for p in af_event["partes"]):
+                af_event["partes"].append({**party, "como_identificado": party["como_identificado"] + note, "realocado_de": event["ato"]})
+        favor = _FAVOR.search(folded, *span)
+        if favor and not any(p["papel"] == "CREDOR" for p in af_event["partes"]):
+            person = _person(original, favor.start(1), favor.end(1), "CREDOR", "texto: \"em favor de ...\"" + note)
+            if person:
+                af_event["partes"].append({**person, "realocado_de": event["ato"]})
+        event["aviso_ocr"] = (f"Parte do texto lido junto a este ato (\"... alienou fiduciariamente ...\") pertence ao {af_event['ato']}: a página foi "
+                              f"lida fora de ordem pelo OCR. As pessoas desse trecho foram associadas ao {af_event['ato']}.")
+
+
+_PAPEL_SIMPLES = {"PROPRIETARIO_ANTERIOR": "Antigo proprietário", "VENDEDOR": "Vendedor", "COMPRADOR": "Comprador",
+                  "DEVEDOR": "Devedor do financiamento", "CREDOR": "Banco credor"}
+
+
+def _names(event: dict[str, Any], role: str) -> list[str]:
+    return [p["nome"] for p in event.get("partes") or [] if p["papel"] == role]
+
+
+def _brl(value: Any) -> str:
+    number = Decimal(str(value))
+    return "R$ " + f"{number:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _plain_language(event: dict[str, Any], events: list[dict[str, Any]], chain: RegistryChain) -> dict[str, Any]:
+    """Título, explicação e envolvidos em linguagem simples (revisão PR #8). Só o que o ato registra: inadimplência, intimação
+    ou notificação aparecem apenas quando o texto do ato as cita; o devedor da consolidação vem do registro da alienação."""
+    from .registry_chain import INTIMACAO
+    kind, ato = event["tipo"], event["ato"]
+    one = lambda names, default: (names[0] if names else default)  # noqa: E731
+    valor = f" pelo preço de {_brl(event['valor']['valor'])}" if event.get("valor") and event["valor"]["rotulo"] == "preço" else ""
+    af = next((e for e in events if e["tipo"] == "ALIENACAO_FIDUCIARIA"), None)
+    sale = next((e for e in events if e["tipo"] == "COMPRA_VENDA"), None)
+    devedor = (_names(af, "DEVEDOR") or (_names(sale, "COMPRADOR") if sale else [])) if af else []
+    envolvidos = []
+    for p in event.get("partes") or []:
+        if kind == "CONSOLIDACAO" and p["papel"] == "CREDOR":
+            papel = "Novo proprietário (banco credor)"
+        elif p["papel"] == "OUTROS":
+            label = re.search(r"r[oó]tulo \"([^\"]+)\"", p.get("como_identificado") or "")
+            papel = (label.group(1).strip(" :").capitalize() if label else "Pessoa citada") + (" (garantia pessoal; não é proprietária)"
+                                                                                                 if label and "FIADOR" in fold(label.group(1)) else "")
+        else:
+            papel = _PAPEL_SIMPLES.get(p["papel"], p.get("papel_descricao") or p["papel"])
+        envolvidos.append({"nome": p["nome"], "papel": papel})
+    if kind == "ALIENACAO_FIDUCIARIA" and devedor and not _names(event, "DEVEDOR"):
+        envolvidos.insert(0, {"nome": devedor[0], "papel": f"Devedor do financiamento (comprador do {sale['ato']}, no mesmo contrato)"})
+    if kind == "ABERTURA":
+        dono = one([p["nome"] for p in event.get("partes") or []], "proprietário não identificado")
+        title, text = f"A matrícula foi aberta em nome de {dono}", f"Primeiro registro do imóvel: {dono} aparece como proprietária."
+    elif kind in ("COMPRA_VENDA", "DOACAO", "ARREMATACAO"):
+        comprador, vendedor = one(_names(event, "COMPRADOR"), "o comprador"), one(_names(event, "VENDEDOR"), "o proprietário anterior")
+        title = f"{comprador} comprou o imóvel"
+        text = f"{vendedor} vendeu o imóvel a {comprador}{valor}. A partir deste ato, {comprador} passou a ser o proprietário."
+    elif kind == "ALIENACAO_FIDUCIARIA":
+        credor = one(_names(event, "CREDOR"), chain.fiduciary.value if chain.fiduciary and chain.fiduciary.value else "o banco credor")
+        quem = one(devedor, "o comprador")
+        divida = f" de {_brl(event['valor']['valor'])}" if event.get("valor") else ""
+        title = f"O imóvel foi dado em garantia de um financiamento com {credor}"
+        text = (f"{quem} financiou a compra com {credor} e deu o imóvel em garantia (alienação fiduciária) da dívida{divida}. Enquanto a dívida "
+                f"não é paga, {credor} tem a propriedade em garantia; se não for paga, pode consolidar o imóvel em seu nome.")
+    elif kind == "CONSOLIDACAO":
+        novo = one(_names(event, "CREDOR") or _names(event, "OUTROS"), chain.consolidation.value if chain.consolidation else "o credor")
+        title = f"{novo} passou a ser proprietária do imóvel"
+        intim = {f.value for f in chain.of(INTIMACAO) if f.act == ato}
+        why = ("O cartório registrou a certidão de não pagamento após a intimação por edital: a dívida não foi paga no prazo e "
+               if "NAO_PURGACAO" in intim and "EDITAL" in intim else
+               ("O cartório registrou a certidão de não pagamento da dívida e " if "NAO_PURGACAO" in intim else "Conforme o registro, "))
+        origem = (f" O ato não repete o nome do devedor: a dívida é a do financiamento registrado no {af['ato']}"
+                  + (f", em nome de {devedor[0]}" if devedor else "") + ".") if af else ""
+        text = f"{why}a propriedade foi consolidada em nome de {novo}.{origem}"
+    elif kind == "CONCLUSAO_OBRA":
+        title, text = "A obra do prédio foi concluída (habite-se)", "Averbação da conclusão da obra do empreendimento. Não muda quem é o proprietário."
+    elif kind == "AFETACAO":
+        title, text = "O imóvel foi vinculado ao regime do empreendimento", "Averbação administrativa da incorporação (afetação). Não muda quem é o proprietário."
+    else:
+        title, text = f"Outro ato registrado: {event['tipo_descricao']}", "Ato sem explicação automática: leia o trecho da matrícula."
+    return {"titulo_simples": title, "ato_descricao": f"{ato} — {event['tipo_descricao']}", "explicacao": text, "envolvidos": envolvidos,
+            "evidencia": {"ato": ato, "trecho": event.get("trecho"), "fonte": "matrícula anexada", "pagina": event.get("pagina"),
+                          "confianca": "MEDIA" if any(p.get("realocado_de") for p in event.get("partes") or []) else "ALTA"}}
+
+
+def most_recent_first(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ordem de exibição: o ato mais recente primeiro. Usa o NÚMERO do ato (a numeração da matrícula é cronológica e não depende
+    da data, que pode faltar ou vir errada do OCR); ato sem número fica logo depois do anterior a ele no texto; a abertura por último."""
+    keyed, last = [], 0.0
+    for index, event in enumerate(events):
+        number = event.get("numero")
+        key = float(number) if isinstance(number, int) else last + 0.5
+        last = key
+        keyed.append((key, index, event))
+    return [e for _, _, e in sorted(keyed, key=lambda item: (item[0], item[1]), reverse=True)]
+
+
 def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None, today: date | None = None) -> dict[str, Any]:
     """Linha do tempo a partir de uma cadeia já lida (função pura)."""
     today = today or date.today()
     original = chain.original or ""
     folded = fold(original)
     events: list[dict[str, Any]] = []
+    spans: dict[str, tuple[int, int]] = {}
     first_act = chain.acts[0].start if chain.acts else len(folded)
     later_transfer = any(_kind(folded, a.start, a.end)[0] in TRANSMISSOES for a in chain.acts)
     owner = _OWNER.search(folded, 0, first_act)
@@ -241,9 +362,12 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
                        "data": when["data"] if when else None, "data_texto": when["data_texto"] if when else None,
                        "partes": parties, "valor": _money(folded, original, act.start, act.end), "construtora": builder,
                        "conclusao_obra": kind == "CONCLUSAO_OBRA", "trecho": _excerpt(original, act.start, act.end), **_source(chain, act.start)})
+        spans[act.label] = (act.start, act.end)
+    _relocate_fiduciary_fragment(events, spans, folded, original)
     for event in events:
         event["documento"] = document
         event["fonte"] = "matrícula anexada (leitura determinística dos trechos armazenados)"
+        event.update(_plain_language(event, events, chain))
     obra = [e for e in events if e["conclusao_obra"] and e["data"]]
     if obra:
         first = obra[0]
@@ -261,7 +385,7 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
     if transfers:
         before = [e for e in transfers if cons is None or e["data"] <= cons["data"]]
         acquisition = (before or transfers)[-1]
-    return {"eventos": events, "idade": idade, "aviso_nomes": AVISO_NOMES,
+    return {"eventos": events, "eventos_recentes_primeiro": most_recent_first(events), "idade": idade, "aviso_nomes": AVISO_NOMES,
             "datas_chave": {"aquisicao": {"data": acquisition["data"], "ato": acquisition["ato"]} if acquisition else None,
                             "consolidacao": {"data": cons["data"], "ato": cons["ato"]} if cons else None},
             "atos_lidos": [a.label for a in chain.acts]}
@@ -313,8 +437,10 @@ def titularity(chain: RegistryChain, timeline: dict[str, Any]) -> dict[str, Any]
                 label = re.search(r"r[oó]tulo \"([^\"]+)\"", how or "")
                 papel = (label.group(1).strip(" :").capitalize() if label else "Pessoa citada") + ": não é titular"
                 odd = event.get("tipo") in _NON_CONTRACT_ACTS
+                moved = party.get("realocado_de")
                 add(name, kind, papel, event, "HISTORICO", "BAIXA" if odd else "MEDIA", how,
-                    "Rótulo lido junto a um ato que não é contrato (texto de OCR pode estar fora de ordem): confirmar o ato no documento." if odd else None)
+                    "Rótulo lido junto a um ato que não é contrato (texto de OCR pode estar fora de ordem): confirmar o ato no documento." if odd else
+                    (f"O OCR leu este trecho junto ao {moved}; pelo conteúdo, pertence a este ato." if moved else None))
             else:
                 add(name, kind, _PAPEL_TITULARIDADE.get(role, party.get("papel_descricao") or role), event,
                     "ATUAL" if is_current(name, event) else "HISTORICO", "ALTA" if role in ("PROPRIETARIO_ANTERIOR", "VENDEDOR", "COMPRADOR") else "MEDIA", how)
@@ -359,8 +485,8 @@ def holder_summary(db, property_id: int, stored_holder: str | None) -> dict[str,
     else:
         text = TITULARIDADE_NAO_CONFIRMADA + "."
     if divergent:
-        text += (f" O titular gravado no cadastro da matrícula ({stored_holder}) não é o titular atual pela sequência de atos: "
-                 "provável proprietário anterior. O cadastro não foi alterado.")
+        text += (f" Existe divergência entre o cadastro e a matrícula: o titular informado no cadastro ({stored_holder}) não é o titular "
+                 "atual pela sequência de atos (provável proprietário anterior). O cadastro não foi alterado.")
     return {"titular_atual": holder, "ato": current.act if current else None, "situacao": "DETERMINADA" if holder else "INCONCLUSIVO",
             "titular_cadastro": stored_holder, "divergencia_cadastro": divergent, "texto": text}
 
@@ -374,10 +500,42 @@ def timeline_for_property(db, property_id: int, today: date | None = None) -> di
         return {"property_id": property_id, "disponivel": False, "motivo": "Sem matrícula com texto anexada ao imóvel.", "eventos": [],
                 "idade": {"anos": None, "estimada": False, "base": None, "texto": IDADE_NAO_DETERMINAVEL}, "datas_chave": {}, "atos_lidos": [],
                 "titularidade": {"situacao": "INCONCLUSIVO", "titular_atual": None, "ato": None, "trecho": None, "confianca": "BAIXA",
-                                 "texto": TITULARIDADE_NAO_CONFIRMADA + ": sem matrícula com texto anexada.", "partes": [], "aviso": None}}
+                                 "texto": TITULARIDADE_NAO_CONFIRMADA + ": sem matrícula com texto anexada.", "partes": [], "aviso": None},
+                "eventos_recentes_primeiro": [],
+                "situacao_atual": {"titular_atual": None, "titulo": TITULARIDADE_NAO_CONFIRMADA, "texto": "Sem matrícula com texto anexada ao imóvel.",
+                                   "ato": None, "data": None, "confianca": "BAIXA", "atencao": []}}
     version = db.get(models.DocumentVersion, chain.document_version_id) if chain.document_version_id else None
     document = {"document_id": version.document_id if version else None, "document_version_id": chain.document_version_id,
                 "nome": version.document.name if version is not None and version.document is not None else "matrícula"}
     out = build_timeline(chain, document, today)
     out["titularidade"] = titularity(chain, out)
+    out["situacao_atual"] = current_situation(chain, out)
     return {"property_id": property_id, "disponivel": True, **out}
+
+
+def _fmt(iso: str | None) -> str | None:
+    return "/".join(reversed(iso.split("-"))) if iso else None
+
+
+def current_situation(chain: RegistryChain, timeline: dict[str, Any]) -> dict[str, Any]:
+    """Situação atual para o topo da tela (revisão PR #8): quem é o titular hoje, por qual ato e o que continua em aberto."""
+    tit = timeline.get("titularidade") or {}
+    holder, ato = tit.get("titular_atual"), tit.get("ato")
+    event = next((e for e in timeline.get("eventos") or [] if e["ato"] == ato), None) if ato else None
+    when = _fmt(event.get("data")) if event else None
+    if holder and event and event["tipo"] == "CONSOLIDACAO":
+        text = f"A propriedade foi consolidada em nome de {holder} no {ato}" + (f", em {when}." if when else " (data não identificada no texto).")
+    elif holder:
+        text = f"{holder} passou a ser proprietário pelo {ato}" + (f", em {when}." if when else " (data não identificada no texto).")
+    else:
+        text = "A sequência de atos lida não permite dizer quem é o proprietário hoje. Confira a matrícula atualizada."
+    attention = []
+    if chain.acts:
+        situacao, justificativa = chain.encumbrance_status()
+        attention.append(justificativa)
+        readable, reason = chain.readable_for_absence()
+        if not readable:
+            attention.append(f"Leitura da matrícula incompleta: {reason}.")
+    attention.append("A matrícula vale até a data da certidão: peça uma certidão atualizada antes de comprar.")
+    return {"titular_atual": holder, "titulo": f"Titular atual: {holder}" if holder else TITULARIDADE_NAO_CONFIRMADA, "texto": text,
+            "ato": ato, "data": event.get("data") if event else None, "confianca": tit.get("confianca") or "BAIXA", "atencao": attention}

@@ -20,6 +20,12 @@ Sem migration e sem tabela nova. Detalhes em `docs/06-quality/auditoria-v6/AUDIT
   mensal é conhecido; sem ele, a linha pendente mostra o período lido e o que falta.
 - **IPTU.** A linha pendente aponta a consulta manual assistida do município; a orientação mostra o titular pela matrícula.
 - **Privacidade.** CPF rotulado com erro de OCR (letra no lugar de dígito) passa a ser mascarado.
+- **Linha do tempo para o investidor.** Situação atual no topo ("Titular atual: ..."), com pontos de atenção; histórico do ato
+  mais recente para o mais antigo (pelo número do ato, não pela data ou pela ordem do OCR); cada ato com título simples,
+  explicação curta baseada no texto, quem está envolvido e o trecho. Trecho de alienação fiduciária lido fora de ordem pelo
+  OCR é associado ao ato correto, com aviso. Data de lei citada no ato não vira mais a data do ato.
+- **Cadastro x matrícula.** O nome gravado aparece como "Titular informado no cadastro"; se divergir, "Existe divergência
+  entre o cadastro e a matrícula".
 
 ## v1.0.12 — 2026-11-19 — inteligência do imóvel
 

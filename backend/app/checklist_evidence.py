@@ -63,10 +63,11 @@ def _quitacao_upper_bound(chain, cons) -> str:
     due = (end.year - first.year) * 12 + (end.month - first.month) + (1 if end.day >= first.day else 0)
     due = max(0, min(due, terms["prazo_meses"]))
     share = Decimal(due) / Decimal(terms["prazo_meses"])
-    return (f"Limite pela própria matrícula ({terms['ato']}: prazo de {terms['prazo_meses']} meses, 1ª prestação em {terms['primeira_prestacao_texto']}; "
-            f"consolidação em {when['data_texto']}): venceram no máximo {due} de {terms['prazo_meses']} parcelas, então, mesmo com todas pagas, "
-            f"o principal amortizado não passaria de cerca de {_pct(share.quantize(Decimal('0.001')))} (amortização linear; na Tabela Price, menos). "
-            "É um teto calculado, não o valor pago; amortizações extraordinárias (ex.: FGTS) não aparecem na matrícula. ")
+    return (f"Limite teórico pela própria matrícula: o contrato tinha prazo de {terms['prazo_meses']} meses ({terms['ato']}; 1ª prestação em "
+            f"{terms['primeira_prestacao_texto']}). Até a consolidação ({when['data_texto']}), venceram no máximo {due} de {terms['prazo_meses']} "
+            f"parcelas, cerca de {_pct(share.quantize(Decimal('0.001')))} do prazo. Supondo todas as parcelas vencidas pagas, a quitação não passaria "
+            "disso (na Tabela Price, seria menos). Isso não significa que esse percentual foi pago: é um teto calculado, não o valor pago; "
+            "amortizações extras (ex.: FGTS) não aparecem na matrícula. ")
 _BLOCKING_ONUS = ("penhora", "indisponibilidade", "arresto", "sequestro")
 REGISTRY_KEYS = ("INTIMACAO_PESSOAL", "INTIMACAO_EDITAL", "NOTIFICACAO_DOIS_LEILOES", "QUITACAO_80", "GARANTIA_DIVIDA_TERCEIRO",
                  "ACAO_QUESTIONAMENTO", "LEILOES_NEGATIVOS_AVERBADOS", "CONSOLIDACAO_REGISTRADA", "PENHORA_INDISPONIBILIDADE",

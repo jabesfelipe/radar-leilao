@@ -120,6 +120,12 @@ export type TimelineEvent = {
   partes: TimelineParty[]; valor: { valor: number | string; texto: string; rotulo: string } | null; construtora: string | null
   conclusao_obra: boolean; trecho: string; chunk_id: number | null; pagina: number | null; secao: string | null
   documento: { document_id: number | null; document_version_id: number | null; nome: string } | null; fonte: string
+  // Revisão PR #8: linguagem simples para o investidor.
+  titulo_simples?: string; ato_descricao?: string; explicacao?: string; envolvidos?: { nome: string; papel: string }[]
+  evidencia?: { ato: string; trecho: string | null; fonte: string; pagina: number | null; confianca: string }; aviso_ocr?: string
+}
+export type CurrentSituation = {
+  titular_atual: string | null; titulo: string; texto: string; ato: string | null; data: string | null; confianca: string; atencao: string[]
 }
 export type RegistryTimeline = {
   property_id: number; disponivel: boolean; motivo?: string; eventos: TimelineEvent[]
@@ -127,6 +133,8 @@ export type RegistryTimeline = {
   datas_chave: { aquisicao?: { data: string; ato: string } | null; consolidacao?: { data: string; ato: string } | null }
   aviso_nomes?: string; atos_lidos: string[]
   titularidade?: Titularity
+  eventos_recentes_primeiro?: TimelineEvent[]
+  situacao_atual?: CurrentSituation
 }
 
 export type TitularityRow = {

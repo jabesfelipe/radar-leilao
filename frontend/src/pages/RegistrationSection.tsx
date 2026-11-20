@@ -204,7 +204,7 @@ export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
                 <Fact label="Comarca" value={current.comarca} />
                 <Fact label="Consulta" value={formatDate(current.consultation_date)} />
                 <Fact label="Titular atual (pela matrícula)" value={holder ? (holder.titular_atual ? `${holder.titular_atual} (${holder.ato})` : 'Titularidade atual não confirmada') : current.holder} />
-                {holder ? <Fact label="Titular (cadastro)" value={current.holder} /> : null}
+                {holder ? <Fact label="Titular informado no cadastro" value={current.holder} /> : null}
                 <Fact label="Observações" value={current.observations} />
               </dl>
             )}

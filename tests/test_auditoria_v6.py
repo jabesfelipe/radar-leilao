@@ -28,7 +28,8 @@ MATRICULA_V6 = [
         "fração ideal do solo.\n",
         "fração ideal do solo, direito de uso exclusivo de uma área descoberta de 12,0000m:?, referente a VAGA 01 de estacionamento, "
         "localizada no Térreo (Geral).\n"),
-    MATRICULA_FICTICIA[1].replace("brasileiro, solteiro,", f"brasileiro, solteiro, portador do CPF/MF nº {CPF_OCR},"),
+    MATRICULA_FICTICIA[1].replace("brasileiro, solteiro,", f"brasileiro, solteiro, portador do CPF/MF nº {CPF_OCR},")
+                         .replace("constituiu RET.", "constituiu RET. FUNREJUS não incidente, conforme Lei nº 12.604, de 02/07/1999."),
     MATRICULA_FICTICIA[2].replace(
         "para garantia da dívida no valor de R$ 99.999,99.\n",
         "para garantia da dívida no valor de R$ 99.999,99, a ser reembolsada no PRAZO de 360 (trezentos e sessenta meses), com vencimento "
@@ -70,7 +71,8 @@ def test_titular_atual_e_o_da_consolidacao_e_a_construtora_fica_historica():
     papeis = {p["papel"] for p in construtora}
     assert any(p.startswith("Proprietária(o) original") for p in papeis) and any(p.startswith("Vendedor") for p in papeis)
     fianca = next(p for p in construtora if p["papel"].startswith("Fiadora"))
-    assert "não é titular" in fianca["papel"] and fianca["confianca"] == "BAIXA" and fianca["ato"] == "Av-4"   # OCR fora de ordem: avisado
+    # OCR em colunas: a fiança foi lida junto ao Av-4, mas o trecho ("alienou fiduciariamente") é do R-3 (conferido no PDF real)
+    assert "não é titular" in fianca["papel"] and fianca["ato"] == "R-3" and fianca["confianca"] == "MEDIA" and "Av-4" in fianca["observacao"]
     credor_r3 = next(p for p in tit["partes"] if p["papel"].startswith("Credor") and p["ato"] == "R-3")
     assert credor_r3["status"] == "HISTORICO" and credor_r3["trecho"]
     devedor = next(p for p in tit["partes"] if p["papel"].startswith("Devedor"))
@@ -112,6 +114,73 @@ def test_api_matricula_traz_titularidade(api):
     assert linha["titularidade"]["titular_atual"] == CREDOR
 
 
+# =============================================================== linha do tempo para o investidor (revisão PR #8)
+
+def _ev(tl, ato):
+    return next(e for e in tl["eventos"] if e["ato"] == ato)
+
+
+def test_historico_do_mais_recente_para_o_mais_antigo_pelo_numero_do_ato():
+    tl = _timeline(_chain())
+    assert [e["ato"] for e in tl["eventos"]] == ["Abertura", "Av-1", "R-2", "R-3", "Av-4", "Av-5"]        # contrato antigo preservado
+    # R-2 e R-3 têm a mesma data: a ordem vem do número do ato, não da data nem da ordem do OCR
+    assert [e["ato"] for e in tl["eventos_recentes_primeiro"]] == ["Av-5", "Av-4", "R-3", "R-2", "Av-1", "Abertura"]
+
+
+def test_ordem_com_ato_sem_numero_e_datas_ausentes():
+    from backend.app.registry_timeline import most_recent_first
+    eventos = [{"ato": "Abertura", "numero": 0, "data": None}, {"ato": "R-2", "numero": 2, "data": "2001-01-01"},
+               {"ato": "?", "numero": None, "data": None}, {"ato": "Av-3", "numero": 3, "data": None}]
+    assert [e["ato"] for e in most_recent_first(eventos)] == ["Av-3", "?", "R-2", "Abertura"]
+
+
+def test_data_de_lei_citada_no_ato_nao_vira_data_do_ato():
+    av1 = _ev(_timeline(_chain()), "Av-1")
+    assert av1["data"] is None and av1["data_texto"] is None and av1["titulo_simples"]   # protocolo ilegível: sem data, nunca a da lei
+
+
+def test_titulo_explicacao_e_envolvidos_em_linguagem_simples():
+    tl = _timeline(_chain())
+    cons, af, venda, obra = _ev(tl, "Av-5"), _ev(tl, "R-3"), _ev(tl, "R-2"), _ev(tl, "Av-4")
+    assert cons["titulo_simples"] == "BANCO FICTÍCIO S.A. passou a ser proprietária do imóvel" and cons["ato_descricao"].startswith("Av-5 — ")
+    assert "certidão de não pagamento após a intimação por edital" in cons["explicacao"]           # o ato cita a certidão pós edital
+    assert f"registrado no R-3, em nome de {COMPRADOR}" in cons["explicacao"]                       # Av-5 não repete o devedor
+    assert ("Novo proprietário (banco credor)") in [p["papel"] for p in cons["envolvidos"]]
+    assert af["titulo_simples"] == "O imóvel foi dado em garantia de um financiamento com BANCO FICTÍCIO S.A."
+    assert af["envolvidos"][0]["nome"] == COMPRADOR and af["envolvidos"][0]["papel"].startswith("Devedor do financiamento")
+    assert any(p["nome"] == CONSTRUTORA and "garantia pessoal" in p["papel"] for p in af["envolvidos"])
+    assert venda["titulo_simples"] == f"{COMPRADOR} comprou o imóvel" and "pelo preço de R$ 111.111,11" in venda["explicacao"]
+    assert {p["papel"] for p in venda["envolvidos"]} == {"Vendedor", "Comprador"}
+    # trecho do R-3 lido junto ao Av-4: pessoas vão para o R-3 e o Av-4 avisa; não muda o proprietário
+    assert obra["aviso_ocr"] and "R-3" in obra["aviso_ocr"] and obra["partes"] == [] and "Não muda" in obra["explicacao"]
+    assert any(p.get("realocado_de") == "Av-4" for p in af["partes"])
+    for e in tl["eventos"]:
+        assert e["evidencia"]["ato"] == e["ato"] and e["evidencia"]["trecho"] == e["trecho"] and e["explicacao"]
+    assert not any("inadimpl" in e["explicacao"].lower() for e in tl["eventos"])                 # nada além do que o texto registra
+
+
+def test_nome_da_caixa_cortado_pelo_ocr_vira_a_forma_canonica():
+    from backend.app.registry_timeline import _person
+    for texto in ("CAIXA ECONÔMICA", "CAIXA ECONOMICA FEDERAL-CEF"):
+        assert _person(texto, 0, len(texto), "CREDOR", "teste")["nome"] == "CAIXA ECONÔMICA FEDERAL"
+
+
+def test_ato_desconhecido_sem_partes_nao_inventa():
+    from backend.app.registry_timeline import _plain_language
+    out = _plain_language({"ato": "Av-9", "tipo": "OUTRO", "tipo_descricao": "Outro ato", "partes": [], "valor": None, "trecho": "Av-9 - ..."},
+                          [], _chain(MATRICULA_FICTICIA[:1]))
+    assert out["titulo_simples"].startswith("Outro ato registrado") and out["envolvidos"] == [] and "leia o trecho" in out["explicacao"]
+
+
+def test_situacao_atual_em_destaque(db):
+    prop = _imovel(db)
+    sit = timeline_for_property(db, prop.id)["situacao_atual"]
+    assert sit["titulo"] == f"Titular atual: {CREDOR}" and sit["ato"] == "Av-5" and "no Av-5, em 03/04/2003" in sit["texto"]
+    assert sit["atencao"] and any("certidão atualizada" in a for a in sit["atencao"])
+    vazio = timeline_for_property(db, _prop(db).id)["situacao_atual"]
+    assert vazio["titulo"] == TITULARIDADE_NAO_CONFIRMADA and vazio["titular_atual"] is None
+
+
 # =============================================================== extração da matrícula
 
 def test_vaga_descrita_como_direito_de_uso_antes_da_palavra_vaga_e_vinculada():
@@ -134,7 +203,9 @@ def test_prazo_e_primeira_prestacao_lidos_no_registro_da_alienacao():
     chain = _chain()
     terms = contract_terms(chain)
     assert terms["ato"] == "R-3" and terms["prazo_meses"] == 360 and terms["primeira_prestacao"] == "2001-03-01"
-    assert _quitacao_upper_bound(chain, chain.consolidation).startswith("Limite pela própria matrícula (R-3")
+    texto = _quitacao_upper_bound(chain, chain.consolidation)
+    assert texto.startswith("Limite teórico pela própria matrícula: o contrato tinha prazo de 360 meses (R-3")
+    assert "Isso não significa que esse percentual foi pago" in texto
     assert contract_terms(_chain(MATRICULA_FICTICIA)) is None and _quitacao_upper_bound(_chain(MATRICULA_FICTICIA), None) == ""
 
 

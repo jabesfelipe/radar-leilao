@@ -309,13 +309,20 @@ def _pending_hint(key: str, info: dict, db, municipality_id) -> tuple[str, dict]
         if not unavailable:
             return "", {}
         memo = unavailable.get("memoria") or {}
-        period = ""
+        period, months = "", None
         if memo.get("data_aquisicao") and memo.get("data_consolidacao"):
-            period = (f"período lido na matrícula: {_fmt_date(memo['data_aquisicao'])} ({memo.get('origem_data_aquisicao')}) a "
-                      f"{_fmt_date(memo['data_consolidacao'])} ({memo.get('origem_data_consolidacao')}); ")
-        text = (f" Estimativa condominial pela matrícula: {period}{unavailable.get('motivo') or 'não calculável.'} Informe o valor mensal em "
-                "Débitos > Estimativa condominial, cadastre comparáveis com condomínio ou preencha o padrão no Admin.")
-        return text, {"estimativa_condominial": {"possivel": False, "motivo": unavailable.get("motivo"),
+            from datetime import date as _date
+            a, c = _date.fromisoformat(memo["data_aquisicao"]), _date.fromisoformat(memo["data_consolidacao"])
+            months = max(0, (c.year - a.year) * 12 + (c.month - a.month) - (1 if c.day < a.day else 0))
+            cap = memo.get("teto_periodo_meses")
+            period = (f"período estimado de {_fmt_date(memo['data_aquisicao'])} ({memo.get('origem_data_aquisicao')}) a "
+                      f"{_fmt_date(memo['data_consolidacao'])} ({memo.get('origem_data_consolidacao')}), {months} meses"
+                      + (f" (o cálculo usa no máximo {cap})" if cap and months > int(cap) else "") + "; ")
+        text = (f" Estimativa condominial pela matrícula NÃO calculada: {period}{unavailable.get('motivo') or 'não calculável.'} Informe o valor "
+                "mensal em Débitos > Estimativa condominial, cadastre comparáveis com condomínio ou preencha o padrão no Admin: o Radar calcula os "
+                "cenários baixo, provável e alto (com multa, juros e correção) e aplica a regra da venda depois.")
+        return text, {"estimativa_condominial": {"possivel": False, "motivo": unavailable.get("motivo"), "meses_periodo": months,
+                                                 "teto_meses": memo.get("teto_periodo_meses"),
                                                  "data_aquisicao": memo.get("data_aquisicao"), "data_consolidacao": memo.get("data_consolidacao"),
                                                  "origem_datas": [memo.get("origem_data_aquisicao"), memo.get("origem_data_consolidacao")]}}
     if key == "tributos_atraso" and db is not None and municipality_id is not None:
