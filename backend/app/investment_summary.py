@@ -16,6 +16,7 @@ recomendação (FAVORÁVEL, ATENÇÃO — INVESTIGAR, DESFAVORÁVEL, NÃO ARREMA
 """
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -145,6 +146,9 @@ def iptu_status(db, prop, assumptions: dict, cost_lines: list[dict]) -> dict[str
         "debito_em_aberto": valor(0 if no_debt else total, FATO if no_debt else debt_type,
                                   "consulta registrada sem ocorrência" if no_debt else ("débitos registrados na Central de Débitos" if real else None)),
         "sem_debito": no_debt,
+        "lancamentos": [{"exercicio": d.fiscal_year or d.competence, "valor_original": d.original_amount, "valor_atualizado": d.updated_amount,
+                         "vencimento": d.due_date, "status": d.status, "parcelado": "parcel" in str(d.observations or "").lower(),
+                         "origem": d.origin, "consultado_em": d.queried_at} for d in real],
         "valor_anual": valor(annual, DADO_MANUAL, assumptions.get("iptu_anual_origem") or "premissa do imóvel (IPTU anual)"),
         "ultima_consulta": {"status": last.status, "em": last.completed_at, "mensagem": last.message} if last is not None else None,
         "integracao": {"debitos": {"status": (tributos or {}).get("status"), "valor": (tributos or {}).get("valor"), "origem": (tributos or {}).get("origem")},
@@ -191,6 +195,14 @@ def condo_analysis(prop, intel: dict, assumptions: dict) -> dict[str, Any]:
         status = CONDO_ESTIMADO
     same_ref = {"quantidade": len(same), "mediana": _q(mk.median([_d(c.condo_fee) for c in same])), "status": CONDO_ANUNCIO,
                 "status_label": CONDO_LABELS[CONDO_ANUNCIO]} if same else None
+    if stats is not None:
+        today = date.today()
+        stats["pesquisa_automatica"] = sum(1 for c in comps if str(getattr(c, "source", "") or "").startswith("Pesquisa automática"))
+        stats["antigas"] = sum(1 for c in comps if getattr(c, "collected_at", None) and (today - c.collected_at).days > 180)
+        stats["fontes"] = [{"url": getattr(c, "url", None) or None, "fonte": getattr(c, "source", None), "valor": _d(c.condo_fee),
+                            "coletado_em": getattr(c, "collected_at", None)} for c in comps][:10]
+    extras = [{"url": getattr(c, "url", None), "fonte": getattr(c, "source", None)} for c in prop.comparables
+              if not getattr(c, "excluded", False) and "taxa extra" in str(getattr(c, "notes", "") or "").lower()]
     debt = _line(intel.get("custos") or [], "condominio_atraso") or {}
     debt_value = debt.get("valor")
     debt_type = (FATO if str(debt.get("fonte_valor") or "") == "DIVIDA" and str(debt.get("status")) == "INFORMADO" else
@@ -208,7 +220,10 @@ def condo_analysis(prop, intel: dict, assumptions: dict) -> dict[str, Any]:
         "mesmo_predio": same_ref,
         "divida_acumulada": {"valor": debt_value, "valor_base": debt.get("valor_base"), "valor_conservador": debt.get("valor_conservador"),
                              "status": debt.get("status"), "origem": debt.get("origem"), "tipo": debt_type, "tipo_label": TIPO_LABELS[debt_type]},
-        "taxa_extra": {"status": DESCONHECIDO, "texto": "Taxa extra ou chamada de capital: sem fonte automática. Confirme com a administradora."},
+        "taxa_extra": ({"status": "MENCIONADA", "texto": f"{len(extras)} anúncio(s) mencionam taxa extra ou chamada de capital: valor não informado. "
+                                                         "Confirme com a administradora.", "fontes": extras[:5]} if extras else
+                       {"status": DESCONHECIDO, "texto": "Taxa extra ou chamada de capital: nenhuma menção encontrada. Confirme com a administradora.",
+                        "fontes": []}),
         "busca_automatica": BUSCA_NAO_CONFIGURADA,
         "aviso": "A taxa mensal (custo enquanto o imóvel é seu) e a dívida acumulada (atrasos do dono anterior) são valores diferentes e nunca "
                  "são somados um no outro.",
@@ -223,6 +238,15 @@ def _comps(estimate: dict) -> list[dict]:
              "motivo_exclusao": r.get("motivo"), "bairro": r.get("bairro"), "tipo_preco": r.get("tipo_preco")} for r in estimate.get("comparaveis") or []]
 
 
+def _as_date(value: Any) -> date:
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return date.today()
+
+
 def market_summary(intel: dict) -> dict[str, Any]:
     sale, rent, vals = intel.get("venda") or {}, intel.get("aluguel") or {}, intel.get("valores") or {}
     base = next((s for s in intel.get("cenarios") or [] if s.get("cenario") == "BASE"), {})
@@ -233,7 +257,18 @@ def market_summary(intel: dict) -> dict[str, Any]:
         stats = est.get("estatisticas_m2") or {}
         area = _d(est.get("area_referencia"))
         q = est.get("qualidade_amostra") or mk.sample_quality(est.get("quantidade_usada") or 0)
-        return {"qualidade": q, "quantidade_usada": est.get("quantidade_usada"), "quantidade_total": est.get("quantidade_total"),
+        used = [r for r in est.get("comparaveis") or [] if r.get("usado")]
+        auto = sum(1 for r in used if str(r.get("fonte") or "").startswith("Pesquisa automática"))
+        today = date.today()
+        old = sum(1 for r in used if r.get("consultado_em") and (today - _as_date(r["consultado_em"])).days > 180) if used else 0
+        q = dict(q)
+        if q.get("nivel") == mk.AMOSTRA_ALTA and used and auto == len(used):
+            q.update(nivel=mk.AMOSTRA_MEDIA, label=mk.AMOSTRA_LABELS[mk.AMOSTRA_MEDIA],
+                     texto=q["texto"] + " Todos vieram da pesquisa automática (preço anunciado lido do trecho): limitada a MÉDIA até conferir os anúncios.")
+        if old and old * 2 >= len(used):
+            q["texto"] = q["texto"] + f" {old} referência(s) coletada(s) há mais de 6 meses."
+        return {"qualidade": q, "origens": {"pesquisa_automatica": auto, "manual": len(used) - auto}, "antigos": old,
+                "quantidade_usada": est.get("quantidade_usada"), "quantidade_total": est.get("quantidade_total"),
                 "valor_estimado": est.get("valor_estimado"), "faixa": est.get("faixa"), "faixa_criterio": est.get("faixa_criterio"),
                 "m2_media": _q(_d(stats.get("m2_ajustado_media"))), "m2_mediana": _q(_d(stats.get("m2_ajustado_mediana"))),
                 "media_total": _q(_d(stats.get("m2_ajustado_media")) * area) if (stats.get("m2_ajustado_media") is not None and area) else None,
@@ -282,7 +317,7 @@ def finance_by_nature(intel: dict) -> dict[str, Any]:
 # ------------------------------------------------------------------ recomendação
 
 def recommend(*, verdict_overall: str | None, verdict_code: str | None, risks: dict, missing: list[str], acquisition: Decimal | None,
-              max_price: Decimal | None, max_price_provisional: bool, result: Decimal | None) -> dict[str, Any]:
+              max_price: Decimal | None, max_price_provisional: bool, result: Decimal | None, alerts: list[str] | tuple = ()) -> dict[str, Any]:
     """Recomendação ao investidor. Precedência: risco crítico confirmado > inviável > risco ativo ou dado essencial faltando > favorável.
     Margem positiva nunca esconde risco nem dado faltando."""
     items = risks.get("itens") or []
@@ -299,10 +334,11 @@ def recommend(*, verdict_overall: str | None, verdict_code: str | None, risks: d
             reasons.append(f"O lance ({_brl(acquisition)}) está acima do preço máximo estimado ({_brl(max_price)}).")
         if verdict_overall == "DESFAVORAVEL":
             reasons.append("O cálculo financeiro do veredito indica operação inviável neste preço.")
-    elif active or missing or verdict_overall in (None, "ATENCAO", "INCONCLUSIVO"):
+    elif active or missing or alerts or verdict_overall in (None, "ATENCAO", "INCONCLUSIVO"):
         code = REC_ATENCAO
         reasons += [f"{i['situacao_label']}: {i['titulo']}." for i in active[:4]]
         reasons += [f"Falta: {m}." for m in missing[:6]]
+        reasons += [f"Atenção: {a}" for a in alerts]
         if above:
             reasons.append(f"O lance ({_brl(acquisition)}) está acima do preço máximo provisório ({_brl(max_price)}).")
         if verdict_overall is None:
@@ -314,7 +350,8 @@ def recommend(*, verdict_overall: str | None, verdict_code: str | None, risks: d
     if result is not None and result > 0 and code != REC_FAVORAVEL:
         margin_note = ("A margem estimada é positiva, mas não basta: " +
                        ("há riscos ativos" if active else "") + (" e " if active and missing else "") + ("faltam dados essenciais" if missing else "") +
-                       (" e o lance passa do teto" if above and not (active or missing) else "") + ".")
+                       (" e o lance passa do teto" if above and not (active or missing) else "") +
+                       ("a confiança dos dados de mercado ou a liquidez são baixas" if alerts and not (active or missing or above) else "") + ".")
     answer = {REC_FAVORAVEL: "Sim, até o preço máximo.", REC_ATENCAO: "Ainda não: investigue os pontos abaixo antes de dar lance.",
               REC_DESFAVORAVEL: "Não neste preço.", REC_NAO_ARREMATAR: "Não."}[code]
     return {"codigo": code, "label": REC_LABELS[code], "arrematar": answer, "motivos": reasons, "aviso_margem": margin_note,
@@ -332,7 +369,8 @@ def _missing(market: dict, iptu: dict, condo: dict, intel: dict, risks: dict) ->
     if condo["divida_acumulada"]["tipo"] == DESCONHECIDO:
         out.append("dívida de condomínio")
     for desc in ((intel.get("dimensoes") or {}).get("custos") or {}).get("criticos_pendentes") or []:
-        label = str(desc).lower()
+        text = str(desc)
+        label = text if text[:2].isupper() else text[:1].lower() + text[1:]      # sigla (ITBI, IPTU) intacta
         if not any(label[:12] in m for m in out):
             out.append(label)
     out += [i["titulo"].lower() for i in risks.get("itens") or [] if i["situacao"] == "PENDENTE_CONFIRMACAO"]
@@ -355,14 +393,41 @@ def summary(db, prop) -> dict[str, Any]:
     base = next((s for s in intel.get("cenarios") or [] if s.get("cenario") == "BASE"), {})
     verdict = max(prop.verdicts, key=lambda v: (v.analysis_version, v.id)) if getattr(prop, "verdicts", None) else None
     decision = ((verdict.financial or {}).get("decisao") or {}).get("recomendacao") if verdict is not None else None
+    from . import checklist_priority, document_status, market_research
+    research = market_research.history(db, prop.id, limit=20)
+    checklist = checklist_priority.for_property(prop)
+    documents = document_status.for_property(db, prop)
+    market["pesquisa"] = _research_view(research)
+    condo["busca_automatica"] = market["pesquisa"]["status_texto"]
+    market["busca_automatica"] = market["pesquisa"]["status_texto"]
+    if iptu.get("portal") is None and research["portais_iptu"]:
+        iptu["portal_pesquisado"] = research["portais_iptu"]
     missing = _missing(market, iptu, condo, intel, risks)
+    missing += [f"documento obrigatório: {d.lower()}" for d in documents["obrigatorios_faltando"]]
+    missing += [f"bloqueador do checklist: {b.lower()}" for b in checklist["bloqueadores_abertos"] if b.lower() not in missing]
+    missing = list(dict.fromkeys(missing))
+    alerts = []
+    liq = (intel.get("liquidez") or {}).get("classificacao")
+    if liq == "BAIXA":
+        alerts.append("liquidez estimada BAIXA: revenda pode demorar ou exigir desconto.")
+    quality = ((market.get("venda") or {}).get("qualidade") or {}).get("nivel")
+    if quality == "BAIXA" and market["valor_venda_usado"]["valor"] is not None:
+        alerts.append("amostra de comparáveis BAIXA: valor de venda com precisão baixa.")
     acquisition = _d(ret.get("aquisicao"))
     max_price = _d((intel.get("preco_maximo") or {}).get("recomendado"))
     provisional = bool((intel.get("preco_maximo") or {}).get("provisorio") or ret.get("preco_maximo_provisorio"))
     result = _d(base.get("resultado_liquido"))
     rec = recommend(verdict_overall=verdict.overall if verdict is not None else None, verdict_code=(decision or {}).get("codigo"), risks=risks,
-                    missing=missing, acquisition=acquisition, max_price=max_price, max_price_provisional=provisional, result=result)
+                    missing=missing, acquisition=acquisition, max_price=max_price, max_price_provisional=provisional, result=result, alerts=alerts)
     actions: list[dict[str, Any]] = []
+    if not market["pesquisa"]["ativo"]:
+        actions.append({"prioridade": 2, "tema": "Pesquisa automática", "acao": market["pesquisa"]["status_texto"]["texto"]})
+    for item in checklist["itens"]:
+        if item["aberto"] and item["prioridade"] == "P0" and item["proxima_acao"]:
+            actions.append({"prioridade": 0, "tema": item["nome"], "acao": item["proxima_acao"]})
+    for d in documents["esperados"]:
+        if d["obrigatorio"] and d["proxima_acao"]:
+            actions.append({"prioridade": 0, "tema": d["nome"], "acao": d["proxima_acao"]})
     for item in risks.get("itens") or []:
         if item["situacao"] in ("CONFIRMADO", "POSSIVEL", "PENDENTE_CONFIRMACAO") and item["o_que_fazer"]:
             actions.append({"prioridade": {"CONFIRMADO": 1, "POSSIVEL": 2, "PENDENTE_CONFIRMACAO": 3}[item["situacao"]], "tema": item["titulo"],
@@ -374,6 +439,8 @@ def summary(db, prop) -> dict[str, Any]:
     if market["valor_venda_usado"]["valor"] is None:
         actions.append({"prioridade": 2, "tema": "Valor de venda", "acao": "Cadastrar pelo menos 3 (ideal 7 a 10) imóveis parecidos à venda em Mercado."})
     actions.sort(key=lambda a: a["prioridade"])
+    seen_actions: set[str] = set()
+    actions = [a for a in actions if not (a["acao"] in seen_actions or seen_actions.add(a["acao"]))]
     margin = _d(ret.get("margem_base"))
     return {
         "property_id": prop.id,
@@ -389,7 +456,41 @@ def summary(db, prop) -> dict[str, Any]:
         },
         "principal_risco": risks.get("principal"),
         "pendencias": missing,
-        "proximas_acoes": actions[:8],
+        "proximas_acoes": actions[:10],
         "iptu": iptu, "condominio": condo, "mercado": market, "financeiro": finance_by_nature(intel), "riscos": risks,
+        "cenarios": scenarios_view(intel),
+        "margem_seguranca": valor(_d(base.get("margem_seguranca")), ESTIMATIVA, "distância entre o valor de venda e o ponto de equilíbrio (cenário BASE)"),
+        "checklist": {"abertos_por_prioridade": checklist["abertos_por_prioridade"], "bloqueadores_abertos": checklist["bloqueadores_abertos"],
+                      "itens_prioritarios": [i for i in checklist["itens"] if i["aberto"] and i["prioridade"] in ("P0", "P1")][:8]},
+        "documentos": {"texto": documents["texto"], "contagem": documents["contagem"], "obrigatorios_faltando": documents["obrigatorios_faltando"],
+                       "esperados": documents["esperados"]},
+        "alertas": alerts,
         "tipos_dado": TIPO_LABELS,
     }
+
+
+def _research_view(research: dict) -> dict[str, Any]:
+    prov = research["provedores"]
+    last = research["consultas"][0] if research["consultas"] else None
+    status_texto = BUSCA_NAO_CONFIGURADA if not prov["ativo"] else {
+        "status": "CONFIGURADO", "texto": (f"Pesquisa automática ativa. Última consulta: {last['tipo']} via {last['provedor']} ({last['status']})."
+                                           if last else "Pesquisa automática ativa; ainda não executada para este imóvel.")}
+    return {"ativo": prov["ativo"], "provedores": prov["provedores"], "status_texto": status_texto,
+            "consultas": research["consultas"][:12], "portais_iptu": research["portais_iptu"]}
+
+
+_SCEN_LABEL = {"CONSERVADOR": "Conservador", "BASE": "Provável", "OTIMISTA": "Otimista"}
+
+
+def scenarios_view(intel: dict) -> list[dict[str, Any]]:
+    """Os três cenários com premissas explícitas (valor de venda e origem, prazo, reservas) e indicadores. Sem valor = desconhecido."""
+    out = []
+    for s in intel.get("cenarios") or []:
+        out.append({"cenario": _SCEN_LABEL.get(s.get("cenario"), s.get("cenario")),
+                    "premissas": {"valor_venda": s.get("valor_venda"), "valor_venda_origem": s.get("valor_venda_origem"), "prazo_meses": s.get("prazo_meses"),
+                                  "reservas": "conservadoras" if s.get("cenario") == "CONSERVADOR" else "base",
+                                  "custos_fora_da_soma": s.get("custos_pendentes_nao_incluidos") or []},
+                    "investimento_total": s.get("investimento_total"), "resultado_liquido": s.get("resultado_liquido"), "roi": s.get("roi"),
+                    "margem_seguranca": s.get("margem_seguranca"), "completo": s.get("completo"),
+                    "rentabilidade_aluguel": s.get("rentabilidade_aluguel")})
+    return out

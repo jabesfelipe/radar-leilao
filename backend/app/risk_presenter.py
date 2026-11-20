@@ -22,7 +22,7 @@ SIT_CONFIRMADO, SIT_POSSIVEL, SIT_PENDENTE, SIT_RESOLVIDO, SIT_NAO_IDENTIFICADO 
 SITUACAO_LABELS = {SIT_CONFIRMADO: "Confirmado", SIT_POSSIVEL: "Possível", SIT_PENDENTE: "Pendente de confirmação",
                    SIT_RESOLVIDO: "Resolvido", SIT_NAO_IDENTIFICADO: "Não identificado"}
 
-CATEGORIAS = ("Jurídico", "Ocupação e desocupação", "Financeiro", "Débitos", "Documentação", "Mercado", "Reforma", "Liquidez", "Operacional")
+CATEGORIAS = ("Jurídico", "Ocupação", "Desocupação", "Financeiro", "Débitos", "Documentação", "Mercado", "Reforma", "Liquidez", "Operacional")
 IMPACTO_FINANCEIRO, IMPACTO_PRAZO, IMPACTO_OPERACIONAL, IMPACTO_JURIDICO = "financeiro", "prazo", "operacional", "jurídico"
 
 # Catálogo por chave canônica do checklist: categoria, título, o que significa, impactos, linha de custo da estimativa e o que fazer.
@@ -62,7 +62,7 @@ CATALOGO: dict[str, dict[str, Any]] = {
                                     significado="Penhora ou indisponibilidade pode impedir o registro da compra em seu nome.",
                                     impactos=[IMPACTO_JURIDICO, IMPACTO_PRAZO], acoes=["Ler os atos da matrícula e pedir certidão atualizada.",
                                                                                      "Verificar se o edital garante o cancelamento."]),
-    "TERCEIRO_OCUPANTE": _C(categoria="Ocupação e desocupação", titulo="Imóvel ocupado", essencial=True, custo="desocupacao",
+    "TERCEIRO_OCUPANTE": _C(categoria="Ocupação", titulo="Imóvel ocupado", essencial=True, custo="desocupacao",
                             significado="Há alguém morando ou usando o imóvel. Você precisará negociar a saída ou entrar com ação de imissão "
                                         "na posse, o que gera custo e atraso para usar, alugar ou vender.",
                             impactos=[IMPACTO_FINANCEIRO, IMPACTO_PRAZO, IMPACTO_OPERACIONAL, IMPACTO_JURIDICO],
@@ -71,7 +71,7 @@ CATALOGO: dict[str, dict[str, Any]] = {
                                    "Verificar se há processo judicial sobre a posse.",
                                    "Estimar o prazo de desocupação (acordo ou ação de imissão na posse).",
                                    "Incluir no Financeiro os custos de advogado, acordo e o tempo sem uso do imóvel."]),
-    "LOCACAO_REGISTRADA": _C(categoria="Ocupação e desocupação", titulo="Inquilino com contrato registrado", custo="desocupacao",
+    "LOCACAO_REGISTRADA": _C(categoria="Ocupação", titulo="Inquilino com contrato registrado", custo="desocupacao",
                              significado="Locação registrada na matrícula pode obrigar o novo dono a respeitar o contrato.",
                              impactos=[IMPACTO_PRAZO, IMPACTO_FINANCEIRO, IMPACTO_JURIDICO],
                              acoes=["Conferir na matrícula se há registro de locação.", "Pedir cópia do contrato ao ocupante ou ao banco."]),
@@ -117,12 +117,12 @@ CATALOGO: dict[str, dict[str, Any]] = {
     "CONDOMINIO_PORTARIA": _C(categoria="Operacional", titulo="Portaria para visitas sem corretor",
                               significado="Sem portaria, mostrar o imóvel sem corretor é mais difícil.", impactos=[IMPACTO_OPERACIONAL],
                               acoes=["Confirmar com o condomínio como funcionam as visitas."]),
-    "ETICA_OCUPACAO": _C(categoria="Ocupação e desocupação", titulo="Imóvel ocupado por família",
+    "ETICA_OCUPACAO": _C(categoria="Desocupação", titulo="Imóvel ocupado por família",
                          significado="Desocupar um imóvel habitado por uma família exige negociação cuidadosa.", impactos=[IMPACTO_OPERACIONAL, IMPACTO_PRAZO],
                          acoes=["Decidir antes do lance se aceita negociar a saída de uma família."]),
 }
 # Categoria do motor (domínio) → categoria do investidor, para riscos sem chave do checklist.
-_DOMINIO = {"juridico": "Jurídico", "desocupacao": "Ocupação e desocupação", "financeiro": "Financeiro", "documental": "Documentação",
+_DOMINIO = {"juridico": "Jurídico", "desocupacao": "Ocupação", "financeiro": "Financeiro", "documental": "Documentação",
             "mercado": "Mercado", "operacional": "Operacional", "debitos": "Débitos", "reforma": "Reforma", "liquidez": "Liquidez"}
 _GRAVIDADE = {"BAIXA": "Baixa", "MEDIA": "Média", "ALTA": "Alta", "CRITICA": "Crítica"}
 _KEY = re.compile(r"CHECKLIST_([A-Z0-9_]+?)_(RISCO_IDENTIFICADO|ATENCAO)\b")
@@ -190,6 +190,65 @@ def _evidence(evidence: Any) -> dict[str, Any] | None:
     excerpt = redact_pii(str(_v(evidence, "source_excerpt") or _v(evidence, "fact") or ""), force=True)[:400] or None
     where = ", ".join(x for x in (name or ("Cadastro do imóvel" if version is None else "Documento"), f"página {page}" if page else None) if x)
     return {"documento": name, "pagina": page, "trecho": excerpt, "texto": where}
+
+
+# Por que importa, prazo e mitigação dos riscos que mais mudam a decisão (v1.0.14). Os demais usam o texto derivado.
+DETALHE: dict[str, dict[str, str]] = {
+    "TERCEIRO_OCUPANTE": {"por_que": "Enquanto houver ocupante, você paga o imóvel mas não pode usar, alugar nem vender.",
+                          "prazo": "Acordo costuma levar semanas; ação de imissão na posse pode levar meses.",
+                          "mitigacao": "Reservar verba e prazo de desocupação no Financeiro e baixar o lance máximo; tentar acordo antes da ação."},
+    "LOCACAO_REGISTRADA": {"por_que": "Contrato registrado pode obrigar a respeitar a locação até o fim.",
+                           "prazo": "A posse pode ficar para depois do fim do contrato.",
+                           "mitigacao": "Ler o contrato e calcular o resultado como imóvel alugado."},
+    "PENHORA_INDISPONIBILIDADE": {"por_que": "O cartório pode recusar o registro da compra em seu nome.",
+                                  "prazo": "O cancelamento depende do juízo que mandou bloquear.",
+                                  "mitigacao": "Confirmar no edital quem cancela a penhora e pedir certidão atualizada antes do lance."},
+    "ACAO_QUESTIONAMENTO": {"por_que": "Uma ação pode anular a venda e devolver o imóvel ao antigo dono.",
+                            "prazo": "Processos assim levam anos.",
+                            "mitigacao": "Pesquisar processos do antigo proprietário e consultar advogado antes do lance."},
+    "CONSOLIDACAO_REGISTRADA": {"por_que": "Sem a consolidação, o vendedor ainda não é dono.",
+                                "prazo": "O registro da compra fica travado.", "mitigacao": "Pedir matrícula atualizada com a averbação."},
+    "RESPONSABILIDADE_DEBITOS": {"por_que": "Dívidas de IPTU e condomínio podem passar para você.",
+                                 "prazo": "Débito em aberto pode atrasar a transferência.",
+                                 "mitigacao": "Consultar IPTU e condomínio e incluir o valor no Financeiro."},
+    "REFORMA_GRANDE": {"por_que": "Reforma grande consome a margem e atrasa a revenda.", "prazo": "Obra costuma levar de 1 a 4 meses.",
+                       "mitigacao": "Orçar a reforma e informar o valor em Financeiro."},
+    "COMPARAVEIS_SUFFICIENTES": {"por_que": "Sem valor de mercado confiável, lucro e preço máximo são incertos.",
+                                 "prazo": "", "mitigacao": "Rodar a pesquisa automática ou cadastrar imóveis parecidos."},
+}
+_IMPACT_DEFAULT = {"financeiro": None, "prazo": "Pode atrasar a posse, a revenda ou o aluguel.",
+                   "operacional": "Exige providências do investidor antes ou depois da compra.",
+                   "jurídico": "Pode gerar questionamento judicial ou impedir o registro."}
+_CONF = {"ALTA": "Alta", "MEDIA": "Média", "BAIXA": "Baixa"}
+
+
+def _enrich(item: dict[str, Any], rows: list[Any] | None) -> None:
+    """Campos de decisão para o investidor: por que importa, impacto por dimensão, confiança, fonte, próxima ação e mitigação."""
+    extra = DETALHE.get(item["chave"], {})
+    impacts = item.get("impactos") or []
+    labels = {"financeiro": "financeiro", "prazo": "no prazo", "operacional": "operacional", "jurídico": "jurídico"}
+    item["por_que_importa"] = extra.get("por_que") or ("Impacto " + ", ".join(labels.get(i, i) for i in impacts) + " na operação." if impacts else None)
+    detail = {}
+    for dim in ("financeiro", "prazo", "operacional", "jurídico"):
+        if dim not in impacts:
+            detail[dim] = None
+        elif dim == "financeiro":
+            detail[dim] = (item.get("estimativa") or {}).get("texto")
+        elif dim == "prazo":
+            detail[dim] = extra.get("prazo") or _IMPACT_DEFAULT["prazo"]
+        else:
+            detail[dim] = _IMPACT_DEFAULT[dim]
+    item["impacto_detalhe"] = {"financeiro": detail["financeiro"], "prazo": detail["prazo"], "operacional": detail["operacional"],
+                               "juridico": detail["jurídico"]}
+    last = rows[-1] if rows else None
+    conf = str(_v(last, "confidence") or "").upper() if last is not None else ""
+    item["confianca"] = _CONF.get(conf) or ("Média" if item["situacao"] in (SIT_CONFIRMADO, SIT_POSSIVEL) else None)
+    item["fonte"] = (item.get("evidencia") or {}).get("texto") or ("Checklist da análise (sem documento vinculado)" if rows else "Checklist da análise")
+    actions = item.get("o_que_fazer") or []
+    item["proxima_acao"] = actions[0] if actions and item["situacao"] not in (SIT_RESOLVIDO, SIT_NAO_IDENTIFICADO) else None
+    item["mitigacao"] = extra.get("mitigacao") or (" ".join(actions[1:]) or None)
+    if not item.get("detalhe") and item["situacao"] == SIT_POSSIVEL:
+        item["detalhe"] = "A análise marcou este ponto para atenção, mas o documento não confirma o problema. Verifique antes do lance."
 
 
 def _occupancy_confirmed(occupancy: Any) -> bool:
@@ -269,6 +328,8 @@ def consolidate(risks: Iterable[Any], *, latest_version: int | None = None, chec
             "evidencia": None, "o_que_fazer": spec["acoes"] if situacao == SIT_PENDENTE else [],
             "rastreabilidade": {"tipo": "DESCONHECIDO" if situacao == SIT_PENDENTE else "FATO", "historico": []},
         })
+    for item in items:
+        _enrich(item, groups.get(item["chave"]))
     order = {SIT_CONFIRMADO: 0, SIT_POSSIVEL: 1, SIT_PENDENTE: 2, SIT_RESOLVIDO: 3, SIT_NAO_IDENTIFICADO: 4}
     sev = {"CRITICA": 0, "ALTA": 1, "MEDIA": 2, "BAIXA": 3}
     items.sort(key=lambda i: (order[i["situacao"]], sev.get(str(i["gravidade"] or "").upper(), 4), CATEGORIAS.index(i["categoria"])

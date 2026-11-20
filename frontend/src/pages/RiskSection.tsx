@@ -89,11 +89,18 @@ function RiskCard({ risk }: { risk: ConsolidatedRisk }) {
       </div>
       <p className="risk-description">{risk.o_que_significa}</p>
       {risk.detalhe ? <p className="market-obs">{risk.detalhe}</p> : null}
+      {risk.por_que_importa ? <p className="market-obs"><strong>Por que importa:</strong> {risk.por_que_importa}</p> : null}
       <dl className="dossier-facts">
         <Fact label="Impacto" value={risk.impactos.map((i) => impactLabels[i] ?? i).join(', ')} />
         {risk.gravidade_label ? <Fact label="Gravidade" value={risk.gravidade_label} /> : null}
+        {risk.confianca ? <Fact label="Confiança" value={risk.confianca} /> : null}
         <Fact label="Estimativa" value={risk.estimativa.texto ?? 'Sem estimativa de valor.'} />
-        {risk.evidencia ? <Fact label="Onde está" value={risk.evidencia.texto} /> : null}
+        {risk.impacto_detalhe?.prazo ? <Fact label="Impacto no prazo" value={risk.impacto_detalhe.prazo} /> : null}
+        {risk.impacto_detalhe?.operacional ? <Fact label="Impacto operacional" value={risk.impacto_detalhe.operacional} /> : null}
+        {risk.impacto_detalhe?.juridico ? <Fact label="Impacto jurídico" value={risk.impacto_detalhe.juridico} /> : null}
+        {risk.evidencia ? <Fact label="Onde está" value={risk.evidencia.texto} /> : risk.fonte ? <Fact label="Fonte" value={risk.fonte} /> : null}
+        {risk.proxima_acao ? <Fact label="Próxima ação" value={risk.proxima_acao} /> : null}
+        {risk.mitigacao ? <Fact label="Como reduzir o risco" value={risk.mitigacao} /> : null}
       </dl>
       {risk.evidencia?.trecho ? <blockquote className="market-obs">“{risk.evidencia.trecho}”</blockquote> : null}
       {risk.o_que_fazer.length > 0 ? (

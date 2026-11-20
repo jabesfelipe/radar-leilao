@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ClipboardCheck, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, LoadingState, Section, Select, Textarea } from '../components/ui'
-import { CHECKLIST_CONFIDENCES, CHECKLIST_STATES, listChecklist, listChecklistEvidence, updateChecklistItem, type ChecklistConfidence, type ChecklistEvidence, type ChecklistItem, type ChecklistOutcome, type ChecklistState } from '../services/checklist'
+import { CHECKLIST_CONFIDENCES, CHECKLIST_STATES, isOpenItem, listChecklist, listChecklistEvidence, sortByPriority, updateChecklistItem, type ChecklistConfidence, type ChecklistEvidence, type ChecklistItem, type ChecklistOutcome, type ChecklistState } from '../services/checklist'
 
 type ChecklistSectionProps = {
   propertyId: number
@@ -168,7 +168,18 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
               ))}
             </Card>
           )}
-          {items.map((item) => {
+          {items.some((i) => i.prioridade) && (
+            <Card padding="md" className="checklist-summary" aria-label="Pendências por prioridade">
+              {(['P0', 'P1', 'P2', 'P3'] as const).map((p) => {
+                const open = items.filter((i) => i.prioridade === p && isOpenItem(i))
+                return <Badge key={p} tone={p === 'P0' && open.length ? 'danger' : p === 'P1' && open.length ? 'warning' : 'neutral'} size="sm">{`${p}: ${open.length} em aberto`}</Badge>
+              })}
+              {items.filter((i) => i.prioridade === 'P0' && isOpenItem(i)).length > 0 ? (
+                <p className="market-obs">Bloqueadores (P0) em aberto: {items.filter((i) => i.prioridade === 'P0' && isOpenItem(i)).map((i) => i.question).join('; ')}.</p>
+              ) : null}
+            </Card>
+          )}
+          {sortByPriority(items).map((item) => {
             const isEditing = editingId === item.id
             const isSaving = savingId === item.id
             const itemEvidence = evidence[item.id]
@@ -180,6 +191,7 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
                     {item.item_number != null && <span className="checklist-number">{String(item.item_number).padStart(2, '0')}</span>}
                     <h3>{item.question}</h3>
                   </div>
+                  {item.prioridade_label && <Badge tone={item.prioridade === 'P0' ? 'danger' : item.prioridade === 'P1' ? 'warning' : 'neutral'} size="sm">{item.prioridade_label}</Badge>}
                   {item.resultado && item.resultado_label && (
                     <Badge tone={outcomeTone[item.resultado] ?? 'neutral'} size="sm">{item.resultado_label}</Badge>
                   )}
@@ -197,6 +209,9 @@ export function ChecklistSection({ propertyId }: ChecklistSectionProps) {
                   {item.acao_recomendada && <Fact label="O que fazer" value={item.acao_recomendada} />}
                   {item.fonte_necessaria && <Fact label="Fonte necessária" value={item.fonte_necessaria} />}
                   {item.risk && <Fact label="Risco" value={item.risk} />}
+                  {item.explicacao && <Fact label="Por que importa" value={item.explicacao} />}
+                  {item.proxima_acao && <Fact label="Próxima ação" value={item.proxima_acao} />}
+                  {item.responsavel && item.prioridade && <Fact label="Responsável" value={item.responsavel} />}
                 </dl>
 
                 {evidenceCount > 0 && (

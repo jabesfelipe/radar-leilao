@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
+import { AutoResearchCard } from './AutoResearchCard'
 import { Alert, Badge, Button, Card, LoadingState, Section } from '../components/ui'
 import {
   formatMoney, formatPercent, getInvestmentSummary,
@@ -123,9 +124,59 @@ export function InvestmentSummarySection({ propertyId }: { propertyId: number })
           <Number_ label="ROI" value={n.roi} percent />
           <Number_ label="Margem" value={n.margem} percent />
           <Number_ label="Investimento total" value={n.investimento_total} />
+          {data.margem_seguranca ? <Number_ label="Margem de segurança" value={data.margem_seguranca} percent /> : null}
         </dl>
         <p className="market-obs">Fato = documento ou fonte oficial; dado manual = informado por você; estimativa = calculado; desconhecido = ainda não levantado (nunca conta como zero).</p>
       </Card>
+
+      {data.alertas && data.alertas.length > 0 ? <Alert tone="warning">{data.alertas.join(' ')}</Alert> : null}
+
+      {data.cenarios && data.cenarios.length > 0 ? (
+        <Card padding="lg" aria-label="Cenários">
+          <p className="dossier-history-title">Cenários (premissas explícitas)</p>
+          <table className="hub-table" aria-label="Cenários financeiros">
+            <thead><tr><th>Cenário</th><th>Valor de venda</th><th>Prazo</th><th>Investimento</th><th>Lucro</th><th>ROI</th><th>Margem de segurança</th><th>Fora da soma</th></tr></thead>
+            <tbody>
+              {data.cenarios.map((s) => (
+                <tr key={s.cenario}>
+                  <td>{s.cenario}</td>
+                  <td>{formatMoney(s.premissas.valor_venda)}{s.premissas.valor_venda_origem ? <small className="market-obs"> {s.premissas.valor_venda_origem}</small> : null}</td>
+                  <td>{s.premissas.prazo_meses != null ? `${s.premissas.prazo_meses} meses` : '—'}</td>
+                  <td>{formatMoney(s.investimento_total)}</td>
+                  <td>{formatMoney(s.resultado_liquido)}</td>
+                  <td>{formatPercent(s.roi)}</td>
+                  <td>{formatPercent(s.margem_seguranca)}</td>
+                  <td><small className="market-obs">{s.premissas.custos_fora_da_soma.length ? s.premissas.custos_fora_da_soma.join(', ') : '—'}</small></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="market-obs">Valor desconhecido aparece como "Desconhecido": não entra como zero. Itens "fora da soma" deixam o resultado provisório.</p>
+        </Card>
+      ) : null}
+
+      {data.checklist ? (
+        <Card padding="lg" aria-label="Checklist prioritário">
+          <p className="dossier-history-title">Checklist por prioridade</p>
+          <p className="market-obs">
+            {Object.entries(data.checklist.abertos_por_prioridade).map(([p, n]) => <Badge key={p} size="sm" tone={p === 'P0' && n ? 'danger' : p === 'P1' && n ? 'warning' : 'neutral'}>{`${p}: ${n} em aberto`}</Badge>)}
+          </p>
+          {data.checklist.itens_prioritarios.length > 0 ? (
+            <ul className="market-intel-reasons" aria-label="Itens prioritários em aberto">
+              {data.checklist.itens_prioritarios.map((i) => <li key={i.chave}><strong>{i.prioridade_label}:</strong> {i.nome} · {i.status_label}{i.proxima_acao ? ` · ${i.proxima_acao}` : ''}{i.responsavel ? ` (${i.responsavel})` : ''}</li>)}
+            </ul>
+          ) : <p className="market-obs">Nenhum bloqueador ou risco crítico em aberto no checklist.</p>}
+        </Card>
+      ) : null}
+
+      {data.documentos ? (
+        <Card padding="lg" aria-label="Documentos do imóvel">
+          <p className="dossier-history-title">Documentos</p>
+          <p className="market-obs">{data.documentos.texto}</p>
+        </Card>
+      ) : null}
+
+      <AutoResearchCard propertyId={propertyId} onDone={() => void load()} />
 
       {data.pendencias.length > 0 || data.proximas_acoes.length > 0 ? (
         <Card padding="lg" aria-label="Pendências e próximas ações">
@@ -153,6 +204,12 @@ export function InvestmentSummarySection({ propertyId }: { propertyId: number })
         </dl>
         {!iptu.automatico && iptu.motivo_sem_automacao ? <p className="market-obs">Por que não é automático: {iptu.motivo_sem_automacao}</p> : null}
         {iptu.portal?.urls?.length ? <p className="market-obs">Portal: {iptu.portal.urls.map((u) => <a key={u} href={u} target="_blank" rel="noopener noreferrer">{u} </a>)}</p> : null}
+        {!iptu.portal && iptu.portal_pesquisado?.length ? <p className="market-obs">Portal encontrado pela pesquisa (confirme se é o oficial): {iptu.portal_pesquisado.map((p) => <a key={p.url} href={p.url} target="_blank" rel="noopener noreferrer">{p.dominio} </a>)}</p> : null}
+        {iptu.lancamentos && iptu.lancamentos.length > 0 ? (
+          <ul className="market-intel-reasons" aria-label="Lançamentos do IPTU">
+            {iptu.lancamentos.map((l, i) => <li key={i}>Exercício {l.exercicio ?? 'não informado'}: {formatMoney(l.valor_atualizado ?? l.valor_original)}{l.parcelado ? ' · parcelado' : ''}</li>)}
+          </ul>
+        ) : null}
         <p className="market-obs">Registre o resultado em Débitos e despesas &gt; Consulta do IPTU. {iptu.aviso}</p>
       </Card>
 

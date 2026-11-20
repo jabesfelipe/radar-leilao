@@ -142,6 +142,8 @@ export type RegistryTimeline = {
   situacao_atual?: CurrentSituation
   certidao?: CertificateIssue
   aviso_datas?: string
+  /** v1.0.14: uma linha por pessoa, com todos os papéis, atos, se é a proprietária atual e se perdeu o imóvel na consolidação. */
+  pessoas?: { nome: string; tipo_pessoa: string | null; papeis: string[]; atos: string[]; atual: boolean; perdeu_o_imovel: boolean; texto: string }[]
 }
 
 export type TitularityRow = {

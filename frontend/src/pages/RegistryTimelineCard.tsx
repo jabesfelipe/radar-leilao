@@ -112,6 +112,20 @@ export function RegistryTimelineCard({ propertyId }: { propertyId: number }) {
       {data && data.disponivel ? (
         <>
           {data.situacao_atual ? <CurrentSituationCard situation={data.situacao_atual} /> : null}
+          {data.pessoas && data.pessoas.length > 0 ? (
+            <section aria-label="Pessoas envolvidas na matrícula">
+              <p className="dossier-history-title">Pessoas envolvidas</p>
+              <ul className="market-intel-reasons">
+                {data.pessoas.map((p) => (
+                  <li key={p.nome}>
+                    <strong>{p.nome}</strong>{p.atual ? <> <Badge tone="success" size="sm">Proprietário atual</Badge></> : null}
+                    {p.perdeu_o_imovel ? <> <Badge tone="warning" size="sm">Perdeu o imóvel</Badge></> : null}
+                    <small className="market-obs"> {p.papeis.join('; ')}{p.atos.length ? ` · ${p.atos.join(', ')}` : ''}</small>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {data.titularidade ? <TitularityTable titularity={data.titularidade} /> : null}
           <p className="dossier-history-title">Histórico da matrícula (do mais recente para o mais antigo)</p>
           <p className="market-obs"><Badge tone={data.idade.estimada ? 'info' : 'neutral'} size="sm">Idade</Badge> {data.idade.texto}</p>

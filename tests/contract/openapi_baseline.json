@@ -11298,6 +11298,47 @@
     "summary": "Property Checklist"
    }
   },
+  "/api/imoveis/{property_id}/checklist-prioritario": {
+   "get": {
+    "description": "Checklist ordenado por prioridade (P0 bloqueadores a P3 complementares), com explicação, próxima ação e responsável.",
+    "operationId": "get_prioritized_checklist_api_imoveis__property_id__checklist_prioritario_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Prioritized Checklist",
+    "tags": [
+     "investimento"
+    ]
+   }
+  },
   "/api/imoveis/{property_id}/checklist/historico": {
    "get": {
     "operationId": "property_checklist_history_api_imoveis__property_id__checklist_historico_get",
@@ -12583,6 +12624,47 @@
      }
     },
     "summary": "Upload Document"
+   }
+  },
+  "/api/imoveis/{property_id}/documentos/situacao": {
+   "get": {
+    "description": "Situação documental: recebidos, analisados, obrigatórios, pendentes, incompletos, evidências e próximas ações.",
+    "operationId": "get_document_situation_api_imoveis__property_id__documentos_situacao_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Document Situation",
+    "tags": [
+     "investimento"
+    ]
    }
   },
   "/api/imoveis/{property_id}/documentos/{document_version_id}/extracao": {
@@ -14505,6 +14587,103 @@
      }
     },
     "summary": "Possible Occupants"
+   }
+  },
+  "/api/imoveis/{property_id}/pesquisa-automatica": {
+   "get": {
+    "description": "Consultas externas já feitas para o imóvel: provedor, status, data, validade do cache e resultados (URL, título, data).",
+    "operationId": "get_research_history_api_imoveis__property_id__pesquisa_automatica_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Research History",
+    "tags": [
+     "investimento"
+    ]
+   },
+   "post": {
+    "description": "Pesquisa venda, aluguel, condomínio e portal do IPTU deste imóvel (um imóvel por chamada; cache evita repetir).\nAnúncios utilizáveis viram comparáveis com fonte, URL e data. Sem provedor configurado: NAO_CONFIGURADO, nada é gravado.",
+    "operationId": "run_research_api_imoveis__property_id__pesquisa_automatica_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "anyOf": [
+         {
+          "$ref": "#/components/schemas/ResearchRequest"
+         },
+         {
+          "type": "null"
+         }
+        ],
+        "title": "Data"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Run Research",
+    "tags": [
+     "investimento"
+    ]
    }
   },
   "/api/imoveis/{property_id}/pos-arrematacao": {
@@ -17984,6 +18163,26 @@
     "summary": "List Transitions",
     "tags": [
      "oportunidades"
+    ]
+   }
+  },
+  "/api/pesquisa/provedores": {
+   "get": {
+    "description": "Situação dos provedores de pesquisa externa (principal e alternativo), sem expor chave.",
+    "operationId": "get_search_providers_api_pesquisa_provedores_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Get Search Providers",
+    "tags": [
+     "investimento"
     ]
    }
   },

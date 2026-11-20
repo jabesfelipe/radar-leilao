@@ -3,6 +3,7 @@ import { BarChart3, ExternalLink, Pencil, Plus, RefreshCw, Trash2 } from 'lucide
 import { Alert, Button, Card, EmptyState, Input, LoadingState, Section, Select } from '../components/ui'
 import { createComparable, deleteComparable, formatMoney, getMarket, listComparables, updateComparable, type MarketComparable, type MarketResponse } from '../services/market'
 import { MarketIntelligencePanel } from './MarketIntelligencePanel'
+import { AutoResearchCard } from './AutoResearchCard'
 
 type MarketSectionProps = {
   propertyId: number
@@ -170,6 +171,7 @@ export function MarketSection({ propertyId }: MarketSectionProps) {
   return (
     <Section title="Mercado" description="Comparáveis de mercado cadastrados para o imóvel." className="dossier-section" actions={<Button onClick={openForm}><Plus size={16} /> Novo comparável</Button>}>
       {successMessage && <Alert tone="success" title="Cadastro concluído" className="dossier-feedback">{successMessage}</Alert>}
+      <AutoResearchCard propertyId={propertyId} onDone={() => void loadComparables()} />
 
       {market && (
         <Card padding="lg" className="market-quality">

@@ -39,6 +39,12 @@ export type ConsolidatedRisk = {
   estimativa: { texto: string | null; valor_base: Num; valor_conservador: Num; tipo: DataType }
   evidencia?: { documento?: string | null; pagina?: number | null; trecho?: string | null; texto: string } | null
   o_que_fazer: string[]
+  por_que_importa?: string | null
+  impacto_detalhe?: { financeiro: string | null; prazo: string | null; operacional: string | null; juridico: string | null }
+  confianca?: string | null
+  fonte?: string | null
+  proxima_acao?: string | null
+  mitigacao?: string | null
 }
 export type ConsolidatedRisks = {
   itens: ConsolidatedRisk[]
@@ -61,6 +67,8 @@ export type IptuStatus = {
   sem_debito: boolean
   valor_anual: TracedValue
   aviso: string
+  portal_pesquisado?: { url: string; titulo: string; dominio: string }[]
+  lancamentos?: { exercicio?: string | number | null; valor_atualizado: Num; valor_original: Num; parcelado: boolean; status: string }[]
 }
 
 export type CondoAnalysis = {
@@ -93,6 +101,7 @@ export type MarketSummary = {
   yield_bruto_anual: { sobre_valor_mercado: Num; sobre_aquisicao: Num; texto: string }
   liquidez?: { classificacao: string; confianca: string; justificativa: string[] } | null
   busca_automatica: { status: string; texto: string }
+  pesquisa?: { ativo: boolean; consultas: ResearchQuery[]; portais_iptu: { url: string; titulo: string; dominio: string }[] }
 }
 
 export type FinanceRow = { chave: string; descricao: string; valor: Num; valor_base: Num; valor_conservador: Num; origem?: string | null; motivo?: string; tipo?: DataType }
@@ -107,7 +116,31 @@ export type InvestmentRecommendation = {
   veredito_motor?: string | null
 }
 
+export type ResearchQuery = { tipo: string; consulta: string; provedor: string; status: string; resultados: number; em?: string | null; erro?: string | null }
+export type ResearchProviders = {
+  ativo: boolean; status: string; texto?: string | null
+  provedores: { papel: string; provedor: string | null; configurado: boolean; variavel?: string | null }[]
+}
+export type ResearchRun = {
+  status: string; texto?: string | null; consultas: ResearchQuery[]
+  comparaveis_criados: { id: number; tipo: string; valor: Num; area_m2: Num; url: string; fonte: string; confianca: string }[]
+  descartados: { url: string; titulo: string; motivos: string[] }[]
+  referencias_condominio: { valor: Num; url: string; fonte: string }[]
+  portais_iptu: { url: string; titulo: string; dominio: string }[]
+}
+export type ScenarioView = {
+  cenario: string
+  premissas: { valor_venda: Num; valor_venda_origem?: string | null; prazo_meses?: number | null; reservas: string; custos_fora_da_soma: string[] }
+  investimento_total: Num; resultado_liquido: Num; roi: Num; margem_seguranca: Num; completo?: boolean
+}
+export type PriorityItem = { chave: string; nome: string; prioridade: string; prioridade_label: string; status_label: string; proxima_acao?: string | null; responsavel?: string }
+
 export type InvestmentSummary = {
+  cenarios?: ScenarioView[]
+  margem_seguranca?: TracedValue
+  checklist?: { abertos_por_prioridade: Record<string, number>; bloqueadores_abertos: string[]; itens_prioritarios: PriorityItem[] }
+  documentos?: { texto: string; obrigatorios_faltando: string[] }
+  alertas?: string[]
   property_id: number
   recomendacao: InvestmentRecommendation
   numeros: Record<'lance' | 'preco_maximo' | 'valor_venda' | 'lucro_estimado' | 'roi' | 'margem' | 'investimento_total', TracedValue>
@@ -130,6 +163,24 @@ export function getInvestmentSummary(propertyId: number): Promise<InvestmentSumm
 export async function getConsolidatedRisks(propertyId: number): Promise<ConsolidatedRisks> {
   const payload = await request<Partial<ConsolidatedRisks> | null>(`${base(propertyId)}/riscos-consolidados`)
   return { ...(payload ?? {}), itens: payload?.itens ?? [] }
+}
+
+export async function runResearch(propertyId: number, tipos?: string[]): Promise<ResearchRun> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}${base(propertyId)}/pesquisa-automatica`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipos: tipos ?? null }),
+    })
+  } catch {
+    throw new PropertiesServiceError('Não foi possível conectar ao servidor. Tente novamente.')
+  }
+  const payload = await response.json().catch(() => null)
+  if (!response.ok) throw new PropertiesServiceError(typeof payload?.detail === 'string' ? payload.detail : 'Não foi possível pesquisar.', response.status)
+  return payload as ResearchRun
+}
+
+export function getResearchProviders(): Promise<ResearchProviders> {
+  return request<ResearchProviders>('/api/pesquisa/provedores')
 }
 
 export function getIptuStatus(propertyId: number): Promise<IptuStatus> {

@@ -42,7 +42,9 @@ def test_mesmo_risco_em_varias_versoes_aparece_uma_vez_no_estado_mais_recente():
     risks = [_risk(1, 5), _risk(2, 6), _risk(3, 7, state="RISCO_IDENTIFICADO", severity="ALTA")]
     out = consolidate(risks, latest_version=7)
     [item] = out["itens"]
-    assert item["titulo"] == "Imóvel ocupado" and item["categoria"] == "Ocupação e desocupação"
+    assert item["titulo"] == "Imóvel ocupado" and item["categoria"] == "Ocupação"
+    assert item["por_que_importa"] and item["mitigacao"] and item["proxima_acao"] and item["confianca"]
+    assert item["impacto_detalhe"]["prazo"] and item["impacto_detalhe"]["juridico"] and item["fonte"]
     assert item["situacao"] == "CONFIRMADO" and item["gravidade"] == "ALTA"
     assert [h["versao"] for h in item["rastreabilidade"]["historico"]] == [5, 6, 7]     # histórico só interno
     assert not any(c in _texto(item) for c in CODIGOS)
@@ -158,6 +160,9 @@ def test_data_de_emissao_da_certidao_so_quando_o_texto_identifica():
     assert certificate_issue("Certidão... Data/hora: 20/11/2026 10:15")["data"] == "2026-11-20"
     vazio = certificate_issue("R-1 Compra e venda em 10/02/2020")
     assert vazio["data"] is None and "não localizada" in vazio["texto"]
+    # validação do imóvel 7: "expedido em" de habite-se/alvará não é a emissão da certidão
+    assert certificate_issue("Av-4 Habite-se nº 1 expedido em 26/03/2015 pela Prefeitura")["data"] is None
+    assert certificate_issue("CERTIDÃO de inteiro teor emitida em 18/11/2026")["data"] == "2026-11-18"
 
 
 # ------------------------------------------------------------------ API

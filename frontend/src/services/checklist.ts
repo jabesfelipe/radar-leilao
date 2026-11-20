@@ -41,6 +41,12 @@ export type ChecklistItem = {
   fonte_necessaria?: string | null
   evidence_ids?: number[]
   resolution_origin?: string | null
+  /** v1.0.14: prioridade P0 (bloqueador) a P3 (complementar), explicação, próxima ação e responsável. */
+  prioridade?: 'P0' | 'P1' | 'P2' | 'P3' | string | null
+  prioridade_label?: string | null
+  explicacao?: string | null
+  proxima_acao?: string | null
+  responsavel?: string | null
 }
 
 export type ChecklistOutcome = 'CONFIRMADO' | 'RISCO_IDENTIFICADO' | 'PENDENTE' | 'INCONCLUSIVO' | 'NAO_APLICAVEL' | 'SEM_RESTRICAO_IDENTIFICADA'
@@ -64,6 +70,11 @@ type ChecklistResult = {
   fonte_necessaria?: string | null
   evidence_ids?: number[]
   resolution_origin?: string | null
+  prioridade?: string | null
+  prioridade_label?: string | null
+  explicacao?: string | null
+  proxima_acao?: string | null
+  responsavel?: string | null
 }
 
 export type ChecklistEvidence = {
@@ -162,8 +173,36 @@ export async function listChecklist(propertyId: number): Promise<ChecklistItem[]
       fonte_necessaria: result.fonte_necessaria ?? null,
       evidence_ids: result.evidence_ids ?? [],
       resolution_origin: result.resolution_origin ?? null,
+      prioridade: result.prioridade ?? null,
+      prioridade_label: result.prioridade_label ?? null,
+      explicacao: result.explicacao ?? null,
+      proxima_acao: result.proxima_acao ?? null,
+      responsavel: result.responsavel ?? null,
     }
   })
+}
+
+const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 }
+const OPEN_OUTCOMES = new Set(['PENDENTE', 'INCONCLUSIVO', 'RISCO_IDENTIFICADO'])
+
+/** v1.0.14: itens em aberto primeiro, depois por prioridade (P0 a P3); sem prioridade, mantém a ordem original. */
+export function sortByPriority(items: ChecklistItem[]): ChecklistItem[] {
+  if (!items.some((i) => i.prioridade)) return items
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const openA = OPEN_OUTCOMES.has(String(a.item.resultado ?? a.item.state)) ? 0 : 1
+      const openB = OPEN_OUTCOMES.has(String(b.item.resultado ?? b.item.state)) ? 0 : 1
+      if (openA !== openB) return openA - openB
+      const pa = PRIORITY_ORDER[String(a.item.prioridade)] ?? 4
+      const pb = PRIORITY_ORDER[String(b.item.prioridade)] ?? 4
+      return pa !== pb ? pa - pb : a.index - b.index
+    })
+    .map((x) => x.item)
+}
+
+export function isOpenItem(item: ChecklistItem): boolean {
+  return OPEN_OUTCOMES.has(String(item.resultado ?? item.state))
 }
 
 export async function listChecklistEvidence(propertyId: number, resultId: number): Promise<ChecklistEvidence[]> {

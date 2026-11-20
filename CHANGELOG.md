@@ -4,7 +4,7 @@ Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fu
 
 ## Não publicado — evolução da inteligência, UX e análise do investimento
 
-Sem migration (schema em `0026`). Três rotas novas, somente leitura: `GET /api/imoveis/{id}/resumo-investimento`,
+Migration `0027_pesquisa_externa` (tabela nova, aditiva). Rotas novas de leitura: `GET /api/imoveis/{id}/resumo-investimento`,
 `GET /api/imoveis/{id}/riscos-consolidados` e `GET /api/imoveis/{id}/iptu/situacao`. SPEC em
 `docs/02-product/specs/INTELIGENCIA-INVESTIMENTO.md`.
 
@@ -27,7 +27,16 @@ Sem migration (schema em `0026`). Três rotas novas, somente leitura: `GET /api/
   da consulta ganha o formulário do resultado lido no portal: o débito vai para Débitos e o IPTU anual para as premissas.
 - **Matrícula.** Cada data do ato traz o tipo (protocolo, documento apresentado, registro ou citada) e o número do protocolo
   quando lidos no texto; data de emissão da certidão quando o texto a identifica; bloco "PROPRIETÁRIO ATUAL" no topo.
-- **Busca automática de anúncios.** Não configurada: não há provedor de pesquisa autorizado. A tela diz isso em vez de simular dados.
+- **Pesquisa externa autorizada (migration `0027_pesquisa_externa`).** Provedores Tavily (principal) e Brave Search API
+  (alternativo) por API oficial, com cache, retry, timeout, limite por execução e registro de cada consulta. A pesquisa do imóvel
+  (venda, aluguel, condomínio, portal do IPTU) roda na análise e sob demanda; anúncios com preço viram comparáveis com fonte, URL,
+  data e confiança; páginas de listagem e duplicatas são descartadas com motivo. Sem `TAVILY_API_KEY`/`BRAVE_SEARCH_API_KEY`:
+  "não configurado". SPEC em `docs/02-product/specs/PESQUISA-EXTERNA.md`.
+- **Checklist P0–P3, situação documental e pessoas da matrícula.** Itens em aberto por prioridade com próxima ação e
+  responsável; documentos obrigatórios, incompletos e evidências; pessoas com papéis e quem perdeu o imóvel.
+- **Riscos completos.** Por que importa, impacto por dimensão, confiança, fonte, próxima ação e mitigação; Ocupação e Desocupação
+  separadas.
+- **Resumo.** Cenários com premissas, margem de segurança, checklist e documentos; liquidez baixa ou amostra baixa impedem FAVORÁVEL.
 
 ## v1.0.13 — 2026-11-20 — auditoria da análise registral e titularidade
 

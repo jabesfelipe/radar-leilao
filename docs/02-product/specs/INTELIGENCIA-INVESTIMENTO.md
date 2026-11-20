@@ -1,6 +1,7 @@
 # SPEC — Inteligência do investimento (Resumo, riscos consolidados, IPTU, condomínio, mercado, matrícula)
 
-Status: implementado na branch `feat/inteligencia-investimento` (não publicado). Sem migration.
+Status: implementado nas branches `feat/inteligencia-investimento` (PR #10) e `feat/inteligencia-completa` (não publicado).
+Migration `0027_pesquisa_externa` só para a pesquisa externa.
 
 ## 1. Objetivo
 
@@ -93,7 +94,25 @@ exigidos, o motivo e o formulário do resultado.
 - Número do protocolo quando escrito no ato.
 - Emissão da certidão só com "Data/hora", "emitida em", "expedida em" ou "certifico e dou fé" seguido de data.
 
-## 5. Limitações
+## 5. Evolução completa (branch `feat/inteligencia-completa`)
+
+- **Pesquisa externa** (SPEC `PESQUISA-EXTERNA.md`): Tavily/Brave por API, cache, retry, alternativo, registro; anúncios viram
+  comparáveis rastreáveis; roda na análise quando configurada.
+- **Riscos**: categorias Ocupação e Desocupação separadas; cada risco ganha por que importa, impacto por dimensão (financeiro,
+  prazo, operacional, jurídico), confiança, fonte, próxima ação e mitigação; ponto de atenção sem documento é explicado.
+- **Checklist P0–P3** (`checklist_priority.py`): P0 bloqueadores (consolidação, edital, débitos, ação judicial, penhora,
+  comparáveis), P1 riscos críticos, P2 importantes, P3 complementares; o payload do checklist ganha `prioridade`, `explicacao`,
+  `proxima_acao`, `responsavel`; a aba ordena itens em aberto por prioridade; `GET /api/imoveis/{id}/checklist-prioritario`.
+- **Documentos** (`document_status.py`): recebidos, analisados, incompletos, obrigatórios (matrícula, edital ou condições da
+  venda), recomendados (IPTU, condomínio, laudo/fotos), evidências e páginas citadas, próxima ação; vem em
+  `GET /api/imoveis/{id}/documentos` (`situacao_documental`) e `GET /api/imoveis/{id}/documentos/situacao`.
+- **Matrícula**: tipos Intimação e Inadimplência; pessoas envolvidas (uma linha por pessoa, papéis, atos, proprietário atual,
+  quem perdeu o imóvel na consolidação, construtora); emissão da certidão só em contexto da própria certidão.
+- **IPTU**: exercício, vencimento e parcelamento no registro da consulta; lançamentos e portal encontrado por pesquisa no Resumo.
+- **Resumo**: cenários Conservador/Provável/Otimista com premissas, margem de segurança, checklist P0/P1, documentos, alertas
+  (liquidez baixa, amostra baixa) que impedem FAVORÁVEL, e pesquisa automática.
+
+## 6. Limitações
 
 - Sem provedor de pesquisa de anúncios: comparáveis de venda, aluguel e condomínio continuam cadastrados à mão.
 - IPTU depende da consulta do operador nos 4 municípios levantados.

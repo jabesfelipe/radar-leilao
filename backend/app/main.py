@@ -319,7 +319,19 @@ def _checklist_guidance(result: models.ChecklistResult, modality: str | None) ->
     resolved = outcome in (RESULTADO_CONFIRMADO, RESULTADO_NAO_APLICAVEL)
     return {"question": modality_rules.item_question(modality, key, result.item.question), "pergunta_catalogo": result.item.question,
             "resultado": outcome, "resultado_label": RESULT_LABELS[outcome], "grupo": purpose.get("grupo"),
-            "acao_recomendada": None if resolved else (purpose.get("acao") or None), "fonte_necessaria": purpose.get("fonte") or None}
+            "acao_recomendada": None if resolved else (purpose.get("acao") or None), "fonte_necessaria": purpose.get("fonte") or None,
+            **_checklist_priority_fields(key, resolved)}
+
+
+def _checklist_priority_fields(key: str, resolved: bool) -> dict:
+    """v1.0.14: prioridade P0–P3, explicação simples, próxima ação e responsável (checklist_priority), aditivos ao contrato."""
+    from .checklist_priority import PRIORIDADE, PRIORITY_LABELS, P3, _RESPONSAVEL
+    from .risk_presenter import CATALOGO
+    spec = CATALOGO.get(key, {})
+    priority = PRIORIDADE.get(key, P3)
+    return {"prioridade": priority, "prioridade_label": PRIORITY_LABELS[priority], "explicacao": spec.get("significado"),
+            "proxima_acao": None if resolved else ((spec.get("acoes") or [None])[0]),
+            "responsavel": _RESPONSAVEL.get(spec.get("categoria", ""), "Investidor")}
 
 
 @app.get("/api/imoveis/{property_id}/checklist")
@@ -1276,7 +1288,13 @@ async def upload_document(property_id: int, file: UploadFile = File(...), docume
 def list_documents(property_id: int, db: Session = Depends(get_db)):
     property_or_404(db, property_id)
     documents = db.scalars(select(models.Document).where(models.Document.property_id == property_id).order_by(models.Document.created_at)).all()
-    return {"property_id": property_id, "documentos": [document_snapshot(document) for document in documents]}
+    from .document_status import for_property as document_situation
+    try:
+        situation = serialize(document_situation(db, db.get(models.Property, property_id)))
+    except Exception:  # noqa: BLE001 - a situação é complementar: nunca derruba a lista de documentos
+        log.exception("situacao documental falhou: property_id=%s", property_id)
+        situation = None
+    return {"property_id": property_id, "documentos": [document_snapshot(document) for document in documents], "situacao_documental": situation}
 
 @app.post("/api/documentos/{document_id}/versoes")
 async def add_document_version(document_id: int, file: UploadFile = File(...), document_type: str | None = Form(None), source: str | None = Form(None), db: Session = Depends(get_db)):
@@ -1404,6 +1422,16 @@ def analyze(property_id: int, request: AnalyzeRequest | None = None, db: Session
     # (antes era sempre "concluida", mesmo com todos os agentes falhando).
     status_info = consolidate_status(runs_for_status(orchestration), property_documents_summary(db, property_id))
     analysis.token_usage = {**analysis.token_usage, "status": status_info["status"], "status_codigo": status_info["codigo"], "status_mensagem": status_info["mensagem"], "avisos": status_info["avisos"]}
+    # v1.0.14: pesquisa automática (venda, aluguel, condomínio, portal do IPTU) antes do cálculo, quando há provedor configurado.
+    # Falha da pesquisa nunca derruba a análise (savepoint); sem provedor é no-op.
+    try:
+        from .market_research import run_if_configured
+        with db.begin_nested():
+            research = run_if_configured(db, prop)
+        if research is not None:
+            log.info("pesquisa automatica: property_id=%s status=%s comparaveis=%d", property_id, research["status"], len(research["comparaveis_criados"]))
+    except Exception:  # noqa: BLE001
+        log.exception("pesquisa automatica falhou: property_id=%s", property_id)
     finance = build_finance(prop)
     db.add(models.FinancialAnalysis(property_id=prop.id, analysis_version=analysis.version, inputs={"domains": domains, "chunks": orchestration.get("retrieved_chunk_ids", [])}, outputs=serialize(finance)))
     # Itens do checklist que os dados cadastrados já respondem (ex.: 2º leilão x avaliação) deixam de ser

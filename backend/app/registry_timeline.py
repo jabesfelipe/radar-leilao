@@ -39,6 +39,8 @@ TIPOS: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple((k, d, re.compile(p)
     ("DOACAO", "Doação", r"\bDOACAO\b|\bDOOU\b"),
     ("ARREMATACAO", "Arrematação / adjudicação", r"ARREMATACAO|ADJUDICACAO"),
     ("LEILAO", "Leilões", r"\bLEIL(AO|OES)\b"),
+    ("INTIMACAO", "Intimação do devedor", r"INTIMAC"),
+    ("INADIMPLENCIA", "Inadimplência / mora", r"INADIMPL|\bEM\s+MORA\b"),
     ("PENHORA", "Penhora", r"\bPENHORA\b"),
     ("INDISPONIBILIDADE", "Indisponibilidade", r"INDISPONIBILIDADE"),
     ("HIPOTECA", "Hipoteca", r"\bHIPOTECA\b"),
@@ -112,7 +114,8 @@ _CTX_PROTOCOLO = re.compile(r"PROTOCOL")
 _CTX_DOCUMENTO = re.compile(r"INSTRUMENTO|CONTRATO|ESCRITURA|CEDULA|TITULO|DATAD[OA]|REQUERIMENTO|MANDADO|OFICIO|FORMAL|CARTA")
 _CTX_ATO = re.compile(r"REGISTRAD|AVERBAD|REGISTRO|AVERBACAO|AVERBO|REGISTRO\s+EM")
 _PROTOCOL_NUMBER = re.compile(r"PROTOCOL\w*\s*(?:N\s*[º°O.]*\s*|SOB\s+O\s+N\s*[º°O.]*\s*)?([0-9][0-9.]{2,})")
-_CERT_CTX = re.compile(r"DATA\s*/\s*HORA|EMITID[AO]\s+EM|EXPEDID[AO]\s+EM|CERTIDAO\s+(EMITIDA|EXPEDIDA|GERADA)|CERTIFICO\s+E\s+DOU\s+FE")
+# Só contexto da PRÓPRIA certidão: "expedido em" solto (habite-se, alvará, carta) não é a emissão da certidão (validação do imóvel 7).
+_CERT_CTX = re.compile(r"DATA\s*/\s*HORA|CERTIDAO[^\n]{0,80}?(?:EMITIDA|EXPEDIDA|GERADA|LAVRADA)\s+EM|CERTIFICO\s+E\s+DOU\s+FE[^\n]{0,120}?\bEM\b")
 
 
 def _typed_dates(folded: str, original: str, start: int, end: int) -> list[dict[str, Any]]:
@@ -584,7 +587,61 @@ def timeline_for_property(db, property_id: int, today: date | None = None) -> di
     out = build_timeline(chain, document, today)
     out["titularidade"] = titularity(chain, out)
     out["situacao_atual"] = current_situation(chain, out)
+    out["pessoas"] = people(out)
+    tit = out["titularidade"]
+    out["situacao_atual"]["evidencia"] = tit.get("trecho")
     return {"property_id": property_id, "disponivel": True, **out}
+
+
+def people(timeline: dict[str, Any]) -> list[dict[str, Any]]:
+    """Pessoas envolvidas na matrícula, uma linha por pessoa, com todos os papéis e atos (v1.0.14).
+
+    "Perdeu o imóvel": devedor fiduciante de alienação seguida de consolidação em favor do credor. Construtora/incorporadora
+    vêm do campo ``construtora`` dos atos. Nada é inferido além do que a titularidade e os atos já registram."""
+    from .registry_chain import same_party
+    rows: list[dict[str, Any]] = []
+    events = timeline.get("eventos") or []
+    consolidated = any(e.get("tipo") == "CONSOLIDACAO" for e in events)
+    af_acts = [e.get("ato") for e in events if e.get("tipo") == "ALIENACAO_FIDUCIARIA"]
+    last_af = af_acts[-1] if af_acts else None
+
+    generic = {"CONSTRUTORA", "INCORPORADORA", "ENGENHARIA", "EMPREENDIMENTOS", "LTDA", "SERVICOS", "E", "S/A", "SA", "EIRELI", "ME"}
+
+    def find(name: str) -> dict[str, Any] | None:
+        f = fold(name)
+        return next((r for r in rows if fold(r["nome"]) == f or same_party(r["nome"], name)
+                     or (len(f) >= 8 and (f in fold(r["nome"]) or fold(r["nome"]) in f))), None)
+
+    def add(name: str | None, kind: str | None, role: str, act: str | None, date_: str | None, current: bool) -> None:
+        if not name:
+            return
+        words = [w for w in re.split(r"[\s/,.\-]+", fold(name)) if w]
+        if words and all(w in generic for w in words):
+            return          # só palavras genéricas ("INCORPORADORA/CONSTRUTORA"): rótulo lido como nome, não é pessoa
+        existing = find(name)
+        if existing is not None and len(name) > len(existing["nome"]) and role != "Construtora / incorporadora":
+            existing["nome"] = name
+        row = find(name)
+        if row is None:
+            row = {"nome": name, "tipo_pessoa": kind, "papeis": [], "atos": [], "atual": False, "perdeu_o_imovel": False, "primeira_data": date_}
+            rows.append(row)
+        if role not in row["papeis"]:
+            row["papeis"].append(role)
+        if act and act not in row["atos"]:
+            row["atos"].append(act)
+        row["atual"] = row["atual"] or current
+        if "evedor" in role and consolidated and act is not None and act == last_af:
+            row["perdeu_o_imovel"] = True
+    for p in (timeline.get("titularidade") or {}).get("partes") or []:
+        add(p["nome"], p.get("tipo_pessoa"), p["papel"], p.get("ato"), p.get("data"), p.get("status") == "ATUAL")
+    for e in events:
+        if e.get("construtora"):
+            add(e["construtora"], "JURIDICA", "Construtora / incorporadora", e.get("ato"), e.get("data"), False)
+    for r in rows:
+        r["texto"] = (("Proprietário(a) atual. " if r["atual"] else "") + "; ".join(r["papeis"])
+                      + (f" ({', '.join(r['atos'])})" if r["atos"] else "") + (". Perdeu o imóvel na consolidação." if r["perdeu_o_imovel"] else "."))
+    rows.sort(key=lambda r: (not r["atual"], not r["perdeu_o_imovel"], r["nome"]))
+    return rows
 
 
 def _fmt(iso: str | None) -> str | None:

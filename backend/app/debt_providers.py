@@ -116,6 +116,8 @@ class ManualAssistedProvider:
             "origin": raw.get("origin") or "Consulta assistida (fonte oficial informada pelo operador)",
             "external_id": raw.get("external_id"),
             "observations": raw.get("observations"),
+            "fiscal_year": raw.get("fiscal_year"),
+            "due_date": raw.get("due_date"),
         }
         return item
 

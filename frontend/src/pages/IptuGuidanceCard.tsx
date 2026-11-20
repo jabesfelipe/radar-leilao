@@ -28,6 +28,8 @@ export function IptuGuidanceCard({ propertyId }: { propertyId: number }) {
   const [year, setYear] = useState('')
   const [annual, setAnnual] = useState('')
   const [note, setNote] = useState('')
+  const [dueDate, setDueDate] = useState('')
+  const [installments, setInstallments] = useState(false)
 
   const loadStatus = async () => {
     try { setStatus(await getIptuStatus(propertyId)) } catch { setStatus(null) }
@@ -49,14 +51,18 @@ export function IptuGuidanceCard({ propertyId }: { propertyId: number }) {
       await runDebtQuery(propertyId, {
         debt_type_code: 'IPTU', municipality_id: data?.municipality_id ?? null, identifier: data?.inscricao_imobiliaria ?? null,
         mensagem: note.trim() || null,
-        ...(hasDebt === 'NAO' ? { sem_ocorrencia: true } : { itens: [{ updated_amount: debt, competence: year.trim() || null, origin, observations: note.trim() || null }] }),
+        ...(hasDebt === 'NAO' ? { sem_ocorrencia: true } : { itens: [{
+          updated_amount: debt, competence: year.trim() || null, fiscal_year: /^\d{4}$/.test(year.trim()) ? Number(year.trim()) : null,
+          due_date: dueDate || null, origin,
+          observations: [installments ? 'Débito parcelado.' : '', note.trim()].filter(Boolean).join(' ') || null,
+        }] }),
       })
       if (yearly !== null) {
         const current = await getFinance(propertyId)
         await saveFinanceAssumptions(propertyId, { ...(current.premissas ?? {}), iptu_anual: yearly, iptu_anual_origem: origin.slice(0, 240) })
       }
       setSaved('Resultado registrado. Débitos, Financeiro e Riscos passam a usar este valor.')
-      setAmount(''); setYear(''); setAnnual(''); setNote('')
+      setAmount(''); setYear(''); setAnnual(''); setNote(''); setDueDate(''); setInstallments(false)
       await loadStatus()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Não foi possível registrar o resultado.')
@@ -100,7 +106,9 @@ export function IptuGuidanceCard({ propertyId }: { propertyId: number }) {
           {hasDebt === 'SIM' ? (
             <>
               <label>Valor do débito em aberto (R$)<input aria-label="Valor do débito em aberto" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" /></label>
-              <label>Exercício(s)<input aria-label="Exercício" value={year} onChange={(e) => setYear(e.target.value)} placeholder="ex.: 2024-2025" /></label>
+              <label>Exercício(s)<input aria-label="Exercício" value={year} onChange={(e) => setYear(e.target.value)} placeholder="ex.: 2025" /></label>
+              <label>Vencimento (opcional)<input aria-label="Vencimento" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></label>
+              <label><input type="checkbox" checked={installments} onChange={(e) => setInstallments(e.target.checked)} /> Débito parcelado</label>
             </>
           ) : null}
           <label>IPTU anual do carnê (R$, opcional)<input aria-label="IPTU anual" value={annual} onChange={(e) => setAnnual(e.target.value)} inputMode="decimal" /></label>
