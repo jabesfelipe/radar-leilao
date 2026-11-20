@@ -2,12 +2,14 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
-## Não publicado — auditoria da análise v6 (branch `fix/auditoria-analise-v6`)
+## v1.0.13 — 2026-11-20 — auditoria da análise registral e titularidade
 
-Sem migration e sem tabela nova. Detalhes em `docs/06-quality/auditoria-v6/AUDITORIA-ANALISE-V6.md`.
+Sem migration e sem tabela nova (schema em `0026`); rollback de imagem para a v1.0.12 é compatível. Integrada pela PR #8.
+Detalhes em `docs/06-quality/auditoria-v6/AUDITORIA-ANALISE-V6.md`. As correções melhoram a leitura e a apresentação; não
+resolvem pendências que dependem de documentos fora da matrícula (certidões, extrato do contrato, valor do condomínio, IPTU).
 
 - **Titularidade.** O titular exibido vem do último ato de transmissão ou consolidação da matrícula; o campo gravado no
-  cadastro da matrícula (que podia ser o proprietário anterior) aparece como "Titular (cadastro)", com aviso de divergência,
+  cadastro da matrícula (que podia ser o proprietário anterior) aparece como "Titular informado no cadastro", com aviso de divergência,
   e nunca é alterado. A linha do tempo ganha a tabela de titularidade (nome, papel, ato, data, fonte, trecho, atual ou
   histórico, confiança); sem ato legível, "Titularidade atual não confirmada".
 - **Vaga (item 16).** Vaga descrita como "direito de uso exclusivo ... referente a VAGA" (descrição antes da palavra) é lida
