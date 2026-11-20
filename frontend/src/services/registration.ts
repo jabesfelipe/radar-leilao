@@ -23,11 +23,18 @@ export type RegistrationCreate = {
   observations?: string
 }
 
+// Auditoria v6: titular atual pela sequência de atos da matrícula x titular gravado no cadastro.
+export type HolderSummary = {
+  titular_atual: string | null; ato: string | null; situacao: 'DETERMINADA' | 'INCONCLUSIVO'
+  titular_cadastro: string | null; divergencia_cadastro: boolean; texto: string
+}
+
 export type RegistrationResponse = {
   property_id: number
   atual: PropertyRegistration | null
   historico: PropertyRegistration[]
   alteracoes: unknown[]
+  titularidade?: HolderSummary
 }
 
 export type AuctionNotice = {
@@ -113,12 +120,30 @@ export type TimelineEvent = {
   partes: TimelineParty[]; valor: { valor: number | string; texto: string; rotulo: string } | null; construtora: string | null
   conclusao_obra: boolean; trecho: string; chunk_id: number | null; pagina: number | null; secao: string | null
   documento: { document_id: number | null; document_version_id: number | null; nome: string } | null; fonte: string
+  // Revisão PR #8: linguagem simples para o investidor.
+  titulo_simples?: string; ato_descricao?: string; explicacao?: string; envolvidos?: { nome: string; papel: string }[]
+  evidencia?: { ato: string; trecho: string | null; fonte: string; pagina: number | null; confianca: string }; aviso_ocr?: string
+}
+export type CurrentSituation = {
+  titular_atual: string | null; titulo: string; texto: string; ato: string | null; data: string | null; confianca: string; atencao: string[]
 }
 export type RegistryTimeline = {
   property_id: number; disponivel: boolean; motivo?: string; eventos: TimelineEvent[]
   idade: { anos: number | null; estimada: boolean; base: string | null; texto: string }
   datas_chave: { aquisicao?: { data: string; ato: string } | null; consolidacao?: { data: string; ato: string } | null }
   aviso_nomes?: string; atos_lidos: string[]
+  titularidade?: Titularity
+  eventos_recentes_primeiro?: TimelineEvent[]
+  situacao_atual?: CurrentSituation
+}
+
+export type TitularityRow = {
+  nome: string; tipo_pessoa: 'FISICA' | 'JURIDICA' | null; papel: string; ato: string | null; data: string | null; fonte: string | null
+  trecho: string | null; status: 'ATUAL' | 'HISTORICO'; confianca: string; como_identificado: string | null; observacao: string | null
+}
+export type Titularity = {
+  situacao: string; titular_atual: string | null; ato: string | null; trecho: string | null; confianca: string; texto: string
+  partes: TitularityRow[]; aviso: string | null
 }
 
 export function getRegistryTimeline(propertyId: number): Promise<RegistryTimeline> {

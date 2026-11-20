@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { FileSignature, Pencil, Plus, RefreshCw } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section, Textarea } from '../components/ui'
-import { createRegistration, getRegistration, updateRegistration, type PropertyRegistration } from '../services/registration'
+import { createRegistration, getRegistration, updateRegistration, type HolderSummary, type PropertyRegistration } from '../services/registration'
 import { RegistryTimelineCard } from './RegistryTimelineCard'
 
 type RegistrationSectionProps = {
@@ -35,6 +35,7 @@ function formatDate(value?: string | null) {
 export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
   const [current, setCurrent] = useState<PropertyRegistration | null>(null)
   const [history, setHistory] = useState<PropertyRegistration[]>([])
+  const [holder, setHolder] = useState<HolderSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [formOpen, setFormOpen] = useState(false)
@@ -53,6 +54,7 @@ export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
       const data = await getRegistration(propertyId)
       setCurrent(data.atual)
       setHistory(data.historico ?? [])
+      setHolder(data.titularidade ?? null)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar a matrícula.')
     } finally {
@@ -201,10 +203,12 @@ export function RegistrationSection({ propertyId }: RegistrationSectionProps) {
                 <Fact label="Cartório" value={current.registry_office} />
                 <Fact label="Comarca" value={current.comarca} />
                 <Fact label="Consulta" value={formatDate(current.consultation_date)} />
-                <Fact label="Titular" value={current.holder} />
+                <Fact label="Titular atual (pela matrícula)" value={holder ? (holder.titular_atual ? `${holder.titular_atual} (${holder.ato})` : 'Titularidade atual não confirmada') : current.holder} />
+                {holder ? <Fact label="Titular informado no cadastro" value={current.holder} /> : null}
                 <Fact label="Observações" value={current.observations} />
               </dl>
             )}
+            {holder?.divergencia_cadastro ? <Alert tone="warning">{holder.texto}</Alert> : null}
           </Card>
 
           {history.length > 0 && (

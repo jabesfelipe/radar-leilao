@@ -508,9 +508,14 @@ def _read_checklist_facts(chain: RegistryChain, folded: str, add) -> None:
     vaga = _VAGA_RE.search(folded)
     if vaga:
         window = folded[vaga.start():vaga.start() + 260]
-        value = "PROPRIA" if _VAGA_PROPRIA.search(window) else ("VINCULADA" if _VAGA_VINCULADA.search(window) else "MENCIONADA")
+        # A descrição costuma vir ANTES da palavra "vaga" ("direito de uso exclusivo de uma área descoberta ... referente a VAGA 132"):
+        # o vínculo é procurado também no trecho anterior; matrícula própria, só no trecho que descreve a vaga (auditoria v6).
+        before = folded[max(0, vaga.start() - 160):vaga.start()]
+        value = "PROPRIA" if _VAGA_PROPRIA.search(window) else ("VINCULADA" if _VAGA_VINCULADA.search(before + window) else "MENCIONADA")
         act = act_at(chain, vaga.start())
-        add(VAGA, value, vaga.start(), vaga.start() + 260, act.label if act else None)
+        link = _VAGA_VINCULADA.search(before) if value == "VINCULADA" and not _VAGA_VINCULADA.search(window) else None
+        start = vaga.start() - len(before) + link.start() if link else vaga.start()
+        add(VAGA, value, start, vaga.start() + 260, act.label if act else None)
 
 
 def conclusions(chain: RegistryChain, area_total: Any = None, area_private: Any = None) -> list[dict[str, Any]]:
@@ -587,6 +592,32 @@ def conclusions(chain: RegistryChain, area_total: Any = None, area_private: Any 
             text += " Confere com o cadastro."
         out.append({"category": "DOCUMENTAL", "fact": facts[0], "text": text})
     return out
+
+
+_PRAZO_MESES = re.compile(r"\bPRAZO\s+(?:DE\s+)?(\d{2,3})\b[^.;]{0,60}?\bMESES\b")
+_PRIMEIRA_PRESTACAO = re.compile(r"PRIMEIR[AO]\s+(?:PRESTACAO|PARCELA|ENCARGO)[^.;]{0,30}?\bEM\s+")
+
+
+def contract_terms(chain: RegistryChain) -> dict[str, Any] | None:
+    """Prazo (meses) e data da 1ª prestação lidos no registro da alienação fiduciária (auditoria v6).
+
+    Só o que está escrito no ato; sem os dois dados devolve None. Não informa pagamentos: serve para um LIMITE SUPERIOR
+    do que poderia ter sido quitado até a consolidação, nunca para o percentual efetivamente pago."""
+    from .registry_timeline import _parse_date
+    af = chain.fiduciary
+    if af is None or not chain.original:
+        return None
+    act = act_at(chain, af.position)
+    if act is None:
+        return None
+    folded = fold(chain.original)
+    prazo = _PRAZO_MESES.search(folded, act.start, act.end)
+    first = _PRIMEIRA_PRESTACAO.search(folded, act.start, act.end)
+    when = _parse_date(folded, chain.original, first.end(), min(act.end, first.end() + 40)) if first else None
+    if prazo is None or when is None:
+        return None
+    return {"ato": act.label, "prazo_meses": int(prazo.group(1)), "primeira_prestacao": when["data"], "primeira_prestacao_texto": when["data_texto"],
+            "trecho": _excerpt(chain.original, prazo.start(), min(act.end, prazo.end() + 160))}
 
 
 def registry_for_property(db, property_id: int) -> RegistryChain | None:

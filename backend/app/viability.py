@@ -298,6 +298,59 @@ def _buyer_share(debt: Decimal, rule: str | None, cap: Decimal | None) -> tuple[
     return buyer, debt - buyer
 
 
+def _fmt_date(iso: str | None) -> str:
+    return "/".join(reversed(iso.split("-"))) if iso else "data não lida"
+
+
+def _pending_hint(key: str, info: dict, db, municipality_id) -> tuple[str, dict]:
+    """Como obter o valor de uma dívida ainda desconhecida (auditoria v6). Texto e campos; nada vira valor aqui."""
+    if key == "condominio_atraso":
+        unavailable = info.get("estimativa_indisponivel")
+        if not unavailable:
+            return "", {}
+        memo = unavailable.get("memoria") or {}
+        period, months = "", None
+        if memo.get("data_aquisicao") and memo.get("data_consolidacao"):
+            from datetime import date as _date
+            a, c = _date.fromisoformat(memo["data_aquisicao"]), _date.fromisoformat(memo["data_consolidacao"])
+            months = max(0, (c.year - a.year) * 12 + (c.month - a.month) - (1 if c.day < a.day else 0))
+            cap = memo.get("teto_periodo_meses")
+            period = (f"período estimado de {_fmt_date(memo['data_aquisicao'])} ({memo.get('origem_data_aquisicao')}) a "
+                      f"{_fmt_date(memo['data_consolidacao'])} ({memo.get('origem_data_consolidacao')}), {months} meses"
+                      + (f" (o cálculo usa no máximo {cap})" if cap and months > int(cap) else "") + "; ")
+        text = (f" Estimativa condominial pela matrícula NÃO calculada: {period}{unavailable.get('motivo') or 'não calculável.'} Informe o valor "
+                "mensal em Débitos > Estimativa condominial, cadastre comparáveis com condomínio ou preencha o padrão no Admin: o Radar calcula os "
+                "cenários baixo, provável e alto (com multa, juros e correção) e aplica a regra da venda depois.")
+        return text, {"estimativa_condominial": {"possivel": False, "motivo": unavailable.get("motivo"), "meses_periodo": months,
+                                                 "teto_meses": memo.get("teto_periodo_meses"),
+                                                 "data_aquisicao": memo.get("data_aquisicao"), "data_consolidacao": memo.get("data_consolidacao"),
+                                                 "origem_datas": [memo.get("origem_data_aquisicao"), memo.get("origem_data_consolidacao")]}}
+    if key == "tributos_atraso" and db is not None and municipality_id is not None:
+        try:
+            from .municipal_iptu import guidance
+            g = guidance(db, municipality_id)
+        except Exception:  # noqa: BLE001 - orientação é complemento
+            g = None
+        if not g:
+            return "", {}
+        if g.get("automatizado"):
+            return f" IPTU de {g.get('municipio')}: consulta automatizada disponível na Central de Débitos.", {"orientacao_iptu": g}
+        return (f" IPTU de {g.get('municipio')}: consulta manual assistida ({g.get('motivo')}). Veja Débitos > Orientação de IPTU (portal, dados "
+                "necessários e passo a passo) e registre o valor encontrado na Central de Débitos."), {
+            "orientacao_iptu": {k: g.get(k) for k in ("municipio", "modo", "motivo", "urls", "identificador")}}
+    return "", {}
+
+
+def _registry_condo_estimate(db, prop) -> dict | None:
+    """Estimativa condominial pelo período da matrícula (``estimates_service.estimate_from_registry``), sem persistir.
+    Sessão ou imóvel incompletos (testes com objetos simples) devolvem None: é complemento, nunca bloqueia o cálculo."""
+    try:
+        from .estimates_service import estimate_from_registry
+        return estimate_from_registry(db, prop)
+    except Exception:  # noqa: BLE001 - leitura auxiliar; a linha segue pendente
+        return None
+
+
 def debt_exposure(db, prop, assumptions: dict | None = None) -> dict[str, dict]:
     """Valor da dívida de condomínio e de IPTU/tributos em atraso, com a fonte, sem aplicar regra. Leitura apenas."""
     from . import models
@@ -362,6 +415,19 @@ def debt_exposure(db, prop, assumptions: dict | None = None) -> dict[str, dict]:
                 where = " + ".join((["Central de Débitos"] if estimated else []) + (["cadastro de dívidas"] if estimated_legacy else []))
                 info["estimativa"] = {"id": None, "base": total, "conservador": total, "baixo": None, "confianca": "BAIXA",
                                       "origem": f"estimativa cadastrada ({where})"}
+            elif key == "condominio_atraso" and db is not None and pid is not None:
+                # Auditoria v6: sem estimativa registrada, a MESMA função da estimativa pela matrícula (estimates_service) roda aqui,
+                # sem gravar. Só vira valor com o valor mensal conhecido (informado, comparáveis ou padrão do Admin); senão o motivo
+                # e o período lido na matrícula ficam na linha pendente.
+                auto = _registry_condo_estimate(db, prop)
+                if auto is not None and auto.get("possivel"):
+                    scen, memo = auto["cenarios"], auto.get("memoria_calculo") or {}
+                    info["estimativa"] = {"id": None, "base": _q(_d(scen["provavel"])), "conservador": _q(_d(scen["conservador"])),
+                                          "baixo": _q(_d(scen["otimista"])), "confianca": auto.get("confianca") or "BAIXA", "automatica": True,
+                                          "origem": f"estimativa automática pela matrícula ({memo.get('origem_data_aquisicao')} → {memo.get('origem_data_consolidacao')}, "
+                                                    f"{memo.get('periodo_considerado_meses')} meses; valor mensal: {memo.get('origem_valor_mensal')}; não registrada)"}
+                elif auto is not None:
+                    info["estimativa_indisponivel"] = {"motivo": auto.get("motivo"), "memoria": auto.get("memoria_calculo") or {}}
             if info["estimativa"] is not None:
                 info.update({"fonte": FONTE_ESTIMATIVA, "origem": info["estimativa"]["origem"]
                              + ("; consulta indisponível ou em validação" if unavailable else "")})
@@ -470,6 +536,9 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
         if info["fonte"] == FONTE_ESTIMATIVA:
             caixa_fields["natureza_valor"] = "ESTIMATIVA"
         suffix = (" " + " ".join(ressalvas)) if ressalvas else ""
+        # Auditoria v6: dívida sem valor diz COMO obter o valor (estimativa pela matrícula, consulta de IPTU do município).
+        hint, hint_fields = _pending_hint(key, info, db, municipality_id) if info["valor"] is None and info["fonte"] != FONTE_ESTIMATIVA else ("", {})
+        caixa_fields.update(hint_fields)
         debt = info["valor"]
         if debt is not None:
             buyer, seller = _buyer_share(debt, kind, cap)
@@ -512,15 +581,15 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
             lines.append(_line(key, label, None, PENDENTE, info["origem"], conservador=cap,
                                tratamento_conservador=f"teto de responsabilidade do comprador ({_brl(cap)})",
                                tratamento_base="sem valor: fora da soma (cenário incompleto; veja o efeito do teto)",
-                               observacao=f"Dívida desconhecida.{unavailable} {rule}{rule_origin} O assumido pelo vendedor só pode ser calculado com o valor da dívida.",
-                               **caixa_fields))
+                               observacao=f"Dívida desconhecida.{unavailable} {rule}{rule_origin} O assumido pelo vendedor só pode ser calculado com o valor da dívida."
+                               + hint, **caixa_fields))
         else:
             unavailable = " Consulta indisponível ou em validação: não é zero." if info["fonte"] == FONTE_INDISPONIVEL else ""
             caixa_fields["exposicao"] = {"divida_potencial": None, "divida_confirmada": None, "responsabilidade_comprador": None, "responsabilidade_caixa": None,
                                          "limite": None, "valor_considerado": {"base": None, "conservador": None}}
             lines.append(_line(key, label, None, PENDENTE, info["origem"] if info["fonte"] == FONTE_INDISPONIVEL else "não informado",
                                observacao=("Sem valor da dívida e sem regra de limitação: risco sem teto conhecido." if rule is None
-                                           else f"Sem valor da dívida. {rule}{rule_origin}") + unavailable,
+                                           else f"Sem valor da dívida. {rule}{rule_origin}") + unavailable + hint,
                                critico=True, **caixa_fields))
     # Reforma, regularização, desocupação.
     reforma = costs_by_key.get("reforma") if "reforma" in costs_by_key else _d(assumptions.get("reforma"))
@@ -529,11 +598,19 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
         lines.append(_line("reforma", "Reforma", reforma, INFORMADO if "reforma" in costs_by_key else ESTIMADO, "custo cadastrado" if "reforma" in costs_by_key else "premissa do imóvel"))
     else:
         base_m2 = premises["viabilidade.reserva_reforma_m2_base"]["valor"]
-        lines.append(_line("reforma", "Reforma", None, PENDENTE, "estado de conservação não vistoriado",
-                           conservador=(reserve_m2 * area) if area else None, base=(base_m2 * area) if area else None,
-                           tratamento_base=f"reserva de {_brl(base_m2)}/m² ({premises['viabilidade.reserva_reforma_m2_base']['origem']})",
-                           tratamento_conservador=f"reserva de {_brl(reserve_m2)}/m² ({premises['viabilidade.reserva_reforma_m2']['origem']})",
-                           observacao="Sem vistoria: base usa reparo leve; conservador, reforma mais ampla."))
+        # Auditoria v6: a reserva já entrava no cálculo, mas aparecia só como "não vistoriado". Exibe o valor estimado, a origem
+        # (premissa padrão do Radar, ajustável) e a confiança baixa; continua PENDENTE (não é vistoria nem orçamento).
+        base_value, cons_value = ((base_m2 * area) if area else None), ((reserve_m2 * area) if area else None)
+        area_txt = f" × {str(_q(area)).replace('.', ',')} m²" if area else " (área privativa não informada: sem valor)"
+        lines.append(_line("reforma", "Reforma", None, PENDENTE, "premissa padrão do Radar (sem vistoria nem orçamento)",
+                           conservador=cons_value, base=base_value,
+                           tratamento_base=(f"Reforma estimada: {_brl(base_value)} = {_brl(base_m2)}/m²{area_txt}" if base_value is not None else f"reserva de {_brl(base_m2)}/m²{area_txt}")
+                           + f" — premissa padrão do Radar ({premises['viabilidade.reserva_reforma_m2_base']['origem']}); confiança baixa",
+                           tratamento_conservador=(f"Reforma ampla estimada: {_brl(cons_value)} = {_brl(reserve_m2)}/m²{area_txt}" if cons_value is not None else f"reserva de {_brl(reserve_m2)}/m²{area_txt}")
+                           + f" ({premises['viabilidade.reserva_reforma_m2']['origem']})",
+                           observacao="ESTIMATIVA por premissa padrão, sem vistoria: base usa reparo leve; conservador, reforma mais ampla. Valor ajustável em "
+                                      "Admin > Premissas financeiras (padrão por m²) ou em Financeiro > Premissas (reforma do imóvel, que substitui o padrão).",
+                           confianca="BAIXA", premissa_padrao=True))
     regularizacao = _d(assumptions.get("regularizacao"))
     if regularizacao is not None:
         lines.append(_line("regularizacao", "Regularização", regularizacao, ESTIMADO, assumptions.get("regularizacao_origem") or "premissa do imóvel"))

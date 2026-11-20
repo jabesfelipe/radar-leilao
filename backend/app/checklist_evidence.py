@@ -42,6 +42,32 @@ def _reforma_reference(r, intel: dict | None, assumptions: dict) -> tuple[Decima
         from .viability import resolve_premises
         premise = resolve_premises(r.db, assumptions).get(REFORMA_PREMISE_KEY)
     return Decimal(str(premise["valor"])), str(premise["origem"])
+
+
+def _quitacao_upper_bound(chain, cons) -> str:
+    """Item 04 (auditoria v6): limite SUPERIOR do que poderia estar quitado, pelo prazo e pela 1ª prestação lidos na matrícula.
+
+    Conta as parcelas vencidas entre a 1ª prestação e a consolidação como se todas tivessem sido pagas (amortização linear);
+    não é o percentual pago e não muda o estado do item. Sem prazo, 1ª prestação ou data da consolidação: texto vazio."""
+    from datetime import date
+    from .registry_chain import act_at, contract_terms, fold
+    from .registry_timeline import _parse_date
+    terms = contract_terms(chain)
+    cons_act = act_at(chain, cons.position) if cons is not None else None
+    when = _parse_date(fold(chain.original), chain.original, cons_act.start, cons_act.end) if cons_act is not None else None
+    if not terms or not when or not terms["prazo_meses"]:
+        return ""
+    first, end = date.fromisoformat(terms["primeira_prestacao"]), date.fromisoformat(when["data"])
+    if end < first:
+        return ""
+    due = (end.year - first.year) * 12 + (end.month - first.month) + (1 if end.day >= first.day else 0)
+    due = max(0, min(due, terms["prazo_meses"]))
+    share = Decimal(due) / Decimal(terms["prazo_meses"])
+    return (f"Limite teórico pela própria matrícula: o contrato tinha prazo de {terms['prazo_meses']} meses ({terms['ato']}; 1ª prestação em "
+            f"{terms['primeira_prestacao_texto']}). Até a consolidação ({when['data_texto']}), venceram no máximo {due} de {terms['prazo_meses']} "
+            f"parcelas, cerca de {_pct(share.quantize(Decimal('0.001')))} do prazo. Supondo todas as parcelas vencidas pagas, a quitação não passaria "
+            "disso (na Tabela Price, seria menos). Isso não significa que esse percentual foi pago: é um teto calculado, não o valor pago; "
+            "amortizações extras (ex.: FGTS) não aparecem na matrícula. ")
 _BLOCKING_ONUS = ("penhora", "indisponibilidade", "arresto", "sequestro")
 REGISTRY_KEYS = ("INTIMACAO_PESSOAL", "INTIMACAO_EDITAL", "NOTIFICACAO_DOIS_LEILOES", "QUITACAO_80", "GARANTIA_DIVIDA_TERCEIRO",
                  "ACAO_QUESTIONAMENTO", "LEILOES_NEGATIVOS_AVERBADOS", "CONSOLIDACAO_REGISTRADA", "PENHORA_INDISPONIBILIDADE",
@@ -232,6 +258,7 @@ def resolve_registry_items(db, prop: models.Property, analysis, execution, chain
     valor = chain.of(VALOR_DIVIDA)
     r.note("QUITACAO_80", (f"a matrícula registra a dívida garantida ({act(valor[0])}: {valor[0].value}), mas não os pagamentos feitos. "
                            if valor else "a matrícula não registra pagamentos do financiamento. ")
+           + _quitacao_upper_bound(chain, cons)
            + "O percentual quitado só sai do extrato ou da planilha de evolução do contrato: solicitar ao vendedor.", ev(*valor[:1]))
 
     # ---- 05: garantia de dívida de terceiro -------------------------------------------------------------------------
@@ -691,7 +718,15 @@ def _market_and_finance_items(r: _Resolver) -> None:
         else:
             r.note("REFORMA_GRANDE", f"reforma estimada de {_brl(value)} informada, mas sem preço de aquisição para medir o porte. Cadastrar o valor da compra.", ids)
     else:
-        r.note("REFORMA_GRANDE", "sem vistoria nem estimativa de reforma nas premissas. Vistoriar o imóvel ou informar a estimativa com fonte.")
+        # Auditoria v6: o financeiro usa a premissa padrão de reforma; o item diz qual é, sem tratá-la como resposta (não é vistoria).
+        from .viability import resolve_premises
+        premises = resolve_premises(r.db, assumptions)
+        area = r.prop.private_area_m2 or r.prop.area_m2
+        per_m2 = (premises.get("viabilidade.reserva_reforma_m2_base") or {}).get("valor")
+        default = (f" O cálculo financeiro usa a premissa padrão do Radar: reforma estimada de {_brl(Decimal(str(per_m2)) * Decimal(str(area)))} "
+                   f"({_brl(per_m2)}/m² × {str(area).replace('.', ',')} m²; confiança baixa, ajustável nas premissas). A premissa não diz se o imóvel "
+                   "precisa de grandes obras." if per_m2 is not None and area not in (None, 0) else "")
+        r.note("REFORMA_GRANDE", "sem vistoria nem estimativa de reforma nas premissas." + default + " Vistoriar o imóvel ou informar a estimativa com fonte.")
     r.note("REFORMA_LIQUIDEZ", "sem vistoria registrada" + (f"; liquidez estimada {classe}" if classe else "")
            + ". Vistoriar o imóvel e avaliar se obras aumentariam a procura na revenda.")
 

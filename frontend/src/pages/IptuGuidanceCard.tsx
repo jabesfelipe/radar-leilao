@@ -25,6 +25,7 @@ export function IptuGuidanceCard({ propertyId }: { propertyId: number }) {
           <p className="market-obs"><Badge tone="warning" size="sm">Consulta manual assistida</Badge> {g.municipio}: {g.motivo}</p>
           {g.fonte ? <p className="market-obs">{g.fonte}{g.orgao ? ` · ${g.orgao}` : ''}</p> : null}
           {g.identificador ? <p className="market-obs">Identificador: {g.identificador}{data?.inscricao_imobiliaria ? ` · inscrição cadastrada: ${data.inscricao_imobiliaria}` : ''}</p> : null}
+          {data?.titular_matricula ? <p className="market-obs">{data.titular_matricula.texto} {data.titular_matricula.aviso}</p> : null}
           {(g.exigencias ?? []).length > 0 ? <ul className="market-intel-reasons" aria-label="Exigências do portal">{g.exigencias!.map((e) => <li key={e}>{e}</li>)}</ul> : null}
           <ol className="market-intel-reasons" aria-label="Passo a passo">{g.passos.map((p) => <li key={p}>{p}</li>)}</ol>
           <ul className="market-intel-reasons" aria-label="Portais oficiais">

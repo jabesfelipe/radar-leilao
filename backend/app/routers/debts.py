@@ -140,7 +140,15 @@ def iptu_guidance(property_id: int, db: Session = Depends(get_db)):
     from ..viability import municipality_id_for
     debts_service.seed_all(db); db.commit()   # idempotente: municípios, cobertura e fontes de IPTU (como GET /admin/cobertura)
     municipality_id = municipality_id_for(db, prop)
+    # Auditoria v6: quem é o titular atual pela matrícula (a consulta costuma pedir o CPF/CNPJ do proprietário). O cadastro da
+    # prefeitura pode ainda estar em nome do ex-devedor: o aviso vai junto.
+    from ..registry_timeline import holder_summary
+    holder = holder_summary(db, property_id, None)
+    titular = {"nome": holder["titular_atual"], "ato": holder["ato"], "texto": holder["texto"],
+               "aviso": "O cadastro municipal pode continuar em nome do proprietário anterior (ex-devedor) até a transferência: confira pela inscrição "
+                        "imobiliária."}
     return {"property_id": property_id, "municipality_id": municipality_id, "inscricao_imobiliaria": getattr(prop, "inscription", None),
+            "titular_matricula": titular,
             "orientacao": guidance(db, municipality_id) if municipality_id is not None else None,
             "motivo": None if municipality_id is not None else "Município do imóvel não cadastrado na cobertura (Admin > Municípios)."}
 

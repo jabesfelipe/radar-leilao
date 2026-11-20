@@ -466,7 +466,10 @@ def list_registrations(property_id: int, db: Session = Depends(get_db)):
     prop = property_or_404(db, property_id)
     records = db.scalars(select(models.PropertyRegistration).where(models.PropertyRegistration.property_id == property_id).order_by(models.PropertyRegistration.created_at)).all()
     history = db.scalars(select(models.EntityHistory).where(models.EntityHistory.property_id == property_id, models.EntityHistory.entity_type == "PropertyRegistration").order_by(models.EntityHistory.created_at)).all()
-    return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history}
+    # Auditoria v6: titular atual pela sequência de atos da matrícula (o campo gravado pode ser do proprietário anterior).
+    from .registry_timeline import holder_summary
+    return {"property_id": prop.id, "atual": records[-1] if records else None, "historico": records, "alteracoes": history,
+            "titularidade": holder_summary(db, property_id, records[-1].holder if records else None)}
 
 @app.get("/api/imoveis/{property_id}/matricula/linha-do-tempo")
 def registry_timeline(property_id: int, db: Session = Depends(get_db)):

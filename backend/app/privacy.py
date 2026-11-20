@@ -200,7 +200,13 @@ def redact_pii(text: Any, *, force: bool = False) -> Any:
     out = text
     for pattern, replacement in _PII_PATTERNS:
         out = pattern.sub(replacement, out)
+    out = _OCR_LABELED_CPF.sub(lambda m: m.group("label") + "[CPF]" if sum(c.isdigit() for c in m.group("num")) >= 8 else m.group(0), out)
     return _BARE_CPF.sub(lambda m: "[CPF]" if _valid_cpf(m.group(0)) else m.group(0), out)
+
+
+# CPF rotulado com erro de OCR (auditoria v6, ex. fictício: "CPF/MF nº 529.98t.247-25"): letra no lugar de dígito escapa do padrão
+# numérico. Depois do rótulo, um token sem espaço com ao menos 8 dígitos é mascarado; o rótulo é preservado.
+_OCR_LABELED_CPF = re.compile(r"(?i)(?P<label>\bcpf(?:/mf)?\.?\s*(?:n[ºo.°]*\s*)?[:\-]?\s*)(?P<num>[\dOoIlSsTtBZz][\dOoIlSsTtBZz.\-/]{9,17}[\dOoIlSsTtBZz])")
 
 
 # CPF só com dígitos e sem rótulo (v1.0.4): mascarado apenas se os dígitos verificadores forem válidos, para não
