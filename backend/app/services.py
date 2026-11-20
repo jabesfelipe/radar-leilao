@@ -1255,9 +1255,13 @@ def _front_summary_matricula(db: Session, prop: "models.Property") -> dict[str, 
                 "ultima_consulta": front.last_consulted_at if front else None,
                 "pendencias": ["Matrícula atualizada não importada/consultada."],
                 "achados": 0, "revisado": bool(front.reviewed) if front else False}
+    from .registry_timeline import holder_summary
+    holder = holder_summary(db, prop.id, registration.holder)
     return {"frente": "MATRICULA",
             "status": front.status if front else "CONSULTADO",
-            "titular": registration.holder,
+            # Auditoria v6: titular atual pela sequência de atos; o gravado no cadastro só vale quando não há cadeia legível.
+            "titular": holder["titular_atual"] or (None if holder["divergencia_cadastro"] else registration.holder),
+            "titularidade": holder,
             "matricula": registration.registration_number,
             "cartorio": registration.registry_office,
             "comarca": registration.comarca,

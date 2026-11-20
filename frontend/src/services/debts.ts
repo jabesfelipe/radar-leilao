@@ -86,6 +86,7 @@ export function runDebtQuery(propertyId: number, payload: Record<string, unknown
 // v1.0.12: orientação da consulta manual assistida do IPTU do município do imóvel.
 export type IptuGuidance = {
   property_id: number; municipality_id: number | null; inscricao_imobiliaria: string | null; motivo: string | null
+  titular_matricula?: { nome: string | null; ato: string | null; texto: string; aviso: string } | null
   orientacao: {
     municipio: string; automatizado: boolean; modo: string; motivo: string; fonte?: string; orgao?: string; urls: string[]; identificador?: string
     exigencias?: string[]; login?: boolean; api_publica?: boolean; captcha_ou_bloqueio?: string; termos_uso?: string; passos: string[]; aviso?: string

@@ -2,7 +2,26 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
-## Não publicado — inteligência do imóvel (branch `feat/inteligencia-imovel`)
+## Não publicado — auditoria da análise v6 (branch `fix/auditoria-analise-v6`)
+
+Sem migration e sem tabela nova. Detalhes em `docs/06-quality/auditoria-v6/AUDITORIA-ANALISE-V6.md`.
+
+- **Titularidade.** O titular exibido vem do último ato de transmissão ou consolidação da matrícula; o campo gravado no
+  cadastro da matrícula (que podia ser o proprietário anterior) aparece como "Titular (cadastro)", com aviso de divergência,
+  e nunca é alterado. A linha do tempo ganha a tabela de titularidade (nome, papel, ato, data, fonte, trecho, atual ou
+  histórico, confiança); sem ato legível, "Titularidade atual não confirmada".
+- **Vaga (item 16).** Vaga descrita como "direito de uso exclusivo ... referente a VAGA" (descrição antes da palavra) é lida
+  como vinculada à unidade, sem matrícula própria.
+- **Quitação (item 04).** Com prazo e 1ª prestação no registro da alienação, o item mostra o TETO do que poderia estar
+  quitado até a consolidação; continua pendente (não é o valor pago).
+- **Reforma.** A reserva padrão por m² que já entrava no cálculo aparece como "Reforma estimada: R$ X — premissa padrão do
+  Radar; confiança baixa", ajustável no Admin ou nas premissas do imóvel; o item 21 informa a premissa sem tratá-la como vistoria.
+- **Condomínio.** Sem estimativa registrada, a estimativa pela matrícula roda automaticamente (sem gravar) quando o valor
+  mensal é conhecido; sem ele, a linha pendente mostra o período lido e o que falta.
+- **IPTU.** A linha pendente aponta a consulta manual assistida do município; a orientação mostra o titular pela matrícula.
+- **Privacidade.** CPF rotulado com erro de OCR (letra no lugar de dígito) passa a ser mascarado.
+
+## v1.0.12 — 2026-11-19 — inteligência do imóvel
 
 Sem migration e sem tabela nova. Detalhes e valores padrão em `docs/02-product/specs/INTELIGENCIA-IMOVEL.md`.
 

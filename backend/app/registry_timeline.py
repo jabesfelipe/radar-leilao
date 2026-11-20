@@ -267,6 +267,104 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
             "atos_lidos": [a.label for a in chain.acts]}
 
 
+TITULARIDADE_NAO_CONFIRMADA = "Titularidade atual não confirmada"
+_PAPEL_TITULARIDADE = {"PROPRIETARIO_ANTERIOR": "Proprietária(o) original (abertura da matrícula)", "VENDEDOR": "Vendedor(a): transmitiu o imóvel",
+                       "COMPRADOR": "Adquirente (compra e venda)", "DEVEDOR": "Devedor(a) fiduciante", "CREDOR": "Credor(a) fiduciário(a)"}
+_NON_CONTRACT_ACTS = {"CONCLUSAO_OBRA", "AFETACAO", "ABERTURA"}
+
+
+def titularity(chain: RegistryChain, timeline: dict[str, Any]) -> dict[str, Any]:
+    """Quem aparece na matrícula e em que papel, separando o titular ATUAL dos históricos (auditoria v6).
+
+    Titular atual = último ato de transmissão ou consolidação (``registry_chain``), com o trecho; sem esse ato legível,
+    "Titularidade atual não confirmada". Um nome lido na matrícula nunca vira titular só por aparecer no texto: o papel vem
+    do rótulo ou da frase do ato. Papel inferido (ex.: devedor fiduciante = adquirente que deu o imóvel em garantia no mesmo
+    contrato) é marcado e tem confiança menor."""
+    from .privacy import redact_pii
+    from .registry_chain import CONSOLIDACAO, GARANTIA, TITULARIDADE_DETERMINADA, same_party
+    events = timeline.get("eventos") or []
+    current = chain.current_holder if chain.holder_status == TITULARIDADE_DETERMINADA else None
+    rows: list[dict[str, Any]] = []
+
+    def add(name, kind, role, event, status, confidence, how, note=None, excerpt=None):
+        if not name:
+            return
+        if any(r["papel"] == role and (fold(r["nome"]) == fold(name) or same_party(r["nome"], name)) for r in rows):
+            return
+        rows.append({"nome": name, "tipo_pessoa": kind, "papel": role, "ato": event.get("ato") if event else None,
+                     "data": event.get("data") if event else None, "fonte": (event.get("documento") or {}).get("nome") if event else None,
+                     "trecho": redact_pii(excerpt or (event.get("trecho") if event else None) or "", force=True) or None, "status": status, "confianca": confidence,
+                     "como_identificado": how, "observacao": note})
+
+    def is_current(name, event) -> bool:
+        return current is not None and event.get("ato") == current.act and same_party(name, current.value)
+
+    af_after = {f.act for f in chain.of(GARANTIA) if f.value == "PROPRIA"}
+    for event in events:
+        for party in event.get("partes") or []:
+            name, kind, role, how = party["nome"], party.get("tipo_pessoa"), party["papel"], party.get("como_identificado")
+            if event.get("tipo") == "CONSOLIDACAO" and role == "CREDOR":
+                add(name, kind, "Proprietário(a) após a consolidação (credor fiduciário)", event,
+                    "ATUAL" if is_current(name, event) else "HISTORICO", "ALTA", how)
+            elif role == "OUTROS" and event.get("tipo") == "ABERTURA":
+                # Proprietária na abertura sem transmissão posterior legível: pode ou não ser a titular hoje.
+                add(name, kind, "Proprietária(o) na abertura da matrícula (titularidade atual não confirmada)", event, "HISTORICO", "MEDIA", how)
+            elif role == "OUTROS":
+                label = re.search(r"r[oó]tulo \"([^\"]+)\"", how or "")
+                papel = (label.group(1).strip(" :").capitalize() if label else "Pessoa citada") + ": não é titular"
+                odd = event.get("tipo") in _NON_CONTRACT_ACTS
+                add(name, kind, papel, event, "HISTORICO", "BAIXA" if odd else "MEDIA", how,
+                    "Rótulo lido junto a um ato que não é contrato (texto de OCR pode estar fora de ordem): confirmar o ato no documento." if odd else None)
+            else:
+                add(name, kind, _PAPEL_TITULARIDADE.get(role, party.get("papel_descricao") or role), event,
+                    "ATUAL" if is_current(name, event) else "HISTORICO", "ALTA" if role in ("PROPRIETARIO_ANTERIOR", "VENDEDOR", "COMPRADOR") else "MEDIA", how)
+                if role == "COMPRADOR" and af_after:
+                    nxt = next((e for e in events if e.get("tipo") == "ALIENACAO_FIDUCIARIA" and e.get("ato") in af_after), None)
+                    if nxt is not None and not any(p["papel"] == "DEVEDOR" for p in nxt.get("partes") or []):
+                        add(name, kind, "Devedor(a) fiduciante (inferido)", nxt, "HISTORICO", "MEDIA",
+                            f"adquirente do {event.get('ato')} que deu o imóvel em garantia no mesmo contrato ({nxt.get('ato')})",
+                            "Papel inferido: a alienação fiduciária foi constituída no contrato de compra e venda com mútuo.")
+    af = chain.fiduciary
+    if af is not None and af.value:
+        event = next((e for e in events if e.get("ato") == af.act), None)
+        add(af.value, "JURIDICA", _PAPEL_TITULARIDADE["CREDOR"], event or {"ato": af.act}, "HISTORICO", "ALTA",
+            "texto: \"em favor de ...\" (cadeia registral)", excerpt=af.excerpt)
+    if current is not None:
+        event = next((e for e in events if e.get("ato") == current.act), None) or {"ato": current.act}
+        papel = "Proprietário(a) após a consolidação (credor fiduciário)" if current.kind == CONSOLIDACAO else "Titular pelo último ato de transmissão"
+        add(current.value, "JURIDICA" if current.value and "[" not in current.value else "FISICA", papel, event, "ATUAL", "ALTA",
+            "último ato de transmissão ou consolidação da matrícula", excerpt=current.excerpt)
+        how = "consolidação da propriedade" if current.kind == CONSOLIDACAO else "último ato de transmissão"
+        text = f"Titular atual pela matrícula: {current.value} ({how}, {current.act})."
+    else:
+        text = TITULARIDADE_NAO_CONFIRMADA + ": a sequência de atos legível não permite determinar o titular atual."
+    return {"situacao": chain.holder_status, "titular_atual": current.value if current else None, "ato": current.act if current else None,
+            "trecho": redact_pii(current.excerpt, force=True) if current else None, "confianca": "ALTA" if current else "BAIXA", "texto": text, "partes": rows,
+            "aviso": "Proprietários anteriores, vendedores, devedores e fiadores são históricos: só o último ato de transmissão ou consolidação "
+                     "define o titular atual, e a matrícula vale até a data da certidão."}
+
+
+def holder_summary(db, property_id: int, stored_holder: str | None) -> dict[str, Any]:
+    """Titular para exibição (auditoria v6): o da cadeia registral prevalece sobre o campo gravado no cadastro da matrícula.
+
+    O cadastro (``PropertyRegistration.holder``) pode ter sido extraído antes da leitura por atos ou digitado; nunca é
+    alterado aqui. Divergência vira aviso; sem ato legível de transmissão/consolidação, "Titularidade atual não confirmada"."""
+    from .registry_chain import TITULARIDADE_DETERMINADA, registry_for_property, same_party
+    chain = registry_for_property(db, property_id)
+    current = chain.current_holder if chain is not None and chain.holder_status == TITULARIDADE_DETERMINADA else None
+    holder = current.value if current is not None else None
+    divergent = bool(stored_holder and holder and not same_party(stored_holder, holder) and fold(stored_holder) != fold(holder))
+    if holder:
+        text = f"Titular atual pela matrícula: {holder} ({current.act})."
+    else:
+        text = TITULARIDADE_NAO_CONFIRMADA + "."
+    if divergent:
+        text += (f" O titular gravado no cadastro da matrícula ({stored_holder}) não é o titular atual pela sequência de atos: "
+                 "provável proprietário anterior. O cadastro não foi alterado.")
+    return {"titular_atual": holder, "ato": current.act if current else None, "situacao": "DETERMINADA" if holder else "INCONCLUSIVO",
+            "titular_cadastro": stored_holder, "divergencia_cadastro": divergent, "texto": text}
+
+
 def timeline_for_property(db, property_id: int, today: date | None = None) -> dict[str, Any]:
     """Linha do tempo da matrícula mais recente do imóvel (somente leitura, sem reprocessar o documento)."""
     from . import models
@@ -274,9 +372,12 @@ def timeline_for_property(db, property_id: int, today: date | None = None) -> di
     chain = registry_for_property(db, property_id)
     if chain is None or not chain.acts and not chain.original:
         return {"property_id": property_id, "disponivel": False, "motivo": "Sem matrícula com texto anexada ao imóvel.", "eventos": [],
-                "idade": {"anos": None, "estimada": False, "base": None, "texto": IDADE_NAO_DETERMINAVEL}, "datas_chave": {}, "atos_lidos": []}
+                "idade": {"anos": None, "estimada": False, "base": None, "texto": IDADE_NAO_DETERMINAVEL}, "datas_chave": {}, "atos_lidos": [],
+                "titularidade": {"situacao": "INCONCLUSIVO", "titular_atual": None, "ato": None, "trecho": None, "confianca": "BAIXA",
+                                 "texto": TITULARIDADE_NAO_CONFIRMADA + ": sem matrícula com texto anexada.", "partes": [], "aviso": None}}
     version = db.get(models.DocumentVersion, chain.document_version_id) if chain.document_version_id else None
     document = {"document_id": version.document_id if version else None, "document_version_id": chain.document_version_id,
                 "nome": version.document.name if version is not None and version.document is not None else "matrícula"}
     out = build_timeline(chain, document, today)
+    out["titularidade"] = titularity(chain, out)
     return {"property_id": property_id, "disponivel": True, **out}

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Alert, Badge, Button, Card, LoadingState } from '../components/ui'
-import { getRegistryTimeline, type RegistryTimeline, type TimelineEvent } from '../services/registration'
+import { getRegistryTimeline, type RegistryTimeline, type TimelineEvent, type Titularity } from '../services/registration'
 
 function formatDate(iso: string | null) {
   if (!iso) return 'Data não identificada'
@@ -41,6 +41,36 @@ function EventItem({ event }: { event: TimelineEvent }) {
   )
 }
 
+/** Titularidade (auditoria v6): titular atual pelo último ato x pessoas históricas, cada uma com papel, ato, trecho e confiança. */
+function TitularityTable({ titularity }: { titularity: Titularity }) {
+  return (
+    <div className="registry-titularity">
+      <p className="market-obs">
+        <Badge tone={titularity.titular_atual ? 'success' : 'warning'} size="sm">{titularity.titular_atual ? 'Titular atual' : 'Titularidade'}</Badge> {titularity.texto}
+      </p>
+      {titularity.partes.length > 0 ? (
+        <table className="hub-table" aria-label="Titularidade e papéis na matrícula">
+          <thead><tr><th>Nome</th><th>Papel</th><th>Ato</th><th>Data</th><th>Status</th><th>Confiança</th><th>Evidência</th></tr></thead>
+          <tbody>
+            {titularity.partes.map((p) => (
+              <tr key={`${p.papel}-${p.nome}-${p.ato}`}>
+                <td>{p.nome}</td>
+                <td>{p.papel}{p.observacao ? <small className="market-obs"> {p.observacao}</small> : null}</td>
+                <td>{p.ato ?? '—'}</td>
+                <td>{p.data ? formatDate(p.data) : '—'}</td>
+                <td><Badge tone={p.status === 'ATUAL' ? 'success' : 'neutral'} size="sm">{p.status === 'ATUAL' ? 'Atual' : 'Histórico'}</Badge></td>
+                <td>{p.confianca}</td>
+                <td><small className="market-obs">{p.fonte ? `${p.fonte}: ` : ''}{p.trecho ? `“${p.trecho.slice(0, 220)}”` : p.como_identificado}</small></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {titularity.aviso ? <p className="market-obs">{titularity.aviso}</p> : null}
+    </div>
+  )
+}
+
 /** Linha do tempo da matrícula: carregada sob demanda (não altera as demais leituras da seção). */
 export function RegistryTimelineCard({ propertyId }: { propertyId: number }) {
   const [data, setData] = useState<RegistryTimeline | null>(null)
@@ -63,6 +93,7 @@ export function RegistryTimelineCard({ propertyId }: { propertyId: number }) {
         <>
           <p className="market-obs"><Badge tone={data.idade.estimada ? 'info' : 'neutral'} size="sm">Idade</Badge> {data.idade.texto}</p>
           {data.aviso_nomes ? <p className="market-obs">{data.aviso_nomes}</p> : null}
+          {data.titularidade ? <TitularityTable titularity={data.titularidade} /> : null}
           <div className="dossier-timeline">
             {(data.eventos ?? []).map((event) => <EventItem key={`${event.ato}-${event.trecho.slice(0, 20)}`} event={event} />)}
           </div>

@@ -23,11 +23,18 @@ export type RegistrationCreate = {
   observations?: string
 }
 
+// Auditoria v6: titular atual pela sequência de atos da matrícula x titular gravado no cadastro.
+export type HolderSummary = {
+  titular_atual: string | null; ato: string | null; situacao: 'DETERMINADA' | 'INCONCLUSIVO'
+  titular_cadastro: string | null; divergencia_cadastro: boolean; texto: string
+}
+
 export type RegistrationResponse = {
   property_id: number
   atual: PropertyRegistration | null
   historico: PropertyRegistration[]
   alteracoes: unknown[]
+  titularidade?: HolderSummary
 }
 
 export type AuctionNotice = {
@@ -119,6 +126,16 @@ export type RegistryTimeline = {
   idade: { anos: number | null; estimada: boolean; base: string | null; texto: string }
   datas_chave: { aquisicao?: { data: string; ato: string } | null; consolidacao?: { data: string; ato: string } | null }
   aviso_nomes?: string; atos_lidos: string[]
+  titularidade?: Titularity
+}
+
+export type TitularityRow = {
+  nome: string; tipo_pessoa: 'FISICA' | 'JURIDICA' | null; papel: string; ato: string | null; data: string | null; fonte: string | null
+  trecho: string | null; status: 'ATUAL' | 'HISTORICO'; confianca: string; como_identificado: string | null; observacao: string | null
+}
+export type Titularity = {
+  situacao: string; titular_atual: string | null; ato: string | null; trecho: string | null; confianca: string; texto: string
+  partes: TitularityRow[]; aviso: string | null
 }
 
 export function getRegistryTimeline(propertyId: number): Promise<RegistryTimeline> {
