@@ -87,31 +87,29 @@ def test_premissa_sem_padrao_continua_pendente_ate_ser_preenchida(db):
 
 # ------------------------------------------------------------------ valor de venda preliminar (decisão 2.2)
 
-def test_sem_comparaveis_e_sem_valor_informado_usa_avaliacao_vezes_fator(db):
+def test_sem_comparaveis_e_sem_valor_informado_valor_de_venda_fica_desconhecido(db):
+    # v1.0.14: avaliação × percentual não é dado de mercado; sem amostra, o valor de venda é DESCONHECIDO (nunca 85% da avaliação).
     prop = _prop(db)
     _leilao(db, prop)
     db.expire(prop)
     intel = market_intelligence(db, prop)
-    pre = intel["valores"]["venda_preliminar"]
-    assert pre["valor"] == Decimal("187000.00") and pre["avaliacao"] == Decimal("220000") and pre["fator"] == Decimal("0.85")
-    assert pre["selo"] == "Estimativa preliminar" and pre["confianca"] == "BAIXA"
+    assert intel["valores"]["venda_preliminar"] is None
     base = next(s for s in intel["cenarios"] if s["cenario"] == "BASE")
-    assert base["valor_venda"] == Decimal("187000.00") and base["valor_venda_origem"].startswith("estimativa preliminar")
+    assert base["valor_venda"] is None and base.get("resultado_liquido") is None
+    assert intel["venda"]["qualidade_amostra"]["nivel"] == "INSUFICIENTE"
     assert intel["conclusao"]["resultado"] != "FAVORAVEL"
-    assert any("ESTIMATIVA PRELIMINAR" in r for r in intel["conclusao"]["ressalvas"])
     fin = verdict_finance(db, prop)
-    assert fin["valor_mercado"] == Decimal("187000.00") and fin["valor_venda_preliminar"]["formula"] == "R$ 220.000,00 × 85% = R$ 187.000,00"
-    assert "valor_venda" in fin["preco_maximo_detalhe"]["custos_desconhecidos"]
-    assert any("ESTIMATIVA PRELIMINAR" in p for p in fin["pendencias"])
+    assert fin["valor_mercado"] is None and fin["valor_venda_preliminar"] is None
+    assert any("Valor de venda estimado ausente" in p for p in fin["pendencias"])
 
 
-def test_fator_configurado_no_admin_e_valor_do_usuario_prevalece(db):
+def test_fator_configurado_no_admin_nao_vira_valor_de_venda_e_valor_do_usuario_prevalece(db):
     seed_parameters(db)
     params.update_parameter(db, _global(db, "viabilidade.fator_venda_avaliacao"), {"value": "0.80"}, actor="admin", justification="teste")
     prop = _prop(db)
     _leilao(db, prop)
     db.flush(); db.expire(prop)
-    assert market_intelligence(db, prop)["valores"]["venda_preliminar"]["valor"] == Decimal("176000.00")
+    assert market_intelligence(db, prop)["valores"]["venda_preliminar"] is None
     outro = _prop(db)
     _leilao(db, outro, {"valor_venda_estimado": "200000"})
     db.flush(); db.expire(outro)

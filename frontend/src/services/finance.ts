@@ -148,6 +148,9 @@ export type FinanceAssumptions = {
   valor_venda_estimado?: number | null
   prazo_meses?: number | null
   carregamento_mensal?: number | null
+  /** IPTU anual do carnê/certidão e a origem (v1.0.14: preenchido também pela consulta assistida do IPTU). */
+  iptu_anual?: number | string | null
+  iptu_anual_origem?: string | null
   /** v1.0.11: referência de análise para "grande reforma" no checklist (fração da aquisição). Vazio = catálogo/padrão de 10%. */
   reforma_grande_pct?: number | string | null
   cenarios?: unknown[]

@@ -123,7 +123,12 @@ export type TimelineEvent = {
   // Revisão PR #8: linguagem simples para o investidor.
   titulo_simples?: string; ato_descricao?: string; explicacao?: string; envolvidos?: { nome: string; papel: string }[]
   evidencia?: { ato: string; trecho: string | null; fonte: string; pagina: number | null; confianca: string }; aviso_ocr?: string
+  // v1.0.14: tipo de cada data (protocolo, documento apresentado, registro, citada) e número do protocolo, quando lidos no texto.
+  data_tipo?: string | null; data_tipo_descricao?: string | null
+  datas?: { tipo: string; tipo_descricao: string; data: string; data_texto: string }[]
+  protocolo?: string | null
 }
+export type CertificateIssue = { data: string | null; data_texto: string | null; trecho: string | null; confianca: string; texto: string }
 export type CurrentSituation = {
   titular_atual: string | null; titulo: string; texto: string; ato: string | null; data: string | null; confianca: string; atencao: string[]
 }
@@ -135,6 +140,8 @@ export type RegistryTimeline = {
   titularidade?: Titularity
   eventos_recentes_primeiro?: TimelineEvent[]
   situacao_atual?: CurrentSituation
+  certidao?: CertificateIssue
+  aviso_datas?: string
 }
 
 export type TitularityRow = {

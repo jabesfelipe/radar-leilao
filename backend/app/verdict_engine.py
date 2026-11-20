@@ -194,6 +194,12 @@ def _is_premise_text(text: str) -> bool:
     return any(word in lowered for word in _PREMISSA_TERMOS)
 
 
+def _plain_risk(text: Any) -> str:
+    """Descrição do risco sem códigos internos ("[CHECKLIST_...]", "Checklist: CHAVE"), v1.0.14."""
+    from .risk_presenter import plain_text
+    return plain_text(text)
+
+
 def consolidate_factors(current_risks: list[Any], checklist_results: Iterable[Any], assessment: dict[str, Any], financial_pending: list[str]) -> dict[str, Any]:
     """Separa, sem perder nenhuma pendência, o que impede a recomendação, o que falta saber, o que falta configurar,
     o que só reduz a confiança e o que não se aplica. Cada fator traz a justificativa e a ação que o resolve."""
@@ -205,7 +211,7 @@ def consolidate_factors(current_risks: list[Any], checklist_results: Iterable[An
     for risk in current_risks:
         severity = _normalize(_value(risk, "severity"))
         target = FATOR_IMPEDIMENTO if severity in {"CRITICA", "ALTA"} else FATOR_RISCO_CONFIANCA
-        entry = {"origem": "RISCO", "descricao": str(_value(risk, "description") or "Risco ativo"), "gravidade": severity or None,
+        entry = {"origem": "RISCO", "descricao": _plain_risk(_value(risk, "description")) or "Risco ativo", "gravidade": severity or None,
                  "acao": "Resolver ou precificar o risco antes de decidir; validar com advogado." if target == FATOR_IMPEDIMENTO else "Avaliar e precificar o risco."}
         groups[target].append(entry)
         # RiskCandidate tem risk_key; o models.Risk persistido guarda em origin ("RiskEngine:ChecklistResult:<risk_key>").
@@ -329,7 +335,7 @@ class VerdictEngine:
         for risk in current_risks:
             categoria = _normalize(_value(risk, "category"))
             tipo = F_RISCO_JURIDICO if categoria in _LEGAL_RISK_CATEGORIES or not categoria else F_RISCO_OPERACIONAL
-            fundamentos.append({"tipo": tipo, "gravidade": _normalize(_value(risk, "severity")) or None, "descricao": str(_value(risk, "description") or "Risco ativo")})
+            fundamentos.append({"tipo": tipo, "gravidade": _normalize(_value(risk, "severity")) or None, "descricao": _plain_risk(_value(risk, "description")) or "Risco ativo"})
         if assessment["status"] == FIN_INVIAVEL:
             fundamentos += [{"tipo": F_INVIABILIDADE_FINANCEIRA, "descricao": motivo} for motivo in assessment["motivos"]]
         elif assessment["status"] == FIN_VIAVEL:

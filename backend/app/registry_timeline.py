@@ -105,6 +105,72 @@ def _parse_date(folded: str, original: str, start: int, end: int) -> dict[str, A
     return {"data": value.isoformat(), "data_texto": re.sub(r"\s+", " ", literal).strip()}
 
 
+DATA_PROTOCOLO, DATA_DOCUMENTO, DATA_ATO, DATA_CITADA = "PROTOCOLO", "DOCUMENTO", "ATO", "CITADA"
+DATA_TIPO_LABELS = {DATA_PROTOCOLO: "Data do protocolo", DATA_DOCUMENTO: "Data do documento apresentado (contrato, escritura, ofício)",
+                    DATA_ATO: "Data do registro/averbação", DATA_CITADA: "Data citada no ato (tipo não identificado)"}
+_CTX_PROTOCOLO = re.compile(r"PROTOCOL")
+_CTX_DOCUMENTO = re.compile(r"INSTRUMENTO|CONTRATO|ESCRITURA|CEDULA|TITULO|DATAD[OA]|REQUERIMENTO|MANDADO|OFICIO|FORMAL|CARTA")
+_CTX_ATO = re.compile(r"REGISTRAD|AVERBAD|REGISTRO|AVERBACAO|AVERBO|REGISTRO\s+EM")
+_PROTOCOL_NUMBER = re.compile(r"PROTOCOL\w*\s*(?:N\s*[º°O.]*\s*|SOB\s+O\s+N\s*[º°O.]*\s*)?([0-9][0-9.]{2,})")
+_CERT_CTX = re.compile(r"DATA\s*/\s*HORA|EMITID[AO]\s+EM|EXPEDID[AO]\s+EM|CERTIDAO\s+(EMITIDA|EXPEDIDA|GERADA)|CERTIFICO\s+E\s+DOU\s+FE")
+
+
+def _typed_dates(folded: str, original: str, start: int, end: int) -> list[dict[str, Any]]:
+    """Todas as datas do ato com o TIPO deduzido do texto logo antes delas (evolução v1.0.14). Sem palavra que identifique o tipo,
+    a data fica como CITADA: o sistema não troca data de protocolo por data do ato nem inventa data ausente."""
+    found: list[tuple[int, int, date]] = []
+    for pattern, ext in ((_DATE_NUM, False), (_DATE_EXT, True)):
+        for match in pattern.finditer(folded, start, end):
+            if _NORM_DATE_CONTEXT.search(folded[max(start, match.start() - 70):match.start()]):
+                continue
+            day, month, year = int(match.group(1)), (MESES[match.group(2)] if ext else int(match.group(2))), int(match.group(3))
+            try:
+                value = date(year, month, day)
+            except ValueError:
+                continue
+            if 1800 <= year <= date.today().year + 1:
+                found.append((match.start(), match.end(), value))
+    found.sort()
+    out: list[dict[str, Any]] = []
+    previous_end = start
+    for pos, stop, value in found:
+        # Contexto = texto entre a data anterior e esta (no máximo 60 caracteres, na mesma linha); vale a palavra mais próxima.
+        window = folded[max(previous_end, pos - 60):pos].rsplit("\n", 1)[-1]
+        hits = [(m.end(), kind) for kind, rx in ((DATA_PROTOCOLO, _CTX_PROTOCOLO), (DATA_DOCUMENTO, _CTX_DOCUMENTO), (DATA_ATO, _CTX_ATO))
+                for m in rx.finditer(window)]
+        kind = max(hits)[1] if hits else DATA_CITADA
+        out.append({"tipo": kind, "tipo_descricao": DATA_TIPO_LABELS[kind], "data": value.isoformat(),
+                    "data_texto": re.sub(r"\s+", " ", original[pos:stop]).strip()})
+        previous_end = stop
+    return out
+
+
+def _protocol(folded: str, start: int, end: int) -> str | None:
+    match = _PROTOCOL_NUMBER.search(folded, start, end)
+    return match.group(1).strip(".") if match else None
+
+
+def certificate_issue(original: str) -> dict[str, Any]:
+    """Data de emissão da certidão da matrícula, só quando o texto a identifica ("Data/hora", "emitida em", "expedida em").
+    Sem isso: não localizada (a validade da matrícula vai até a data da certidão, que precisa ser conferida no documento)."""
+    folded = fold(original or "")
+    for ctx in _CERT_CTX.finditer(folded):
+        window_end = min(len(folded), ctx.end() + 80)
+        for pattern, ext in ((_DATE_NUM, False), (_DATE_EXT, True)):
+            match = pattern.search(folded, ctx.end(), window_end)
+            if match:
+                day, month, year = int(match.group(1)), (MESES[match.group(2)] if ext else int(match.group(2))), int(match.group(3))
+                try:
+                    value = date(year, month, day)
+                except ValueError:
+                    continue
+                return {"data": value.isoformat(), "data_texto": re.sub(r"\s+", " ", original[match.start():match.end()]).strip(),
+                        "trecho": re.sub(r"\s+", " ", original[ctx.start():window_end]).strip(), "confianca": "MEDIA",
+                        "texto": f"Certidão emitida em {value.strftime('%d/%m/%Y')} (lido no texto: \"{original[ctx.start():ctx.end()].strip()}\")."}
+    return {"data": None, "data_texto": None, "trecho": None, "confianca": "BAIXA",
+            "texto": "Data de emissão da certidão não localizada no texto lido. Confira no documento: a matrícula só vale até essa data."}
+
+
 def _person(original: str, start: int, end: int, role: str, how: str) -> dict[str, Any] | None:
     from .privacy import redact_pii
     raw = re.sub(r"\s+", " ", original[start:end]).strip(" ,-;:—")
@@ -346,6 +412,7 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
         person = _person(original, owner.start(1), owner.end(1), role, "rótulo \"PROPRIETÁRIA:\" na abertura da matrícula")
         builder = person["nome"] if person and _BUILDER.search(fold(person["nome"])) else None
         events.append({"ato": "Abertura", "numero": 0, "tipo": "ABERTURA", "tipo_descricao": "Abertura da matrícula", "data": None, "data_texto": None,
+                       "data_tipo": None, "data_tipo_descricao": None, "datas": [], "protocolo": None,
                        "partes": [person] if person else [], "valor": None, "construtora": builder, "conclusao_obra": False,
                        "trecho": _excerpt(original, owner.start(), owner.end() + 120), **_source(chain, owner.start())})
     for act in chain.acts:
@@ -358,8 +425,13 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
             line_end = folded.find("\n", builder_match.start())
             stop = min(x for x in (folded.find(",", builder_match.start()), line_end if line_end != -1 else act.end, act.end) if x != -1)
             builder = re.sub(r"\s+", " ", original[builder_match.start():stop]).strip(" .,;:") or None
+        typed = _typed_dates(folded, original, act.start, act.end)
+        first_typed = next((d for d in typed if when and d["data"] == when["data"]), None)
         events.append({"ato": act.label, "numero": act.number, "tipo": kind, "tipo_descricao": label,
                        "data": when["data"] if when else None, "data_texto": when["data_texto"] if when else None,
+                       "data_tipo": first_typed["tipo"] if first_typed else None,
+                       "data_tipo_descricao": first_typed["tipo_descricao"] if first_typed else None,
+                       "datas": typed, "protocolo": _protocol(folded, act.start, act.end),
                        "partes": parties, "valor": _money(folded, original, act.start, act.end), "construtora": builder,
                        "conclusao_obra": kind == "CONCLUSAO_OBRA", "trecho": _excerpt(original, act.start, act.end), **_source(chain, act.start)})
         spans[act.label] = (act.start, act.end)
@@ -388,7 +460,9 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
     return {"eventos": events, "eventos_recentes_primeiro": most_recent_first(events), "idade": idade, "aviso_nomes": AVISO_NOMES,
             "datas_chave": {"aquisicao": {"data": acquisition["data"], "ato": acquisition["ato"]} if acquisition else None,
                             "consolidacao": {"data": cons["data"], "ato": cons["ato"]} if cons else None},
-            "atos_lidos": [a.label for a in chain.acts]}
+            "atos_lidos": [a.label for a in chain.acts], "certidao": certificate_issue(original),
+            "aviso_datas": "Cada ato pode citar várias datas (protocolo, documento apresentado, registro). O tipo de cada data vem da palavra "
+                           "que a antecede no texto; sem essa palavra, a data aparece como \"citada\". Nenhuma data é deduzida."}
 
 
 TITULARIDADE_NAO_CONFIRMADA = "Titularidade atual não confirmada"

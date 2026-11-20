@@ -90,6 +90,8 @@ app.include_router(opportunities_router.router)
 app.include_router(dashboard_router.router)
 app.include_router(monitoring_router.router)
 app.include_router(document_files_router.router)
+from .routers import investment as investment_router  # noqa: E402
+app.include_router(investment_router.router)
 
 
 @app.on_event("startup")

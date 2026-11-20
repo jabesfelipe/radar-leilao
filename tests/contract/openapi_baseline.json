@@ -13664,6 +13664,47 @@
     "summary": "Get Market Intelligence"
    }
   },
+  "/api/imoveis/{property_id}/iptu/situacao": {
+   "get": {
+    "description": "Situação do IPTU (consultado, consulta assistida, pendente, não encontrado, falha ou necessita informação) e para onde o valor vai.",
+    "operationId": "get_iptu_status_api_imoveis__property_id__iptu_situacao_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Iptu Status",
+    "tags": [
+     "investimento"
+    ]
+   }
+  },
   "/api/imoveis/{property_id}/juridico/central": {
    "get": {
     "description": "Visão jurídica do imóvel enriquecida com a base legal contextual: síntese\njurídica (reuso de juridical_overview) + referências legais por item do\nchecklist com base associada. Não dispara análise nem LLM.",
@@ -15755,6 +15796,88 @@
      }
     },
     "summary": "Add Process Movement"
+   }
+  },
+  "/api/imoveis/{property_id}/resumo-investimento": {
+   "get": {
+    "description": "Resposta do Resumo: arrematar?, preço máximo, lucro, ROI, margem, principal risco, pendências, IPTU, condomínio, mercado,\nFinanceiro por natureza e riscos consolidados. Cada número traz o tipo de dado (fato, dado manual, estimativa, inferência, desconhecido).",
+    "operationId": "get_investment_summary_api_imoveis__property_id__resumo_investimento_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Investment Summary",
+    "tags": [
+     "investimento"
+    ]
+   }
+  },
+  "/api/imoveis/{property_id}/riscos-consolidados": {
+   "get": {
+    "description": "Riscos em linguagem simples: um por assunto, no estado mais recente, com o que fazer. Sem códigos internos.",
+    "operationId": "get_consolidated_risks_api_imoveis__property_id__riscos_consolidados_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "property_id",
+      "required": true,
+      "schema": {
+       "title": "Property Id",
+       "type": "integer"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Consolidated Risks",
+    "tags": [
+     "investimento"
+    ]
    }
   },
   "/api/juridico": {

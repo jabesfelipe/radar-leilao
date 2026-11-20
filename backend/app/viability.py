@@ -677,7 +677,9 @@ def acquisition_costs(prop, auction, premises: dict, assumptions: dict, sale_est
     monthly_origin = "premissa do imóvel"
     if monthly is None:
         fees = [r for r in sale_estimate.get("_condo_fees", [])]
-        if fees:
+        # v1.0.14: com menos de 3 referências a estimativa é insuficiente (mesma regra do valor pontual do mercado e do painel de
+        # condomínio do Resumo): não vira valor do Financeiro.
+        if len(fees) >= mk.MIN_POINT_ESTIMATE:
             monthly = mk.median(fees)
             monthly_origin = f"mediana do condomínio de {len(fees)} anúncio(s) comparável(is); IPTU não incluído"
     for key in ("viabilidade.custos_mensais_padrao", "condominio.valor_mensal_referencia"):
@@ -1109,18 +1111,12 @@ def _inputs(db, prop) -> dict:
               "rent": rent_value, "premises": premises, "rent_indicative": rent_est["valor_estimado"] is None and rent_value is not None}
     commission_pct = (_d(auction.commission_percent) / Decimal("100")) if (auction is not None and auction.commission_fixed is None
                                                                             and auction.commission_percent is not None) else None
-    # Valor de venda do cenário BASE: premissa do usuário (quando informada) > estimativa dos comparáveis > estimativa preliminar
-    # (avaliação × fator do catálogo, decisão 2.2) — esta só quando não há comparável usável, com selo próprio e confiança BAIXA.
+    # Valor de venda do cenário BASE: premissa do usuário (quando informada) > estimativa dos comparáveis > nenhum.
+    # Evolução da inteligência (v1.0.14): a estimativa preliminar "avaliação × fator" (decisão 2.2) deixou de ser usada. Um percentual
+    # fixo sobre a avaliação do vendedor não é dado de mercado; sem amostra, o valor de venda fica DESCONHECIDO (AMOSTRA INSUFICIENTE)
+    # e o resultado, a margem e o ROI não são calculados. ``venda_preliminar`` continua no contrato (sempre None) por compatibilidade.
     user_value = _d(assumptions.get("valor_venda_estimado"))
     preliminary = None
-    if user_value is None and sale_est["valor_estimado"] is None and costs["avaliacao"]:
-        factor = premises["viabilidade.fator_venda_avaliacao"]
-        value = _q(costs["avaliacao"] * factor["valor"])
-        preliminary = {"valor": value, "avaliacao": costs["avaliacao"], "fator": factor["valor"], "fator_origem": factor["origem"],
-                       "selo": "Estimativa preliminar", "confianca": mk.CONF_BAIXA,
-                       "observacao": "Sem comparáveis suficientes: valor de venda preliminar = avaliação do vendedor × fator. Informe o valor de venda "
-                                     "em Financeiro > Premissas ou cadastre comparáveis para substituir.",
-                       "formula": f"{_brl(costs['avaliacao'])} × {_pct(factor['valor'])} = {_brl(value)}"}
     if user_value is not None:
         base_value, base_origin = _q(user_value), "premissa do imóvel"
     elif sale_est["valor_estimado"] is not None:
