@@ -1463,7 +1463,8 @@ EXTERNAL_SEARCH_STATUSES = ("SUCESSO", "SEM_RESULTADO", "NAO_CONFIGURADO", "ERRO
 class ExternalSearch(TimestampMixin, Base):
     __tablename__ = "external_searches"
     id: Mapped[int] = mapped_column(primary_key=True)
-    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id"), index=True)
+    # ON DELETE CASCADE: a pesquisa é cache/rastreabilidade do imóvel; não impede excluir o imóvel.
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(30), nullable=False)            # EXTERNAL_SEARCH_KINDS
     provider: Mapped[str] = mapped_column(String(40), nullable=False)        # tavily | brave | nenhum
     query: Mapped[str] = mapped_column(Text, nullable=False)

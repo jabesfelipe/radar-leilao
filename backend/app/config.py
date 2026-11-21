@@ -147,6 +147,7 @@ class Settings(BaseSettings):
     brave_search_base_url: str = "https://api.search.brave.com/res/v1/web/search"
     search_timeout_seconds: float = 20.0
     search_max_retries: int = 1
+    search_retry_backoff_seconds: float = 1.0  # espera antes de repetir após 429/5xx/timeout
     search_max_results: int = 10
     search_cache_hours: int = 168            # 7 dias: a mesma consulta não é repetida (custo)
     search_max_queries_per_run: int = 8      # limite por execução de pesquisa de um imóvel

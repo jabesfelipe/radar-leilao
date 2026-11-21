@@ -23,9 +23,12 @@ Conteúdo da tabela resumido das páginas citadas (reescrito por questões de li
 
 - `backend/app/search/providers.py`: `TavilyProvider`, `BraveProvider` (contrato `SearchProvider`: `configured`, `search`). Erros:
   `SearchUnavailable` (timeout, transporte, 429, 5xx: tenta de novo e passa ao alternativo) e `SearchError` (4xx: passa ao alternativo).
-- `backend/app/search/service.py`: cadeia principal → alternativo, retry (`SEARCH_MAX_RETRIES`), timeout, cache por
-  (tipo + consulta normalizada + domínios) por `SEARCH_CACHE_HOURS`, registro em `external_searches` (status, provedor, duração,
-  tentativas, custo estimado, erro, resultados, validade). A chave nunca é registrada.
+- `backend/app/search/service.py`: cadeia principal → alternativo, retry (`SEARCH_MAX_RETRIES`) com espera crescente
+  (`SEARCH_RETRY_BACKOFF_SECONDS`) em 429/5xx/timeout, timeout, cache por (imóvel + tipo + consulta normalizada + domínios) por
+  `SEARCH_CACHE_HOURS` (imóveis diferentes não compartilham registro), registro em `external_searches` (status, provedor,
+  duração, tentativas, custo estimado, erro, resultados, validade). A chave nunca é registrada nem devolvida.
+- `POST /api/imoveis/{id}/pesquisa-automatica` é operação crítica no portão de segurança: exige `analysis:write` e usa o
+  limite por minuto e de concorrência das operações que consomem serviço externo.
 - `backend/app/search/extract.py`: lê preço, área, quartos, vagas, condomínio, IPTU e menção a taxa extra do título/trecho
   devolvido; descarta página de listagem (vários preços), texto sem preço e tipo errado; marca duplicatas (mesma URL ou mesmo
   preço + área). Valor ausente fica ausente.

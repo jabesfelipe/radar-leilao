@@ -54,15 +54,17 @@ def status() -> dict[str, Any]:
             "cache_horas": settings.search_cache_hours, "limite_por_execucao": settings.search_max_queries_per_run}
 
 
-def cache_key(kind: str, query: str, include_domains: list[str] | None) -> str:
-    raw = f"{kind}|{' '.join(query.lower().split())}|{','.join(sorted(include_domains or []))}"
+def cache_key(kind: str, query: str, include_domains: list[str] | None, property_id: int | None = None) -> str:
+    """Chave do cache por imóvel: dois imóveis com a mesma consulta não compartilham registro (histórico e rastreabilidade
+    ficam no imóvel que pesquisou)."""
+    raw = f"{property_id or 0}|{kind}|{' '.join(query.lower().split())}|{','.join(sorted(include_domains or []))}"
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def search(db: Session, *, kind: str, query: str, property_id: int | None = None, include_domains: list[str] | None = None,
            chain: list[pv.SearchProvider] | None = None, now: datetime | None = None, use_cache: bool = True) -> models.ExternalSearch:
     now = now or datetime.utcnow()
-    key = cache_key(kind, query, include_domains)
+    key = cache_key(kind, query, include_domains, property_id)
     if use_cache:
         cached = db.scalar(select(models.ExternalSearch).where(
             models.ExternalSearch.cache_key == key, models.ExternalSearch.status.in_(("SUCESSO", "SEM_RESULTADO")),
@@ -86,6 +88,8 @@ def search(db: Session, *, kind: str, query: str, property_id: int | None = None
             except pv.SearchUnavailable as exc:
                 errors.append(str(exc))
                 logger.warning("pesquisa externa indisponível provider=%s kind=%s tentativa=%s erro=%s", provider.name, kind, attempt + 1, exc)
+                if attempt + 1 < tries and settings.search_retry_backoff_seconds > 0:
+                    time.sleep(settings.search_retry_backoff_seconds * (attempt + 1))   # 429/5xx: espera antes de tentar de novo
                 continue
             except pv.SearchError as exc:
                 errors.append(str(exc))

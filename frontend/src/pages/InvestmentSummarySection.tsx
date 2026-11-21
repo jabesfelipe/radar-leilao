@@ -61,7 +61,7 @@ function MarketTable({ title, block }: { title: string; block: MarketBlock }) {
         </p>
       ) : null}
       {block.comparaveis.length > 0 ? (
-        <table className="hub-table" aria-label={`Comparáveis: ${title}`}>
+        <div className="hub-table-wrap"><table className="hub-table" aria-label={`Comparáveis: ${title}`}>
           <thead><tr><th>Anúncio</th><th>Valor</th><th>Área</th><th>R$/m²</th><th>Coleta</th><th>Similaridade</th><th>Uso</th></tr></thead>
           <tbody>
             {block.comparaveis.map((c) => (
@@ -76,7 +76,7 @@ function MarketTable({ title, block }: { title: string; block: MarketBlock }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       ) : null}
     </div>
   )
@@ -134,7 +134,7 @@ export function InvestmentSummarySection({ propertyId }: { propertyId: number })
       {data.cenarios && data.cenarios.length > 0 ? (
         <Card padding="lg" aria-label="Cenários">
           <p className="dossier-history-title">Cenários (premissas explícitas)</p>
-          <table className="hub-table" aria-label="Cenários financeiros">
+          <div className="hub-table-wrap"><table className="hub-table" aria-label="Cenários financeiros">
             <thead><tr><th>Cenário</th><th>Valor de venda</th><th>Prazo</th><th>Investimento</th><th>Lucro</th><th>ROI</th><th>Margem de segurança</th><th>Fora da soma</th></tr></thead>
             <tbody>
               {data.cenarios.map((s) => (
@@ -150,7 +150,7 @@ export function InvestmentSummarySection({ propertyId }: { propertyId: number })
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
           <p className="market-obs">Valor desconhecido aparece como "Desconhecido": não entra como zero. Itens "fora da soma" deixam o resultado provisório.</p>
         </Card>
       ) : null}

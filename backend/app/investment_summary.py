@@ -99,7 +99,10 @@ def iptu_status(db, prop, assumptions: dict, cost_lines: list[dict]) -> dict[str
     last = queries[0] if queries else None
     debts = [d for d in db.scalars(select(models.PropertyDebt).where(models.PropertyDebt.property_id == prop.id)).all()
              if str(d.debt_type_code or "").upper() in _IPTU_CODES and d.status not in ("QUITADO", "CANCELADO")]
-    real = [d for d in debts if d.status not in ("INDISPONIVEL", "EM_VALIDACAO", "ESTIMADO", "PENDENTE")]
+    # Auditoria do PR #11: mesmo critério do Financeiro (debts_service.is_real_debt + dedupe_debts): débito com valor, não
+    # estimado; consulta registrada duas vezes com o mesmo exercício e valor entra uma vez só no Resumo, como no Financeiro.
+    from .debts_service import dedupe_debts, is_real_debt
+    real = dedupe_debts([], [d for d in debts if is_real_debt(d)])[1]
     amount = lambda d: d.updated_amount if d.updated_amount is not None else d.original_amount  # noqa: E731
     total = sum((_d(amount(d)) or Decimal("0") for d in real), Decimal("0")) if real else None
     inscription = (getattr(prop, "inscription", None) or "").strip() or None
@@ -119,6 +122,7 @@ def iptu_status(db, prop, assumptions: dict, cost_lines: list[dict]) -> dict[str
     if status is None:
         status = IPTU_NECESSITA if missing else IPTU_PENDENTE
     no_debt = bool(last is not None and last.status == "SEM_OCORRENCIA" and not real)
+    contradiction = bool(last is not None and last.status == "SEM_OCORRENCIA" and real)
 
     provider = select_provider(db, municipality_id=municipality_id, debt_type_code="IPTU")
     automatic = provider.name != ManualAssistedProvider.name
@@ -128,7 +132,9 @@ def iptu_status(db, prop, assumptions: dict, cost_lines: list[dict]) -> dict[str
     tributos, posse = _line(cost_lines, "tributos_atraso"), _line(cost_lines, "iptu_posse")
 
     texts = {
-        IPTU_CONSULTADO: ("Consulta registrada: " + ("sem débito em aberto na fonte consultada." if no_debt else f"débito de {_brl(total)}.")),
+        IPTU_CONSULTADO: ("Consulta registrada: " + ("sem débito em aberto na fonte consultada." if no_debt else f"débito de {_brl(total)}.")
+                          + (" A consulta mais recente não encontrou débito, mas há débito registrado antes: confira e dê baixa (quitado) "
+                             "em Débitos se já foi pago. Até lá, o valor continua no cálculo." if contradiction else "")),
         IPTU_ASSISTIDA: "Consulta assistida iniciada, aguardando o resultado lido no portal da prefeitura.",
         IPTU_PENDENTE: "IPTU ainda não consultado. A prefeitura não permite consulta automática: use o portal oficial e registre o resultado aqui.",
         IPTU_NAO_ENCONTRADO: "O portal não encontrou o imóvel com o identificador usado. Confira a inscrição imobiliária.",

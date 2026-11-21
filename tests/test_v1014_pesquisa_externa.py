@@ -257,6 +257,46 @@ def test_pessoas_da_matricula_com_papeis_e_quem_perdeu_o_imovel():
     assert "INCORPORADORA/CONSTRUTORA" not in names and "FICTÍCIA LTDA" not in names
 
 
+# ------------------------------------------------------------------ auditoria do PR #11
+
+def test_cache_nao_mistura_imoveis(db):
+    a, b = _prop(db), _prop(db)
+    fake = FakeProvider(hits=[SALES[0]])
+    ra = service.search(db, kind="VENDA", query="mesma consulta", property_id=a.id, chain=[fake])
+    rb = service.search(db, kind="VENDA", query="mesma consulta", property_id=b.id, chain=[fake])
+    assert ra.id != rb.id and ra.property_id == a.id and rb.property_id == b.id and fake.calls == 2
+    assert service.search(db, kind="VENDA", query="mesma consulta", property_id=a.id, chain=[fake]).id == ra.id and fake.calls == 2
+
+
+def test_pesquisa_automatica_tem_limite_de_operacao_critica():
+    from backend.app.security import classify
+    policy = classify("POST", "/api/imoveis/{property_id}/pesquisa-automatica")
+    assert policy.bucket == "critical"
+
+
+def test_iptu_registrado_duas_vezes_entra_uma_vez_no_resumo_e_no_financeiro(api):
+    from backend.app import debts_service
+    client, db = api
+    debts_service.seed_all(db)
+    prop = _prop(db)
+    prop.city, prop.state, prop.inscription = "Fazenda Rio Grande", "PR", "01.02"
+    _leilao(db, prop)
+    db.flush()
+    muni = db.query(models.Municipality).filter(models.Municipality.name == "Fazenda Rio Grande").one()
+    payload = {"debt_type_code": "IPTU", "municipality_id": muni.id, "itens": [{"updated_amount": "850.00", "competence": "2025", "fiscal_year": 2025}]}
+    assert client.post(f"/api/imoveis/{prop.id}/debitos/consultar", json=payload).status_code == 201
+    assert client.post(f"/api/imoveis/{prop.id}/debitos/consultar", json=payload).status_code == 201
+    situacao = client.get(f"/api/imoveis/{prop.id}/iptu/situacao").json()
+    assert Decimal(str(situacao["debito_em_aberto"]["valor"])) == Decimal("850.00") and len(situacao["lancamentos"]) == 1
+    assert situacao["lancamentos"][0]["exercicio"] == 2025
+    db.expire_all()
+    linha = next(l for l in market_intelligence(db, db.get(models.Property, prop.id))["custos"] if l["chave"] == "tributos_atraso")
+    assert linha["valor"] == Decimal("850.00")                                              # Financeiro igual ao Resumo
+    client.post(f"/api/imoveis/{prop.id}/debitos/consultar", json={"debt_type_code": "IPTU", "municipality_id": muni.id, "sem_ocorrencia": True})
+    depois = client.get(f"/api/imoveis/{prop.id}/iptu/situacao").json()
+    assert "dê baixa" in depois["texto"] and depois["sem_debito"] is False                  # não some sozinho nem vira zero
+
+
 # ------------------------------------------------------------------ API
 
 def test_api_pesquisa_checklist_e_documentos(api, monkeypatch):

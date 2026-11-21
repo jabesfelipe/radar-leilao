@@ -21,7 +21,7 @@ export function DocumentSituationCard({ situation }: { situation: DocumentSituat
         <Badge size="sm" tone={c.incompletos ? 'warning' : 'neutral'}>{`Incompletos: ${c.incompletos}`}</Badge>{' '}
         <Badge size="sm" tone="neutral">{`Evidências: ${c.evidencias}`}</Badge>
       </p>
-      <table className="hub-table" aria-label="Documentos esperados">
+      <div className="hub-table-wrap"><table className="hub-table" aria-label="Documentos esperados">
         <thead><tr><th>Documento</th><th>Exigência</th><th>Situação</th><th>Por que importa</th><th>Próxima ação</th></tr></thead>
         <tbody>
           {situation.esperados.map((e) => (
@@ -34,7 +34,7 @@ export function DocumentSituationCard({ situation }: { situation: DocumentSituat
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       {situation.documentos.length > 0 ? (
         <ul className="market-intel-reasons" aria-label="Documentos analisados">
           {situation.documentos.map((d) => (

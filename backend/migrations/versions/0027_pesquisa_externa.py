@@ -20,7 +20,7 @@ def upgrade() -> None:
         """
         CREATE TABLE IF NOT EXISTS external_searches (
             id SERIAL PRIMARY KEY,
-            property_id INTEGER REFERENCES properties(id),
+            property_id INTEGER REFERENCES properties(id) ON DELETE CASCADE,
             kind VARCHAR(30) NOT NULL,
             provider VARCHAR(40) NOT NULL,
             query TEXT NOT NULL,

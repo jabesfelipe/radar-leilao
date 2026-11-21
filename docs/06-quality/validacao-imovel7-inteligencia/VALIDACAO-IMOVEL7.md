@@ -38,7 +38,8 @@ Documentos: matrícula e condições da venda (analisados). Comparáveis cadastr
 ## Problemas achados na validação e corrigidos
 
 1. A data de emissão da certidão era tirada de um "expedido em" de outro documento (26/03/2015). Agora só vale contexto da
-   própria certidão; no imóvel 7 a data fica "não localizada".
+   própria certidão. Na revalidação da auditoria do PR #11 (também somente leitura), a data passou a ser lida do campo
+   "Data/hora" da própria certidão: 01/10/2025.
 2. Rótulo genérico ("INCORPORADORA/CONSTRUTORA") aparecia como pessoa e o nome truncado da construtora aparecia duplicado.
    Agora o rótulo é ignorado e o nome truncado se junta ao completo.
 3. Trechos de pesquisa trazem números com espaço ("R$ 1. 800, 00", "45, 50 m²"). O extrator passou a juntar esses números.

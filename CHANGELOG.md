@@ -37,6 +37,9 @@ Migration `0027_pesquisa_externa` (tabela nova, aditiva). Rotas novas de leitura
 - **Riscos completos.** Por que importa, impacto por dimensão, confiança, fonte, próxima ação e mitigação; Ocupação e Desocupação
   separadas.
 - **Resumo.** Cenários com premissas, margem de segurança, checklist e documentos; liquidez baixa ou amostra baixa impedem FAVORÁVEL.
+- **Auditoria do PR #11.** Pesquisa automática com limite de operação crítica, cache por imóvel e espera antes de repetir;
+  IPTU do Resumo com a mesma deduplicação do Financeiro; tabelas novas roláveis no celular; `ON DELETE CASCADE` em
+  `external_searches`; E2E da inteligência (`e2e/tests/inteligencia.spec.ts`). Detalhes em `docs/06-quality/auditoria-pr11/`.
 
 ## v1.0.13 — 2026-11-20 — auditoria da análise registral e titularidade
 
