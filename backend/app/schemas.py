@@ -1091,6 +1091,9 @@ class DebtQueryItemIn(BaseModel):
     origin: str | None = None
     external_id: str | None = None
     observations: str | None = None
+    # v1.0.14: exercício e vencimento do lançamento lido no portal (opcionais).
+    fiscal_year: int | None = Field(default=None, ge=1990, le=2100)
+    due_date: date | None = None
 
 
 class DebtQueryRequest(BaseModel):

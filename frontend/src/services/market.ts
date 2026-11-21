@@ -176,6 +176,8 @@ export type IntelEstimate = {
   tipo: 'VENDA' | 'ALUGUEL'; quantidade_usada: number; quantidade_total: number; quantidade_anunciada: number; confianca: string
   valor_estimado: Num; faixa: { min: Num; max: Num } | null; faixa_criterio: string | null; indicativa: boolean
   estatisticas_m2: Record<string, Num>; desconto_negociacao: Num; comparaveis: IntelComparable[]; avisos: string[]; limitacoes?: string[]
+  /** v1.0.14: AMOSTRA INSUFICIENTE / BAIXA / MÉDIA / ALTA. */
+  qualidade_amostra?: { nivel: string; label: string; quantidade: number; minimo_recomendado: number; texto: string }
 }
 export type IntelCost = {
   chave: string; descricao: string; valor: Num; status: string; origem: string; valor_conservador: Num; valor_base?: Num; observacao: string; critico: boolean

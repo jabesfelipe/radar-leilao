@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ChevronDown, ChevronRight, FileText, Layers, RefreshCw, Upload } from 'lucide-react'
 import { Alert, Badge, Button, Card, EmptyState, Input, LoadingState, Section } from '../components/ui'
-import { latestVersion, listDocuments, uploadDocument, type PropertyDocument } from '../services/documents'
+import { latestVersion, listDocumentsWithStatus, uploadDocument, type DocumentSituation, type PropertyDocument } from '../services/documents'
 import { documentStateLabel, documentStateTone, stageName, stageStateLabel, stageTone } from '../services/analysisStatus'
+import { DocumentSituationCard } from './DocumentSituationCard'
 
 type DocumentsSectionProps = {
   propertyId: number
@@ -27,13 +28,16 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
   const [successMessage, setSuccessMessage] = useState('')
   const [notReadyMessage, setNotReadyMessage] = useState('')
   const [expanded, setExpanded] = useState<number | null>(null)
+  const [situation, setSituation] = useState<DocumentSituation | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const loadDocuments = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      setDocuments(await listDocuments(propertyId))
+      const loaded = await listDocumentsWithStatus(propertyId)
+      setDocuments(loaded.documents)
+      setSituation(loaded.situation)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Não foi possível carregar os documentos.')
     } finally {
@@ -91,6 +95,7 @@ export function DocumentsSection({ propertyId }: DocumentsSectionProps) {
     <Section title="Documentos" description="Originais preservados, versões e processamento com rastreabilidade." className="documents-section" actions={<Button onClick={openForm}><Upload size={16} /> Enviar documento</Button>}>
       {successMessage && <Alert tone="success" title="Envio concluído" className="documents-feedback">{successMessage}</Alert>}
       {successMessage && notReadyMessage && <Alert tone="danger" title="Documento não pronto para análise" className="documents-feedback">{notReadyMessage}</Alert>}
+      {situation ? <DocumentSituationCard situation={situation} /> : null}
 
       {formOpen && (
         <Card variant="elevated" padding="lg" className="document-form-card">

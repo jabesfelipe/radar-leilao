@@ -39,6 +39,8 @@ TIPOS: tuple[tuple[str, str, re.Pattern[str]], ...] = tuple((k, d, re.compile(p)
     ("DOACAO", "Doação", r"\bDOACAO\b|\bDOOU\b"),
     ("ARREMATACAO", "Arrematação / adjudicação", r"ARREMATACAO|ADJUDICACAO"),
     ("LEILAO", "Leilões", r"\bLEIL(AO|OES)\b"),
+    ("INTIMACAO", "Intimação do devedor", r"INTIMAC"),
+    ("INADIMPLENCIA", "Inadimplência / mora", r"INADIMPL|\bEM\s+MORA\b"),
     ("PENHORA", "Penhora", r"\bPENHORA\b"),
     ("INDISPONIBILIDADE", "Indisponibilidade", r"INDISPONIBILIDADE"),
     ("HIPOTECA", "Hipoteca", r"\bHIPOTECA\b"),
@@ -103,6 +105,73 @@ def _parse_date(folded: str, original: str, start: int, end: int) -> dict[str, A
         return None
     position, value, literal = min(found)
     return {"data": value.isoformat(), "data_texto": re.sub(r"\s+", " ", literal).strip()}
+
+
+DATA_PROTOCOLO, DATA_DOCUMENTO, DATA_ATO, DATA_CITADA = "PROTOCOLO", "DOCUMENTO", "ATO", "CITADA"
+DATA_TIPO_LABELS = {DATA_PROTOCOLO: "Data do protocolo", DATA_DOCUMENTO: "Data do documento apresentado (contrato, escritura, ofício)",
+                    DATA_ATO: "Data do registro/averbação", DATA_CITADA: "Data citada no ato (tipo não identificado)"}
+_CTX_PROTOCOLO = re.compile(r"PROTOCOL")
+_CTX_DOCUMENTO = re.compile(r"INSTRUMENTO|CONTRATO|ESCRITURA|CEDULA|TITULO|DATAD[OA]|REQUERIMENTO|MANDADO|OFICIO|FORMAL|CARTA")
+_CTX_ATO = re.compile(r"REGISTRAD|AVERBAD|REGISTRO|AVERBACAO|AVERBO|REGISTRO\s+EM")
+_PROTOCOL_NUMBER = re.compile(r"PROTOCOL\w*\s*(?:N\s*[º°O.]*\s*|SOB\s+O\s+N\s*[º°O.]*\s*)?([0-9][0-9.]{2,})")
+# Só contexto da PRÓPRIA certidão: "expedido em" solto (habite-se, alvará, carta) não é a emissão da certidão (validação do imóvel 7).
+_CERT_CTX = re.compile(r"DATA\s*/\s*HORA|CERTIDAO[^\n]{0,80}?(?:EMITIDA|EXPEDIDA|GERADA|LAVRADA)\s+EM|CERTIFICO\s+E\s+DOU\s+FE[^\n]{0,120}?\bEM\b")
+
+
+def _typed_dates(folded: str, original: str, start: int, end: int) -> list[dict[str, Any]]:
+    """Todas as datas do ato com o TIPO deduzido do texto logo antes delas (evolução v1.0.14). Sem palavra que identifique o tipo,
+    a data fica como CITADA: o sistema não troca data de protocolo por data do ato nem inventa data ausente."""
+    found: list[tuple[int, int, date]] = []
+    for pattern, ext in ((_DATE_NUM, False), (_DATE_EXT, True)):
+        for match in pattern.finditer(folded, start, end):
+            if _NORM_DATE_CONTEXT.search(folded[max(start, match.start() - 70):match.start()]):
+                continue
+            day, month, year = int(match.group(1)), (MESES[match.group(2)] if ext else int(match.group(2))), int(match.group(3))
+            try:
+                value = date(year, month, day)
+            except ValueError:
+                continue
+            if 1800 <= year <= date.today().year + 1:
+                found.append((match.start(), match.end(), value))
+    found.sort()
+    out: list[dict[str, Any]] = []
+    previous_end = start
+    for pos, stop, value in found:
+        # Contexto = texto entre a data anterior e esta (no máximo 60 caracteres, na mesma linha); vale a palavra mais próxima.
+        window = folded[max(previous_end, pos - 60):pos].rsplit("\n", 1)[-1]
+        hits = [(m.end(), kind) for kind, rx in ((DATA_PROTOCOLO, _CTX_PROTOCOLO), (DATA_DOCUMENTO, _CTX_DOCUMENTO), (DATA_ATO, _CTX_ATO))
+                for m in rx.finditer(window)]
+        kind = max(hits)[1] if hits else DATA_CITADA
+        out.append({"tipo": kind, "tipo_descricao": DATA_TIPO_LABELS[kind], "data": value.isoformat(),
+                    "data_texto": re.sub(r"\s+", " ", original[pos:stop]).strip()})
+        previous_end = stop
+    return out
+
+
+def _protocol(folded: str, start: int, end: int) -> str | None:
+    match = _PROTOCOL_NUMBER.search(folded, start, end)
+    return match.group(1).strip(".") if match else None
+
+
+def certificate_issue(original: str) -> dict[str, Any]:
+    """Data de emissão da certidão da matrícula, só quando o texto a identifica ("Data/hora", "emitida em", "expedida em").
+    Sem isso: não localizada (a validade da matrícula vai até a data da certidão, que precisa ser conferida no documento)."""
+    folded = fold(original or "")
+    for ctx in _CERT_CTX.finditer(folded):
+        window_end = min(len(folded), ctx.end() + 80)
+        for pattern, ext in ((_DATE_NUM, False), (_DATE_EXT, True)):
+            match = pattern.search(folded, ctx.end(), window_end)
+            if match:
+                day, month, year = int(match.group(1)), (MESES[match.group(2)] if ext else int(match.group(2))), int(match.group(3))
+                try:
+                    value = date(year, month, day)
+                except ValueError:
+                    continue
+                return {"data": value.isoformat(), "data_texto": re.sub(r"\s+", " ", original[match.start():match.end()]).strip(),
+                        "trecho": re.sub(r"\s+", " ", original[ctx.start():window_end]).strip(), "confianca": "MEDIA",
+                        "texto": f"Certidão emitida em {value.strftime('%d/%m/%Y')} (lido no texto: \"{original[ctx.start():ctx.end()].strip()}\")."}
+    return {"data": None, "data_texto": None, "trecho": None, "confianca": "BAIXA",
+            "texto": "Data de emissão da certidão não localizada no texto lido. Confira no documento: a matrícula só vale até essa data."}
 
 
 def _person(original: str, start: int, end: int, role: str, how: str) -> dict[str, Any] | None:
@@ -346,6 +415,7 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
         person = _person(original, owner.start(1), owner.end(1), role, "rótulo \"PROPRIETÁRIA:\" na abertura da matrícula")
         builder = person["nome"] if person and _BUILDER.search(fold(person["nome"])) else None
         events.append({"ato": "Abertura", "numero": 0, "tipo": "ABERTURA", "tipo_descricao": "Abertura da matrícula", "data": None, "data_texto": None,
+                       "data_tipo": None, "data_tipo_descricao": None, "datas": [], "protocolo": None,
                        "partes": [person] if person else [], "valor": None, "construtora": builder, "conclusao_obra": False,
                        "trecho": _excerpt(original, owner.start(), owner.end() + 120), **_source(chain, owner.start())})
     for act in chain.acts:
@@ -358,8 +428,13 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
             line_end = folded.find("\n", builder_match.start())
             stop = min(x for x in (folded.find(",", builder_match.start()), line_end if line_end != -1 else act.end, act.end) if x != -1)
             builder = re.sub(r"\s+", " ", original[builder_match.start():stop]).strip(" .,;:") or None
+        typed = _typed_dates(folded, original, act.start, act.end)
+        first_typed = next((d for d in typed if when and d["data"] == when["data"]), None)
         events.append({"ato": act.label, "numero": act.number, "tipo": kind, "tipo_descricao": label,
                        "data": when["data"] if when else None, "data_texto": when["data_texto"] if when else None,
+                       "data_tipo": first_typed["tipo"] if first_typed else None,
+                       "data_tipo_descricao": first_typed["tipo_descricao"] if first_typed else None,
+                       "datas": typed, "protocolo": _protocol(folded, act.start, act.end),
                        "partes": parties, "valor": _money(folded, original, act.start, act.end), "construtora": builder,
                        "conclusao_obra": kind == "CONCLUSAO_OBRA", "trecho": _excerpt(original, act.start, act.end), **_source(chain, act.start)})
         spans[act.label] = (act.start, act.end)
@@ -388,7 +463,9 @@ def build_timeline(chain: RegistryChain, document: dict[str, Any] | None = None,
     return {"eventos": events, "eventos_recentes_primeiro": most_recent_first(events), "idade": idade, "aviso_nomes": AVISO_NOMES,
             "datas_chave": {"aquisicao": {"data": acquisition["data"], "ato": acquisition["ato"]} if acquisition else None,
                             "consolidacao": {"data": cons["data"], "ato": cons["ato"]} if cons else None},
-            "atos_lidos": [a.label for a in chain.acts]}
+            "atos_lidos": [a.label for a in chain.acts], "certidao": certificate_issue(original),
+            "aviso_datas": "Cada ato pode citar várias datas (protocolo, documento apresentado, registro). O tipo de cada data vem da palavra "
+                           "que a antecede no texto; sem essa palavra, a data aparece como \"citada\". Nenhuma data é deduzida."}
 
 
 TITULARIDADE_NAO_CONFIRMADA = "Titularidade atual não confirmada"
@@ -510,7 +587,61 @@ def timeline_for_property(db, property_id: int, today: date | None = None) -> di
     out = build_timeline(chain, document, today)
     out["titularidade"] = titularity(chain, out)
     out["situacao_atual"] = current_situation(chain, out)
+    out["pessoas"] = people(out)
+    tit = out["titularidade"]
+    out["situacao_atual"]["evidencia"] = tit.get("trecho")
     return {"property_id": property_id, "disponivel": True, **out}
+
+
+def people(timeline: dict[str, Any]) -> list[dict[str, Any]]:
+    """Pessoas envolvidas na matrícula, uma linha por pessoa, com todos os papéis e atos (v1.0.14).
+
+    "Perdeu o imóvel": devedor fiduciante de alienação seguida de consolidação em favor do credor. Construtora/incorporadora
+    vêm do campo ``construtora`` dos atos. Nada é inferido além do que a titularidade e os atos já registram."""
+    from .registry_chain import same_party
+    rows: list[dict[str, Any]] = []
+    events = timeline.get("eventos") or []
+    consolidated = any(e.get("tipo") == "CONSOLIDACAO" for e in events)
+    af_acts = [e.get("ato") for e in events if e.get("tipo") == "ALIENACAO_FIDUCIARIA"]
+    last_af = af_acts[-1] if af_acts else None
+
+    generic = {"CONSTRUTORA", "INCORPORADORA", "ENGENHARIA", "EMPREENDIMENTOS", "LTDA", "SERVICOS", "E", "S/A", "SA", "EIRELI", "ME"}
+
+    def find(name: str) -> dict[str, Any] | None:
+        f = fold(name)
+        return next((r for r in rows if fold(r["nome"]) == f or same_party(r["nome"], name)
+                     or (len(f) >= 8 and (f in fold(r["nome"]) or fold(r["nome"]) in f))), None)
+
+    def add(name: str | None, kind: str | None, role: str, act: str | None, date_: str | None, current: bool) -> None:
+        if not name:
+            return
+        words = [w for w in re.split(r"[\s/,.\-]+", fold(name)) if w]
+        if words and all(w in generic for w in words):
+            return          # só palavras genéricas ("INCORPORADORA/CONSTRUTORA"): rótulo lido como nome, não é pessoa
+        existing = find(name)
+        if existing is not None and len(name) > len(existing["nome"]) and role != "Construtora / incorporadora":
+            existing["nome"] = name
+        row = find(name)
+        if row is None:
+            row = {"nome": name, "tipo_pessoa": kind, "papeis": [], "atos": [], "atual": False, "perdeu_o_imovel": False, "primeira_data": date_}
+            rows.append(row)
+        if role not in row["papeis"]:
+            row["papeis"].append(role)
+        if act and act not in row["atos"]:
+            row["atos"].append(act)
+        row["atual"] = row["atual"] or current
+        if "evedor" in role and consolidated and act is not None and act == last_af:
+            row["perdeu_o_imovel"] = True
+    for p in (timeline.get("titularidade") or {}).get("partes") or []:
+        add(p["nome"], p.get("tipo_pessoa"), p["papel"], p.get("ato"), p.get("data"), p.get("status") == "ATUAL")
+    for e in events:
+        if e.get("construtora"):
+            add(e["construtora"], "JURIDICA", "Construtora / incorporadora", e.get("ato"), e.get("data"), False)
+    for r in rows:
+        r["texto"] = (("Proprietário(a) atual. " if r["atual"] else "") + "; ".join(r["papeis"])
+                      + (f" ({', '.join(r['atos'])})" if r["atos"] else "") + (". Perdeu o imóvel na consolidação." if r["perdeu_o_imovel"] else "."))
+    rows.sort(key=lambda r: (not r["atual"], not r["perdeu_o_imovel"], r["nome"]))
+    return rows
 
 
 def _fmt(iso: str | None) -> str | None:

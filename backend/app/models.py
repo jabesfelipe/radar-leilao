@@ -1451,3 +1451,29 @@ class User(TimestampMixin, Base):
         Index("ix_users_email", "email"),
         Index("ix_users_role", "role"),
     )
+
+
+# Pesquisa externa autorizada (v1.0.14, migration 0027). Uma linha por consulta a um provedor de pesquisa (ou tentativa
+# sem provedor configurado). Serve de cache (``cache_key`` + ``expires_at``), de observabilidade (status, duração, erro,
+# custo estimado) e de rastreabilidade (resultados brutos com URL, título, trecho e data). Nunca guarda API key.
+EXTERNAL_SEARCH_KINDS = ("VENDA", "ALUGUEL", "CONDOMINIO", "IPTU_PORTAL")
+EXTERNAL_SEARCH_STATUSES = ("SUCESSO", "SEM_RESULTADO", "NAO_CONFIGURADO", "ERRO", "LIMITE")
+
+
+class ExternalSearch(TimestampMixin, Base):
+    __tablename__ = "external_searches"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # ON DELETE CASCADE: a pesquisa é cache/rastreabilidade do imóvel; não impede excluir o imóvel.
+    property_id: Mapped[int | None] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(30), nullable=False)            # EXTERNAL_SEARCH_KINDS
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)        # tavily | brave | nenhum
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    cache_key: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)          # EXTERNAL_SEARCH_STATUSES
+    results_count: Mapped[int] = mapped_column(Integer, default=0)
+    results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    attempts: Mapped[int] = mapped_column(Integer, default=1)
+    cost_estimate_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    error: Mapped[str | None] = mapped_column(Text)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime)

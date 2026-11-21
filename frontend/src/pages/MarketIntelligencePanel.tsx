@@ -71,7 +71,9 @@ export function MarketIntelligencePanel({ propertyId, refreshKey = 0 }: { proper
         </Alert>
       ) : null}
       <dl className="dossier-facts">
-        <Fact label="Valor de mercado estimado" value={v.valor_mercado_estimado == null ? 'Sem estimativa pontual' : formatMoney(v.valor_mercado_estimado)} />
+        <Fact label="Valor de mercado estimado" value={v.valor_mercado_estimado == null ? (data.venda.qualidade_amostra?.nivel === 'INSUFICIENTE' ? 'AMOSTRA INSUFICIENTE: sem valor de mercado' : 'Sem estimativa pontual') : formatMoney(v.valor_mercado_estimado)} />
+        {data.venda.qualidade_amostra ? <Fact label="Qualidade da amostra (venda)" value={`${data.venda.qualidade_amostra.label}: ${data.venda.qualidade_amostra.texto}`} /> : null}
+        {data.aluguel.qualidade_amostra ? <Fact label="Qualidade da amostra (aluguel)" value={data.aluguel.qualidade_amostra.label} /> : null}
         <Fact label="Faixa de venda" value={v.faixa_venda ? `${formatMoney(v.faixa_venda.min)} a ${formatMoney(v.faixa_venda.max)}` : 'Sem dados'} />
         <Fact label="Confiança (venda)" value={`${data.venda.confianca} · ${data.venda.quantidade_usada} comparável(is)`} />
         <Fact label="Preço/m² anunciado (mediana)" value={formatMoney(v.preco_m2_anunciado_mediana)} />

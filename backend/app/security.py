@@ -78,6 +78,8 @@ _RULES: tuple[tuple[frozenset[str], re.Pattern[str], Policy], ...] = tuple(
         ({"POST"}, r"^/api/imoveis/\{property_id\}/processos/consultar$", _CRITICAL),
         ({"POST"}, r"^/api/imoveis/\{property_id\}/debitos/consultar$", _CRITICAL),
         ({"POST"}, r"^/api/imoveis/\{property_id\}/localizacao/geocodificar$", _CRITICAL),
+        # v1.0.14: pesquisa externa paga (Tavily/Brave): mesmo limite/concorrência das operações críticas.
+        ({"POST"}, r"^/api/imoveis/\{property_id\}/pesquisa-automatica$", _CRITICAL),
         # --- Busca semântica da biblioteca jurídica (gera embedding da consulta) ---
         ({"GET"}, r"^/api/juridico/biblioteca/busca$", _SEARCH),
         # --- Upload de documentos (processa, indexa e pode gerar embeddings) ---
