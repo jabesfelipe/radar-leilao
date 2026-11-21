@@ -19,6 +19,7 @@ import { PostAuctionSection } from './PostAuctionSection'
 import { DueDiligenceSection } from './DueDiligenceSection'
 import { CentralJuridicaSection } from './CentralJuridicaSection'
 import { DebtsSection } from './DebtsSection'
+import { InvestmentSummarySection } from './InvestmentSummarySection'
 
 type PropertyDetailPageProps = {
   propertyId: number
@@ -27,6 +28,7 @@ type PropertyDetailPageProps = {
 
 const detailSections = [
   { id: 'visao-geral', label: 'Visão geral' },
+  { id: 'resumo', label: 'Resumo do investimento' },
   { id: 'cadastro', label: 'Cadastro' },
   { id: 'leilao', label: 'Leilão' },
   { id: 'documentos', label: 'Documentos' },
@@ -226,6 +228,10 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
 
           {activeSection === 'visao-geral' ? (
             <Section title="Visão geral" description="Informações cadastradas para este imóvel." className="detail-section">
+              <Alert tone="info">
+                Arrematar ou não, até quanto e o que falta saber estão no Resumo do investimento.{' '}
+                <Button variant="secondary" size="sm" onClick={() => setActiveSection('resumo')}>Abrir o resumo</Button>
+              </Alert>
               <div className="detail-facts">
                 <DetailFact label="Identificação" value={property.title} />
                 <DetailFact label="Localização" value={[property.city, property.state].filter(Boolean).join(' - ') || 'Não informado'} />
@@ -251,6 +257,8 @@ export function PropertyDetailPage({ propertyId, onBack }: PropertyDetailPagePro
                 </div>
               )}
             </Section>
+          ) : activeSection === 'resumo' ? (
+            <InvestmentSummarySection key={refreshKey} propertyId={property.id} />
           ) : activeSection === 'cadastro' ? (
             <PropertyEditSection key={refreshKey} propertyId={property.id} onSaved={() => void loadProperty()} />
           ) : activeSection === 'leilao' ? (

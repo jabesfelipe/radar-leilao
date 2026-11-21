@@ -135,6 +135,23 @@ class Settings(BaseSettings):
     # Validade (horas) do cache de uma consulta externa de due diligence antes de
     # sugerir nova consulta (evita chamadas desnecessárias / custo — SPEC §12).
     due_diligence_cache_hours: int = 24
+    # ---- Pesquisa externa autorizada (v1.0.14) ----
+    # Provedores de pesquisa web por API oficial (sem scraping de portais). Sem chave, o provedor fica NAO_CONFIGURADO e o
+    # Radar nunca simula resultado. SEARCH_PROVIDER_PRIMARY/FALLBACK: "tavily" | "brave" | "" (desativado).
+    search_enabled: bool = True
+    search_provider_primary: str = "tavily"
+    search_provider_fallback: str = "brave"
+    tavily_api_key: str | None = None
+    tavily_base_url: str = "https://api.tavily.com/search"
+    brave_search_api_key: str | None = None
+    brave_search_base_url: str = "https://api.search.brave.com/res/v1/web/search"
+    search_timeout_seconds: float = 20.0
+    search_max_retries: int = 1
+    search_retry_backoff_seconds: float = 1.0  # espera antes de repetir após 429/5xx/timeout
+    search_max_results: int = 10
+    search_cache_hours: int = 168            # 7 dias: a mesma consulta não é repetida (custo)
+    search_max_queries_per_run: int = 8      # limite por execução de pesquisa de um imóvel
+    search_auto_on_analysis: bool = True     # roda na análise do imóvel quando há provedor configurado e o cache expirou
     # ---- CORS (Fase 5 — produção) ----
     # Origens permitidas (CSV). Default: origens de desenvolvimento. Em produção,
     # defina CORS_ALLOW_ORIGINS com o domínio público do frontend (ex.:

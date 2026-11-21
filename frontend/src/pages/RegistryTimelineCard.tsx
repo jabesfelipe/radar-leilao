@@ -17,7 +17,8 @@ function formatMoney(value: number | string) {
 function CurrentSituationCard({ situation }: { situation: CurrentSituation }) {
   return (
     <section className="registry-current" aria-label="Situação atual do imóvel">
-      <p className="dossier-history-title">Situação atual do imóvel</p>
+      <p className="dossier-history-title">PROPRIETÁRIO ATUAL</p>
+      <p><strong>{situation.titular_atual ?? 'Não confirmado pela matrícula'}</strong>{situation.ato ? <small className="market-obs"> · {situation.ato}{situation.data ? `, ${formatDate(situation.data)}` : ''} · confiança {situation.confianca}</small> : null}</p>
       <p><strong>{situation.titulo}</strong></p>
       <p className="market-obs">{situation.texto}</p>
       {situation.atencao.length > 0 ? (
@@ -47,7 +48,10 @@ function EventItem({ event }: { event: TimelineEvent }) {
       ) : <p className="market-obs">Nenhuma pessoa com papel declarado no texto deste ato.</p>}
       <dl className="dossier-facts">
         <div><dt>Ato registral</dt><dd>{event.ato_descricao ?? `${event.ato} — ${event.tipo_descricao}`}</dd></div>
-        <div><dt>Data citada no ato</dt><dd>{event.data_texto ?? 'Não identificada no texto'}</dd></div>
+        {event.datas && event.datas.length > 0 ? event.datas.map((d) => (
+          <div key={`${d.tipo}-${d.data}-${d.data_texto}`}><dt>{d.tipo_descricao}</dt><dd>{d.data_texto}</dd></div>
+        )) : <div><dt>Data citada no ato</dt><dd>{event.data_texto ?? 'Não identificada no texto'}</dd></div>}
+        {event.protocolo ? <div><dt>Protocolo</dt><dd>{event.protocolo}</dd></div> : null}
         {event.valor ? <div><dt>Valor ({event.valor.rotulo})</dt><dd>{formatMoney(event.valor.valor)}</dd></div> : null}
         <div><dt>Documento</dt><dd>{event.documento?.nome ?? 'matrícula'}{event.pagina ? ` · página ${event.pagina}` : event.secao ? ` · ${event.secao}` : ''}</dd></div>
         {event.evidencia ? <div><dt>Confiança da leitura</dt><dd>{event.evidencia.confianca}</dd></div> : null}
@@ -108,9 +112,25 @@ export function RegistryTimelineCard({ propertyId }: { propertyId: number }) {
       {data && data.disponivel ? (
         <>
           {data.situacao_atual ? <CurrentSituationCard situation={data.situacao_atual} /> : null}
+          {data.pessoas && data.pessoas.length > 0 ? (
+            <section aria-label="Pessoas envolvidas na matrícula">
+              <p className="dossier-history-title">Pessoas envolvidas</p>
+              <ul className="market-intel-reasons">
+                {data.pessoas.map((p) => (
+                  <li key={p.nome}>
+                    <strong>{p.nome}</strong>{p.atual ? <> <Badge tone="success" size="sm">Proprietário atual</Badge></> : null}
+                    {p.perdeu_o_imovel ? <> <Badge tone="warning" size="sm">Perdeu o imóvel</Badge></> : null}
+                    <small className="market-obs"> {p.papeis.join('; ')}{p.atos.length ? ` · ${p.atos.join(', ')}` : ''}</small>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {data.titularidade ? <TitularityTable titularity={data.titularidade} /> : null}
           <p className="dossier-history-title">Histórico da matrícula (do mais recente para o mais antigo)</p>
           <p className="market-obs"><Badge tone={data.idade.estimada ? 'info' : 'neutral'} size="sm">Idade</Badge> {data.idade.texto}</p>
+          {data.certidao ? <p className="market-obs"><Badge tone={data.certidao.data ? 'info' : 'warning'} size="sm">Certidão</Badge> {data.certidao.texto}</p> : null}
+          {data.aviso_datas ? <p className="market-obs">{data.aviso_datas}</p> : null}
           {data.aviso_nomes ? <p className="market-obs">{data.aviso_nomes}</p> : null}
           <ol className="dossier-timeline" aria-label="Histórico da matrícula">
             {history.map((event) => <li key={`${event.ato}-${event.trecho.slice(0, 20)}`}><EventItem event={event} /></li>)}

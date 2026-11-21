@@ -64,14 +64,17 @@ class RiskEngine:
             category = str(_value(item, "category", "DOCUMENTAL")).lower()
             question = _value(item, "question", key)
             severity = "ALTA" if state == "RISCO_IDENTIFICADO" else "MEDIA"
+            # v1.0.14: título e impacto em linguagem simples (catálogo de riscos do investidor). O código fica só no risk_key/origin.
+            from .risk_presenter import CATALOGO
+            spec = CATALOGO.get(str(key), {})
             risks.append(RiskCandidate(
                 risk_key=f"CHECKLIST_{key}_{state}",
                 domain=category,
-                title=f"Checklist: {key}",
-                description=f"{question}. Estado determinístico: {state}.",
+                title=spec.get("titulo") or str(question),
+                description=f"{question}" + (" Risco identificado." if state == "RISCO_IDENTIFICADO" else " Ponto de atenção."),
                 severity=severity,
                 status="ATIVO",
-                impact="Requer análise do domínio relacionado.",
+                impact=spec.get("significado") or "Verificar o documento de origem e registrar a conclusão no checklist.",
                 confidence=_value(result, "confidence", "MEDIA"),
                 origin="RiskEngine:ChecklistResult",
                 evidence_ids=evidence_ids,

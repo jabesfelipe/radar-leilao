@@ -70,8 +70,23 @@ function buildForm({ file, document_type, source }: DocumentUpload) {
 }
 
 export async function listDocuments(propertyId: number): Promise<PropertyDocument[]> {
-  const payload = await request<{ documentos: PropertyDocument[] }>(`/api/imoveis/${propertyId}/documentos`)
-  return payload.documentos
+  return (await listDocumentsWithStatus(propertyId)).documents
+}
+
+/** v1.0.14: situação documental (recebidos, analisados, obrigatórios, incompletos, evidências e próximas ações). */
+export type DocumentSituation = {
+  texto: string
+  contagem: { recebidos: number; analisados: number; incompletos: number; em_processamento: number; evidencias: number }
+  obrigatorios_faltando: string[]
+  esperados: { chave: string; nome: string; obrigatorio: boolean; situacao: string; por_que: string; proxima_acao: string | null }[]
+  documentos: { id: number; nome: string; situacao: string; situacao_label: string; paginas?: number | null; paginas_citadas: number[]; evidencias: number;
+    confianca: { alta: number; media: number; baixa: number }; pendencias: string[] }[]
+  proximas_acoes: string[]
+}
+
+export async function listDocumentsWithStatus(propertyId: number): Promise<{ documents: PropertyDocument[]; situation: DocumentSituation | null }> {
+  const payload = await request<{ documentos: PropertyDocument[]; situacao_documental?: DocumentSituation }>(`/api/imoveis/${propertyId}/documentos`)
+  return { documents: payload.documentos, situation: payload.situacao_documental ?? null }
 }
 
 export function uploadDocument(propertyId: number, upload: DocumentUpload): Promise<PropertyDocument> {

@@ -7,7 +7,7 @@ import { API_URL, MATRICULA_FICTICIA, VIEWPORTS, apiLogin, auth, injetarSessao, 
  * wizard de cadastro. Dados 100% ficticios; backend real local; sem OpenAI.
  */
 const SECOES = [
-  'Visão geral', 'Cadastro', 'Leilão', 'Documentos', 'Matrícula', 'Edital', 'Processos Jurídicos',
+  'Visão geral', 'Resumo do investimento', 'Cadastro', 'Leilão', 'Documentos', 'Matrícula', 'Edital', 'Processos Jurídicos',
   'Central Jurídica', 'Financeiro', 'Débitos e despesas', 'Mercado', 'Ocupação', 'Checklist',
   'Riscos', 'Veredito', 'Due Diligence', 'Pós-Arrematação', 'Histórico',
 ]

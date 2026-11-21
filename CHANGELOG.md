@@ -2,6 +2,45 @@
 
 Formato: uma seção por versão publicada (tag `vX.Y.Z` na `main`). Datas no fuso de Brasília.
 
+## Não publicado — evolução da inteligência, UX e análise do investimento
+
+Migration `0027_pesquisa_externa` (tabela nova, aditiva). Rotas novas de leitura: `GET /api/imoveis/{id}/resumo-investimento`,
+`GET /api/imoveis/{id}/riscos-consolidados` e `GET /api/imoveis/{id}/iptu/situacao`. SPEC em
+`docs/02-product/specs/INTELIGENCIA-INVESTIMENTO.md`.
+
+- **Resumo do investimento (aba nova).** Responde arrematar ou não (FAVORÁVEL, ATENÇÃO — INVESTIGAR, DESFAVORÁVEL, NÃO
+  ARREMATAR), lance, preço máximo, valor de venda, lucro, ROI, margem, principal risco, pendências e próximas ações. Cada número
+  mostra o tipo de dado (fato, dado manual, estimativa, inferência, desconhecido). Margem positiva não esconde risco ativo nem dado
+  essencial faltando.
+- **Riscos em linguagem simples.** Um risco por assunto, no estado mais recente (confirmado, possível, pendente de confirmação,
+  resolvido, não identificado), agrupado por categoria, com o que significa, impacto, estimativa vinda do Financeiro, onde está
+  no documento e o que fazer. Sem códigos de motor, versões de análise ou ids de evidência; o histórico continua guardado. Riscos
+  novos já são gravados com título e impacto simples.
+- **Valor de venda sem percentual sobre a avaliação.** A estimativa preliminar "avaliação × 85%" deixou de ser usada. Sem
+  comparáveis suficientes, o valor de venda fica desconhecido (AMOSTRA INSUFICIENTE) e lucro, margem e ROI não são calculados.
+  **Muda o resultado de imóveis sem comparáveis**, como o imóvel 7.
+- **Qualidade da amostra de mercado.** AMOSTRA INSUFICIENTE (< 3), BAIXA, MÉDIA ou ALTA, com yield bruto e tabela de
+  comparáveis (link, valor, área, R$/m², data da coleta, similaridade).
+- **Condomínio.** A taxa mensal só vem dos comparáveis com 3 ou mais referências (antes bastava 1); abaixo disso, "estimativa
+  insuficiente". O Resumo mostra média, mediana, faixa, quantidade e confiança, e mantém a dívida acumulada separada da taxa.
+- **IPTU.** Situação da consulta (consultado, consulta assistida, pendente, não encontrado, falha, necessita informação). O card
+  da consulta ganha o formulário do resultado lido no portal: o débito vai para Débitos e o IPTU anual para as premissas.
+- **Matrícula.** Cada data do ato traz o tipo (protocolo, documento apresentado, registro ou citada) e o número do protocolo
+  quando lidos no texto; data de emissão da certidão quando o texto a identifica; bloco "PROPRIETÁRIO ATUAL" no topo.
+- **Pesquisa externa autorizada (migration `0027_pesquisa_externa`).** Provedores Tavily (principal) e Brave Search API
+  (alternativo) por API oficial, com cache, retry, timeout, limite por execução e registro de cada consulta. A pesquisa do imóvel
+  (venda, aluguel, condomínio, portal do IPTU) roda na análise e sob demanda; anúncios com preço viram comparáveis com fonte, URL,
+  data e confiança; páginas de listagem e duplicatas são descartadas com motivo. Sem `TAVILY_API_KEY`/`BRAVE_SEARCH_API_KEY`:
+  "não configurado". SPEC em `docs/02-product/specs/PESQUISA-EXTERNA.md`.
+- **Checklist P0–P3, situação documental e pessoas da matrícula.** Itens em aberto por prioridade com próxima ação e
+  responsável; documentos obrigatórios, incompletos e evidências; pessoas com papéis e quem perdeu o imóvel.
+- **Riscos completos.** Por que importa, impacto por dimensão, confiança, fonte, próxima ação e mitigação; Ocupação e Desocupação
+  separadas.
+- **Resumo.** Cenários com premissas, margem de segurança, checklist e documentos; liquidez baixa ou amostra baixa impedem FAVORÁVEL.
+- **Auditoria do PR #11.** Pesquisa automática com limite de operação crítica, cache por imóvel e espera antes de repetir;
+  IPTU do Resumo com a mesma deduplicação do Financeiro; tabelas novas roláveis no celular; `ON DELETE CASCADE` em
+  `external_searches`; E2E da inteligência (`e2e/tests/inteligencia.spec.ts`). Detalhes em `docs/06-quality/auditoria-pr11/`.
+
 ## v1.0.13 — 2026-11-20 — auditoria da análise registral e titularidade
 
 Sem migration e sem tabela nova (schema em `0026`); rollback de imagem para a v1.0.12 é compatível. Integrada pela PR #8.

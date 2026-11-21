@@ -363,7 +363,32 @@ def estimate(subject: dict, comparables: list[dict], kind: str = "VENDA", *, neg
         "similaridade_minima": min_similarity, "similaridade_media": (sum((r["similaridade"] for r in used), ZERO) / Decimal(n)).quantize(Decimal("0.01")) if n else None,
         "limites_discrepancia": {"min": bounds[0], "max": bounds[1]} if bounds else None,
         "comparaveis": rows, "avisos": avisos, "limitacoes": limitacoes, "indicativa": n < MIN_POINT_ESTIMATE,
+        "qualidade_amostra": sample_quality(n, cv, min_sample=min_sample),
     }
+
+
+AMOSTRA_INSUFICIENTE, AMOSTRA_BAIXA, AMOSTRA_MEDIA, AMOSTRA_ALTA = "INSUFICIENTE", "BAIXA", "MEDIA", "ALTA"
+AMOSTRA_LABELS = {AMOSTRA_INSUFICIENTE: "Amostra insuficiente", AMOSTRA_BAIXA: "Amostra baixa", AMOSTRA_MEDIA: "Amostra média",
+                  AMOSTRA_ALTA: "Amostra alta"}
+
+
+def sample_quality(n: int, cv: Decimal | None = None, *, min_sample: int = MIN_SAMPLE) -> dict:
+    """Qualidade da amostra de comparáveis usados (v1.0.14): INSUFICIENTE (< 3, sem valor pontual), BAIXA (3 até abaixo do mínimo do
+    método), MEDIA (mínimo atingido com dispersão alta) e ALTA (mínimo atingido e dispersão controlada)."""
+    if n < MIN_POINT_ESTIMATE:
+        level = AMOSTRA_INSUFICIENTE
+        text = (f"{n} comparável(is) utilizável(is): abaixo de {MIN_POINT_ESTIMATE}, não há valor de mercado confiável. "
+                "Cadastre mais imóveis parecidos.")
+    elif n < min_sample:
+        level = AMOSTRA_BAIXA
+        text = f"{n} comparáveis utilizáveis: abaixo dos {min_sample} recomendados pelo método; estimativa de baixa precisão."
+    elif cv is not None and cv > HIGH_DISPERSION_CV:
+        level = AMOSTRA_MEDIA
+        text = f"{n} comparáveis, mas com preços por m² muito diferentes entre si (dispersão alta)."
+    else:
+        level = AMOSTRA_ALTA
+        text = f"{n} comparáveis com preços por m² próximos entre si."
+    return {"nivel": level, "label": AMOSTRA_LABELS[level], "quantidade": n, "minimo_recomendado": min_sample, "texto": text}
 
 
 def liquidity(sale: dict, rent: dict, subject: dict, *, acquisition: Decimal | None = None) -> dict:
